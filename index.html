@@ -275,8 +275,89 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #btn-done{background:#16a34a;color:#fff;padding:12px 32px;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;}
 
 @media(max-width:700px){
-  #main{grid-template-columns:1fr;grid-template-rows:50vh 1fr;}
-  #panel{border-left:none;border-top:1px solid #1a1e30;}
+  /* ── 레이아웃 ── */
+  #main{grid-template-columns:1fr;grid-template-rows:38vh 1fr;}
+  #panel{border-left:none;border-top:2px solid #1e2230;overflow-y:auto;}
+
+  /* ── 헤더: 두 줄로 압축 ── */
+  #hdr{flex-wrap:wrap;gap:5px;padding:6px 8px;}
+  #hdr-title{font-size:12px;}
+  .sel-btn{padding:4px 8px;font-size:11px;}
+  #btn-naver-map{font-size:11px;padding:4px 8px;}
+  #btn-export-log{font-size:11px;padding:4px 8px;}
+  #btn-clear-log{padding:4px 7px;font-size:11px;}
+  #hdr-right-group{gap:5px;}
+  #btn-edit{padding:4px 8px;font-size:11px;}
+  #btn-sc-edit{padding:4px 8px;font-size:11px;}
+  #btn-sc-save-hdr{padding:4px 8px;font-size:11px;}
+  #last-saved{font-size:9px;}
+
+  /* ── 현재 구간 카드 ── */
+  #cur-card{padding:8px 10px;}
+  #cur-header{margin-bottom:5px;}
+  #cur-arrow{margin-bottom:6px;}
+  .place-tag{font-size:11px;padding:4px 6px;}
+  #cur-stats{gap:4px;margin-bottom:6px;}
+  .stat{padding:6px 4px;}
+  .stat-v{font-size:15px;}
+  .stat-u{font-size:9px;}
+
+  /* ── 타이머 ── */
+  #timer-box{padding:7px;margin-bottom:6px;}
+  #timer-val{font-size:26px;}
+
+  /* ── 컨트롤 버튼 ── */
+  #ctrl{gap:5px;margin-bottom:6px;}
+  #btn-prev,#btn-next{flex:0 0 40px;font-size:15px;padding:10px;}
+  #btn-play{padding:12px;font-size:14px;}
+
+  /* ── 구간 목록 ── */
+  #leg-list{max-height:28vh;overflow-y:auto;}
+  .leg-item{padding:8px 10px;}
+  .leg-id{font-size:12px;width:50px;}
+  .leg-se{font-size:12px;}
+  .leg-meta{font-size:10px;}
+
+  /* ── 패널 리사이즈 핸들 숨김 (모바일에서 드래그 불필요) ── */
+  #panel-resize-handle{display:none;}
+  #steps-resize-handle{display:none;}
+
+  /* ── 경로 안내 패널: 지도 위 오버레이로 (접혀서 시작) ── */
+  #steps-panel{
+    height:36px!important;
+    max-height:40vh;
+    position:absolute;bottom:0;left:0;right:0;
+    z-index:1003;
+  }
+  #steps-panel:not(.collapsed){height:200px!important;}
+  #steps-resize-handle{display:none;}
+
+  /* ── 턴바이턴 오버레이 더 작게 ── */
+  #turn-overlay{top:6px;left:6px;right:6px;padding:10px 12px;}
+  #turn-arrow-box{width:44px;height:44px;font-size:24px;}
+  #turn-dist{font-size:20px;}
+  #turn-instr{font-size:13px;}
+
+  /* ── 시나리오 선택 드롭다운 ── */
+  #sc-select{padding:6px 8px;}
+  #sc-select select{font-size:12px;padding:5px 8px;}
+
+  /* ── 구간 추가/삭제 ── */
+  #leg-mgmt-btns{margin:5px 8px 3px;}
+  .leg-mgmt-btn{padding:8px 4px;font-size:12px;}
+
+  /* ── sc-export 그룹 ── */
+  .sc-export-group .set-io-btn{font-size:10px;padding:3px 7px;}
+
+  /* ── 경고 ── */
+  #warn{font-size:11px;padding:6px 10px;margin-top:5px;}
+
+  /* ── 완료 오버레이 ── */
+  #done-overlay{padding:24px;}
+  #done-overlay h2{font-size:20px;}
+
+  /* ── 지도 터치 허용 ── */
+  #map{touch-action:pan-x pan-y;}
 }
 </style>
 </head>
