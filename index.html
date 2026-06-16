@@ -24,6 +24,13 @@
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;background:#0a0a0f;color:#e0e6f0;height:100dvh;display:flex;flex-direction:column;overflow:hidden;}
 
+/* 현재구간 카드 접기/펼치기 헤더 */
+#panel-card-wrap{flex-shrink:0;}
+#panel-card-hdr{display:none;align-items:center;justify-content:space-between;padding:8px 14px;background:#0d0f1a;border-bottom:1px solid #1a1e30;cursor:pointer;user-select:none;}
+#panel-card-hdr-title{font-size:12px;font-weight:700;color:#4a5580;letter-spacing:.5px;}
+#btn-panel-card-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
+#panel-card-wrap.collapsed #panel-card-body{display:none;}
+
 /* ── 헤더 ── */
 #hdr{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#0f111a;border-bottom:1px solid #1e2230;flex-shrink:0;z-index:100;}
 #hdr-title{font-size:15px;font-weight:700;color:#6b7aaa;white-space:nowrap;}
@@ -369,8 +376,31 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #done-overlay{padding:24px;}
   #done-overlay h2{font-size:20px;}
 
+  /* ── 현재구간 카드 헤더 모바일에서 표시 ── */
+  #panel-card-hdr{display:flex;}
+
   /* ── 지도 터치 허용 ── */
   #map{touch-action:pan-x pan-y;}
+}
+
+/* ── 가로 모드 (landscape) ── */
+@media(max-width:1024px) and (orientation:landscape){
+  #main{grid-template-columns:1fr 300px;grid-template-rows:1fr;}
+  #panel{border-left:1px solid #1a1e30;border-top:none;overflow-y:auto;}
+  #panel-card-hdr{display:none;}
+  #panel-card-body{display:block!important;}
+  #hdr{flex-wrap:nowrap;padding:4px 8px;}
+  #hdr-title{font-size:11px;}
+  .sel-btn{padding:3px 7px;font-size:10px;}
+  #btn-naver-map,#btn-export-log{font-size:10px;padding:3px 6px;}
+  #btn-clear-log{padding:3px 6px;font-size:10px;}
+  #timer-val{font-size:22px;}
+  .stat-v{font-size:14px;}
+  #btn-play{padding:9px;font-size:13px;}
+  #steps-panel{position:absolute;bottom:0;left:0;right:0;height:36px!important;}
+  #steps-panel:not(.collapsed){height:150px!important;}
+  #leg-list{max-height:22vh;overflow-y:auto;}
+  #leg-list-wrap{flex:none;}
 }
 </style>
 </head>
@@ -439,60 +469,68 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div id="panel">
     <div id="panel-edit-block"></div>
     <div id="panel-resize-handle"></div>
-    <div id="sc-select">
-      <select id="sc-sel" onchange="switchSc(this.value)">
-        <option value="a">시나리오 a — ㄹ자 그리드</option>
-        <option value="b">시나리오 b — M자 그리드</option>
-        <option value="c">시나리오 c — 링</option>
-      </select>
-    </div>
+    <div id="panel-card-wrap">
+      <div id="panel-card-hdr" onclick="togglePanelCard()">
+        <span id="panel-card-hdr-title">현재 구간</span>
+        <button id="btn-panel-card-toggle">접기 ▼</button>
+      </div>
+      <div id="panel-card-body">
+        <div id="sc-select">
+          <select id="sc-sel" onchange="switchSc(this.value)">
+            <option value="a">시나리오 a — ㄹ자 그리드</option>
+            <option value="b">시나리오 b — M자 그리드</option>
+            <option value="c">시나리오 c — 링</option>
+          </select>
+        </div>
 
-    <div id="cur-card">
-      <div id="cur-header">
-        <span id="cur-id">—</span>
-        <span id="cur-badge">대기 중</span>
-        <div class="sc-export-group">
-          <button class="set-io-btn" onclick="exportSettings()" title="경로/시나리오 수정·구간 추가삭제·주행기록을 파일로 저장">⬇️ 설정 내보내기</button>
-          <button class="set-io-btn" onclick="document.getElementById('import-file-input').click()" title="내보낸 설정 파일을 불러와 복원">⬆️ 설정 가져오기</button>
-        </div>
-      </div>
-      <div id="cur-arrow">
-        <div class="place-tag">
-          <span class="sv-view" id="cur-start">—</span>
-          <input class="sv-edit place-input" id="si-start" type="text" value=""/>
-        </div>
-        <span class="arrow-icon">→</span>
-        <div class="place-tag">
-          <span class="sv-view" id="cur-end">—</span>
-          <input class="sv-edit place-input" id="si-end" type="text" value=""/>
-        </div>
-      </div>
-      <div id="cur-stats">
-        <div class="stat">
-          <div class="stat-v" id="sv-dist-v">—</div>
-          <div class="stat-u">km</div><div class="stat-u" style="color:#3a4570">거리(실제경로)</div>
-        </div>
-        <div class="stat">
-          <div class="stat-v" id="sv-spd-v">—</div>
-          <div class="stat-u">km/h</div><div class="stat-u" style="color:#3a4570">목표속도</div>
-        </div>
-        <div class="stat">
-          <div class="stat-v" id="sv-time-v">—</div>
-          <div class="stat-u">분</div><div class="stat-u" style="color:#3a4570">예상시간</div>
-        </div>
-      </div>
-      <div id="timer-box">
-        <div id="timer-label">TIMER</div>
-        <div id="timer-val">00:00</div>
-        <div id="timer-phase" class="phase-drive"> </div>
-      </div>
+        <div id="cur-card">
+          <div id="cur-header">
+            <span id="cur-id">—</span>
+            <span id="cur-badge">대기 중</span>
+            <div class="sc-export-group">
+              <button class="set-io-btn" onclick="exportSettings()" title="경로/시나리오 수정·구간 추가삭제·주행기록을 파일로 저장">⬇️ 설정 내보내기</button>
+              <button class="set-io-btn" onclick="document.getElementById('import-file-input').click()" title="내보낸 설정 파일을 불러와 복원">⬆️ 설정 가져오기</button>
+            </div>
+          </div>
+          <div id="cur-arrow">
+            <div class="place-tag">
+              <span class="sv-view" id="cur-start">—</span>
+              <input class="sv-edit place-input" id="si-start" type="text" value=""/>
+            </div>
+            <span class="arrow-icon">→</span>
+            <div class="place-tag">
+              <span class="sv-view" id="cur-end">—</span>
+              <input class="sv-edit place-input" id="si-end" type="text" value=""/>
+            </div>
+          </div>
+          <div id="cur-stats">
+            <div class="stat">
+              <div class="stat-v" id="sv-dist-v">—</div>
+              <div class="stat-u">km</div><div class="stat-u" style="color:#3a4570">거리(실제경로)</div>
+            </div>
+            <div class="stat">
+              <div class="stat-v" id="sv-spd-v">—</div>
+              <div class="stat-u">km/h</div><div class="stat-u" style="color:#3a4570">목표속도</div>
+            </div>
+            <div class="stat">
+              <div class="stat-v" id="sv-time-v">—</div>
+              <div class="stat-u">분</div><div class="stat-u" style="color:#3a4570">예상시간</div>
+            </div>
+          </div>
+          <div id="timer-box">
+            <div id="timer-label">TIMER</div>
+            <div id="timer-val">00:00</div>
+            <div id="timer-phase" class="phase-drive"> </div>
+          </div>
 
-      <div id="ctrl">
-        <button class="ctrl-btn" id="btn-prev" onclick="moveLeg(-1)">◀</button>
-        <button class="ctrl-btn" id="btn-play" onclick="togglePlay()">▶ 시작</button>
-        <button class="ctrl-btn" id="btn-next" onclick="moveLeg(1)">▶</button>
+          <div id="ctrl">
+            <button class="ctrl-btn" id="btn-prev" onclick="moveLeg(-1)">◀</button>
+            <button class="ctrl-btn" id="btn-play" onclick="togglePlay()">▶ 시작</button>
+            <button class="ctrl-btn" id="btn-next" onclick="moveLeg(1)">▶</button>
+          </div>
+          <div id="warn">⚠️ 경로 이탈! 파란 선으로 복귀하세요</div>
+        </div>
       </div>
-      <div id="warn">⚠️ 경로 이탈! 파란 선으로 복귀하세요</div>
     </div>
 
     <div id="leg-list-wrap">
@@ -1012,6 +1050,13 @@ function showTurnOverlay(show){
 function toggleLegList(){
   const wrap=document.getElementById('leg-list-wrap');
   const btn=document.getElementById('btn-leg-list-toggle');
+  const collapsed=wrap.classList.toggle('collapsed');
+  btn.textContent=collapsed?'펼치기 ▲':'접기 ▼';
+}
+
+function togglePanelCard(){
+  const wrap=document.getElementById('panel-card-wrap');
+  const btn=document.getElementById('btn-panel-card-toggle');
   const collapsed=wrap.classList.toggle('collapsed');
   btn.textContent=collapsed?'펼치기 ▲':'접기 ▼';
 }
@@ -2218,13 +2263,19 @@ loadWaypointsFromStorage();
 loadLastSaved();
 updateTripLogCount();
 
-// 모바일에서 구간 목록 기본 접힌 상태로 시작
+// 모바일에서 구간 목록 + 현재구간 카드 기본 접힌 상태로 시작
 if(window.innerWidth<=700){
-  const wrap=document.getElementById('leg-list-wrap');
-  const btn=document.getElementById('btn-leg-list-toggle');
-  if(wrap){ wrap.classList.add('collapsed'); }
-  if(btn){ btn.textContent='펼치기 ▲'; }
+  const legWrap=document.getElementById('leg-list-wrap');
+  const legBtn=document.getElementById('btn-leg-list-toggle');
+  if(legWrap){ legWrap.classList.add('collapsed'); }
+  if(legBtn){ legBtn.textContent='펼치기 ▲'; }
 }
+
+// 화면 회전 시 지도 크기 재계산
+window.addEventListener('orientationchange',()=>{
+  setTimeout(()=>{ map.invalidateSize(); },300);
+});
+window.addEventListener('resize',()=>{ map.invalidateSize(); });
 
 // 이전에 보고 있던 위치·시나리오·구간 복원 (새로고침/Ctrl+F5 대응)
 {
