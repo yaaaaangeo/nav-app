@@ -1,0 +1,2139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+<title>자율주행 데이터 취득 네비게이션</title>
+
+<!-- PWA -->
+<link rel="manifest" href="./manifest.json"/>
+<meta name="theme-color" content="#0f111a"/>
+<meta name="background-color" content="#0a0a0f"/>
+<link rel="icon" href="./icons/icon-192.png"/>
+<!-- iOS 홈 화면 추가용 -->
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="데이터취득"/>
+<link rel="apple-touch-icon" href="./icons/icon-180.png"/>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;background:#0a0a0f;color:#e0e6f0;height:100dvh;display:flex;flex-direction:column;overflow:hidden;}
+
+/* ── 헤더 ── */
+#hdr{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#0f111a;border-bottom:1px solid #1e2230;flex-shrink:0;z-index:100;}
+#hdr-title{font-size:15px;font-weight:700;color:#6b7aaa;white-space:nowrap;}
+.sel-btn{background:#171b2e;border:1px solid #2a3050;color:#c8d0f0;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;transition:.15s;}
+.sel-btn:hover,.sel-btn.active{background:#1f2d5a;border-color:#3d5abf;color:#fff;}
+
+/* ── 메인 ── */
+#main{flex:1;display:grid;grid-template-columns:1fr 440px;overflow:hidden;}
+
+/* ── 지도 래퍼 ── */
+#map-wrap{position:relative;overflow:hidden;}
+#map{width:100%;height:100%;}
+
+/* ── 턴바이턴 오버레이 (지도 위 상단) ── */
+#turn-overlay{
+  position:absolute;top:12px;left:12px;right:12px;z-index:1000;
+  display:none;
+  background:rgba(5,8,20,0.93);
+  border:1.5px solid #1e2a50;
+  border-radius:14px;
+  padding:14px 16px;
+  backdrop-filter:blur(8px);
+  box-shadow:0 4px 24px rgba(0,0,0,0.6);
+  pointer-events:none;
+}
+#turn-overlay.show{display:flex;align-items:center;gap:14px;}
+#turn-arrow-box{
+  width:60px;height:60px;flex-shrink:0;
+  background:#111827;border:2px solid #1e3060;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:32px;
+}
+#turn-text-wrap{flex:1;min-width:0;}
+#turn-dist{font-size:26px;font-weight:800;color:#facc15;line-height:1;}
+#turn-unit{font-size:13px;color:#6b7aaa;margin-left:3px;}
+#turn-instr{font-size:16px;font-weight:700;color:#e0eaff;margin-top:4px;}
+#turn-road{font-size:11px;color:#4a5a80;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+/* GPS 로딩 표시 */
+#gps-status{
+  position:absolute;bottom:12px;left:12px;z-index:1000;
+  background:rgba(5,8,20,0.85);border:1px solid #1e2a50;
+  border-radius:8px;padding:5px 10px;font-size:11px;color:#6b7aaa;
+  display:none;
+}
+#gps-status.show{display:block;}
+
+/* OSRM 로딩 스피너 */
+#route-loading{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  z-index:1001;background:rgba(5,8,20,0.9);border:1px solid #1e3060;
+  border-radius:12px;padding:16px 24px;font-size:13px;color:#7090d0;
+  display:none;align-items:center;gap:10px;
+}
+#route-loading.show{display:flex;}
+.spinner{width:18px;height:18px;border:2px solid #1e3060;border-top-color:#3b82f6;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── 우측 패널 ── */
+#panel{display:flex;flex-direction:column;background:#0d0f1a;border-left:1px solid #1a1e30;overflow:hidden;position:relative;}
+/* 에딧 모드 시 우측 패널 전체 차단 오버레이 */
+#panel-edit-block{display:none;position:absolute;inset:0;z-index:500;background:rgba(0,0,0,0.45);cursor:not-allowed;}
+#panel.edit-locked #panel-edit-block{display:block;}
+#sc-select{flex-shrink:0;padding:10px;border-bottom:1px solid #1a1e30;}
+#sc-select select{width:100%;background:#141828;border:1px solid #252d50;color:#c0caee;padding:7px 10px;border-radius:7px;font-size:13px;cursor:pointer;}
+#sc-select select option{background:#141828;}
+#last-saved{font-size:11px;color:#4a5580;white-space:nowrap;margin-left:4px;letter-spacing:.02em;}
+#hdr-right-group{display:flex;align-items:center;gap:8px;margin-left:auto;}
+
+/* 현재 구간 카드 */
+#cur-card{flex-shrink:0;padding:12px;border-bottom:1px solid #1a1e30;}
+#cur-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+#cur-id{background:#1a2a5e;color:#7aa0ff;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;}
+#cur-badge{background:#0f2a1a;color:#3ecf6e;padding:3px 8px;border-radius:4px;font-size:11px;}
+#cur-arrow{display:flex;align-items:center;gap:6px;margin-bottom:10px;}
+.place-tag{background:#131b30;border:1px solid #2a3555;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;color:#d0dcff;flex:1;text-align:center;}
+.arrow-icon{color:#3d5abf;font-size:18px;flex-shrink:0;}
+#cur-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;}
+.stat{background:#0f1420;border:1px solid #1e2540;border-radius:7px;padding:8px 6px;text-align:center;}
+.stat-v{font-size:17px;font-weight:700;color:#fff;}
+.stat-u{font-size:10px;color:#4a5580;margin-top:1px;}
+
+/* 타이머 */
+#timer-box{background:#0b1525;border:1px solid #1d3060;border-radius:9px;padding:10px;text-align:center;margin-bottom:10px;}
+#timer-label{font-size:10px;color:#4a6090;margin-bottom:3px;letter-spacing:.05em;}
+#timer-val{font-size:32px;font-weight:700;color:#60a5fa;font-variant-numeric:tabular-nums;}
+#timer-phase{font-size:10px;margin-top:2px;}
+.phase-drive{color:#4ade80;}
+.phase-rest{color:#fb923c;}
+/* 주행 타이머 5분 이하 — 정차 위치 탐색 경고 */
+#timer-val.timer-low{color:#ef4444!important;animation:blink .8s infinite alternate;}
+#timer-phase.show-warn{color:#ef4444;}
+
+/* 컨트롤 */
+#ctrl{display:flex;gap:6px;margin-bottom:8px;}
+.ctrl-btn{flex:1;padding:9px;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s;}
+#btn-prev{background:#1a1e30;color:#8898cc;border:1px solid #2a3050;flex:0 0 44px;font-size:16px;}
+#btn-prev:hover{background:#252d50;}
+#btn-play{background:#1d4ed8;color:#fff;}
+#btn-play:hover{background:#2563eb;}
+#btn-play.running{background:#c0392b;}
+#btn-next{background:#1a1e30;color:#8898cc;border:1px solid #2a3050;flex:0 0 44px;font-size:16px;}
+#btn-next:hover{background:#252d50;}
+/* 경로 수정 모드 */
+#btn-naver-map{background:#03c75a;color:#fff;border:none;border-radius:7px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;white-space:nowrap;}
+#btn-naver-map:hover{background:#02a84d;}
+#btn-edit{margin-left:auto;background:#374151;color:#d1d5db;border:1px solid #4b5563;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+#btn-edit:hover{background:#4b5563;}
+#btn-edit.active{background:#b45309;color:#fff;border-color:#d97706;}
+
+/* 지도 하단 스택 (에딧바 + 경로안내) */
+#bottom-stack{position:absolute;bottom:0;left:0;right:0;z-index:1002;display:flex;flex-direction:column;}
+#edit-bar{
+  display:none;align-self:center;margin:0 auto 8px;
+  align-items:center;gap:10px;padding:10px 16px;
+  background:rgba(10,10,20,0.92);border:1px solid #374151;border-radius:10px;
+  backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,.6);
+  white-space:nowrap;
+}
+#edit-bar.show{display:flex;}
+#edit-hint{font-size:11px;color:#9ca3af;flex:1;text-align:center;}
+#btn-wp-add,#btn-wp-del{background:#1f2937;color:#d1d5db;border:1px solid #4b5563;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}
+#btn-wp-add:hover{background:#065f46;border-color:#10b981;color:#fff;}
+#btn-wp-del:hover{background:#7f1d1d;border-color:#ef4444;color:#fff;}
+#btn-save-route{background:#16a34a;color:#fff;border:none;border-radius:7px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}
+#btn-save-route:hover{background:#15803d;}
+
+/* 패널 리사이즈 핸들 */
+#panel-resize-handle{
+  position:absolute;left:0;top:0;bottom:0;width:5px;cursor:ew-resize;
+  background:transparent;z-index:10;
+}
+#panel-resize-handle:hover,#panel-resize-handle.dragging{background:#3b82f688;}
+#steps-resize-handle{
+  height:6px;cursor:ns-resize;background:#1e2a50;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+#steps-resize-handle::after{content:'';width:32px;height:3px;background:#374151;border-radius:2px;}
+
+/* 경고 */
+#warn{display:none;background:#7c1d13;border:1px solid #ef4444;border-radius:7px;padding:8px 12px;font-size:12px;color:#fca5a5;font-weight:600;text-align:center;margin-top:8px;animation:blink .7s infinite alternate;}
+@keyframes blink{from{opacity:1}to{opacity:.5}}
+
+/* 시나리오 수정 버튼 */
+#btn-sc-edit{background:#1e2a50;color:#7aabff;border:1px solid #2a4080;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+#btn-sc-edit:hover:not(:disabled){background:#253360;}
+#btn-sc-edit.active{background:#7c3aed;color:#fff;border-color:#8b5cf6;}
+#btn-sc-edit:disabled,#btn-edit:disabled{opacity:0.35;cursor:not-allowed;}
+/* 주행 기록 다운로드 */
+#btn-export-log{background:#0f2a1a;color:#3ecf6e;border:1px solid #1f4a30;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+#btn-export-log:hover{background:#16401f;}
+#export-log-count{margin-left:4px;font-size:10px;color:#7aabff;font-weight:700;}
+#btn-clear-log{background:#1a1e30;color:#6b7aaa;border:1px solid #2a3050;border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer;}
+#btn-clear-log:hover{background:#252d50;color:#fca5a5;}
+.set-io-btn{background:#1a1e30;color:#9aa6d6;border:1px solid #2a3050;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.set-io-btn:hover{background:#252d50;color:#c0caee;}
+/* 시나리오 수정 모드 — 헤더 저장 버튼(시나리오 수정 버튼과 동일 크기) + 일부 버튼 숨김 */
+#btn-sc-save-hdr{display:none;background:#7c3aed;color:#fff;border:1px solid #8b5cf6;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+#btn-sc-save-hdr:hover{background:#6d28d9;}
+#hdr.sc-editing #btn-sc-save-hdr{display:block;}
+#hdr.sc-editing #btn-clear-log,
+#hdr.sc-editing #btn-edit{display:none;}
+/* 시나리오 수정 — 출발/도착 이름 편집 토글 (CSS 클래스 방식, innerHTML 교체 없음) */
+.place-input{width:100%;background:transparent;border:none;border-bottom:1.5px solid #3b82f6;color:#d0dcff;font-size:12px;font-weight:600;text-align:center;outline:none;padding:2px 0;}
+.sv-edit{display:none;}
+#cur-card.sc-editing .sv-view{display:none;}
+#cur-card.sc-editing .sv-edit{display:block;}
+/* 시나리오 수정 중엔 현재 구간 헤더에 설정 내보내기/가져오기 노출 */
+.sc-export-group{display:none;gap:6px;margin-left:auto;}
+#cur-card.sc-editing .sc-export-group{display:flex;}
+
+/* 구간 추가/삭제 버튼 — 시나리오 수정 모드일 때만 표시 */
+#leg-mgmt-btns{display:none;gap:6px;margin:8px 10px 4px;}
+#leg-mgmt-btns.show{display:flex;}
+
+/* 구간 추가/삭제 버튼 */
+.leg-mgmt-btn{flex:1;display:flex;align-items:center;justify-content:center;padding:10px 6px;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;transition:.15s;border:1.5px solid #3b82f6;background:#0d1a35;color:#60a5fa;}
+.leg-mgmt-btn:hover:not(:disabled){background:#1a2f55;color:#93c5fd;}
+.leg-del-btn{border-color:#ef4444;background:#1a0d0d;color:#f87171;}
+.leg-del-btn:hover:not(:disabled){background:#2d1515;color:#fca5a5;}
+.leg-mgmt-btn:disabled{opacity:0.28;cursor:not-allowed;border-style:dashed;}
+#add-leg-form{display:none;padding:12px;border-top:1px solid #1a2040;background:#080c18;}
+#add-leg-form.show{display:block;}
+.alf-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+.alf-field label{font-size:10px;color:#4a6090;display:block;margin-bottom:3px;}
+.alf-field input{width:100%;background:#0d1525;border:1px solid #1e2a50;color:#c0d0f0;padding:5px 8px;border-radius:5px;font-size:12px;outline:none;}
+.alf-field input:focus{border-color:#3b82f6;}
+.alf-auto{background:#0d1525;border:1px solid #1e2a50;color:#facc15;padding:5px 8px;border-radius:5px;font-size:13px;font-weight:700;min-height:28px;}
+#btn-alf-ok{width:100%;background:#16a34a;color:#fff;border:none;border-radius:7px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;margin-top:4px;}
+#btn-alf-ok:hover{background:#15803d;}
+#btn-alf-cancel{width:100%;background:#1a1e30;color:#6b7aaa;border:1px solid #2a3050;border-radius:7px;padding:6px;font-size:11px;cursor:pointer;margin-top:4px;}
+#btn-alf-cancel:hover{background:#252d50;}
+
+/* 구간 목록 */
+#leg-list{flex:1;overflow-y:auto;padding:0;}
+#leg-list::-webkit-scrollbar{width:4px;}
+#leg-list::-webkit-scrollbar-track{background:#0a0c14;}
+#leg-list::-webkit-scrollbar-thumb{background:#252d50;border-radius:2px;}
+.leg-item{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #141828;cursor:pointer;transition:.1s;}
+.leg-item:hover{background:#111525;}
+.leg-item.done{opacity:.38;}
+.leg-item.active{background:#0d1e3a;border-left:4px solid #3b82f6;opacity:1!important;}
+.leg-item.active .leg-id{color:#60a5fa;}
+.leg-drag-handle{display:none;color:#3a4570;font-size:15px;cursor:grab;flex-shrink:0;padding:0 1px;}
+.leg-item[draggable="true"] .leg-drag-handle{display:block;}
+.leg-item[draggable="true"]:active{cursor:grabbing;}
+.leg-item.dragging{opacity:.35;}
+.leg-item.drag-over{box-shadow:inset 0 2px 0 #7c3aed,inset 0 -2px 0 #7c3aed;}
+.leg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.dot-done{background:#1e3a1e;border:1.5px solid #2d6b2d;}
+.dot-active{background:#3b82f6;box-shadow:0 0 6px #3b82f688;}
+.dot-pending{background:#1a2040;border:1.5px solid #2a3555;}
+.leg-id{font-size:13px;font-weight:700;color:#5568aa;width:58px;flex-shrink:0;}
+.leg-info{flex:1;min-width:0;}
+.leg-se{font-size:13px;color:#8898cc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.leg-meta{font-size:11px;color:#3a4570;margin-top:2px;}
+.leg-check{color:#2d6b2d;font-size:16px;flex-shrink:0;}
+
+/* 전체 경로 안내 — bottom-stack 안에서 flex 아이템 */
+#steps-panel{
+  background:rgba(7,9,20,0.95);backdrop-filter:blur(8px);
+  border-top:1px solid #1e2a50;
+  height:200px;min-height:60px;max-height:60vh;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+#steps-panel.collapsed{height:36px!important;}
+#steps-panel.collapsed #steps-list{display:none;}
+#steps-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:6px 14px;font-size:12px;font-weight:700;color:#4a5580;
+  letter-spacing:.5px;flex-shrink:0;
+}
+#btn-steps-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
+#steps-list{overflow-y:auto;flex:1;}
+#steps-list::-webkit-scrollbar{width:4px;}
+#steps-list::-webkit-scrollbar-thumb{background:#252d50;border-radius:2px;}
+.step-item{display:flex;align-items:center;gap:10px;padding:7px 14px;border-bottom:1px solid #0f1428;}
+.step-item.step-current{background:#0a1628;border-left:3px solid #3b82f6;}
+.step-icon{font-size:16px;width:22px;text-align:center;flex-shrink:0;}
+.step-body{flex:1;min-width:0;}
+.step-instr{font-size:12px;color:#c8d0f0;font-weight:600;}
+.step-item.step-arrive .step-instr{color:#4ade80;}
+
+/* 완료 오버레이 */
+#done-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center;padding:40px;}
+#done-overlay.show{display:flex;}
+#done-overlay h2{font-size:26px;color:#4ade80;}
+#done-overlay p{font-size:13px;color:#6880aa;}
+#btn-done{background:#16a34a;color:#fff;padding:12px 32px;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;}
+
+@media(max-width:700px){
+  #main{grid-template-columns:1fr;grid-template-rows:50vh 1fr;}
+  #panel{border-left:none;border-top:1px solid #1a1e30;}
+}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <span id="hdr-title">📍 자율주행 데이터 취득</span>
+  <button class="sel-btn active" id="btn-loc-gn" onclick="switchLoc('강남')">강남</button>
+  <button class="sel-btn" id="btn-loc-pg" onclick="switchLoc('판교')">판교</button>
+  <button class="sel-btn" id="btn-loc-sh" onclick="switchLoc('시흥')">시흥</button>
+  <a id="btn-naver-map" href="https://map.naver.com/p/?c=127.032,37.498,14,0,0,0,dh" target="_blank" rel="noopener">네이버 지도</a>
+  <button id="btn-export-log" onclick="downloadTodayLogExcel()" title="오늘 완료한 구간을 엑셀로 다운로드">📥 오늘 기록 다운로드<span id="export-log-count"></span></button>
+  <button id="btn-clear-log" onclick="clearTodayTripLog()" title="오늘 기록 초기화">🗑</button>
+  <input type="file" id="import-file-input" accept="application/json" style="display:none" onchange="handleImportFile(event)"/>
+  <div id="hdr-right-group">
+    <button id="btn-edit" onclick="toggleEditMode()" title="경로 수정">✏️ 경로 수정</button>
+    <button id="btn-sc-save-hdr" onclick="saveScEdit()" title="시나리오 수정 저장">💾 저장</button>
+    <button id="btn-sc-edit" onclick="toggleScEditMode()" title="거리·속도·시간 수정">✎ 시나리오 수정</button>
+    <span id="last-saved"></span>
+  </div>
+</div>
+
+<div id="main">
+  <!-- 지도 + 오버레이 -->
+  <div id="map-wrap">
+    <div id="map"></div>
+
+    <!-- 턴바이턴 안내 오버레이 -->
+    <div id="turn-overlay">
+      <div id="turn-arrow-box"><span id="turn-arrow">⬆</span></div>
+      <div id="turn-text-wrap">
+        <div><span id="turn-dist">—</span><span id="turn-unit"> m 앞</span></div>
+        <div id="turn-instr">경로를 불러오는 중...</div>
+        <div id="turn-road"></div>
+      </div>
+    </div>
+
+    <!-- 지도 하단 스택 -->
+    <div id="bottom-stack">
+      <!-- 경로 수정 바 (수정모드에서만 표시) -->
+      <div id="edit-bar">
+        <button id="btn-wp-add" onclick="addWaypointMidpoint()">＋ 경유점</button>
+        <button id="btn-wp-del" onclick="removeLastWaypoint()">－ 경유점</button>
+        <span id="edit-hint">드래그로 위치 이동 가능</span>
+        <button id="btn-save-route" onclick="saveEditedRoute()">💾 저장</button>
+      </div>
+      <!-- 전체 경로 안내 -->
+      <div id="steps-panel">
+        <div id="steps-resize-handle"></div>
+        <div id="steps-hdr">전체 경로 안내 <button id="btn-steps-toggle" onclick="toggleStepsPanel()">접기 ▼</button></div>
+        <div id="steps-list"></div>
+      </div>
+    </div>
+
+    <!-- GPS 상태 -->
+    <div id="gps-status">📡 GPS 수신 중...</div>
+
+    <!-- 경로 로딩 -->
+    <div id="route-loading">
+      <div class="spinner"></div>
+      <span>경로 계산 중...</span>
+    </div>
+  </div>
+
+  <!-- 우측 패널 -->
+  <div id="panel">
+    <div id="panel-edit-block"></div>
+    <div id="panel-resize-handle"></div>
+    <div id="sc-select">
+      <select id="sc-sel" onchange="switchSc(this.value)">
+        <option value="a">시나리오 a — ㄹ자 그리드</option>
+        <option value="b">시나리오 b — M자 그리드</option>
+        <option value="c">시나리오 c — 링</option>
+      </select>
+    </div>
+
+    <div id="cur-card">
+      <div id="cur-header">
+        <span id="cur-id">—</span>
+        <span id="cur-badge">대기 중</span>
+        <div class="sc-export-group">
+          <button class="set-io-btn" onclick="exportSettings()" title="경로/시나리오 수정·구간 추가삭제·주행기록을 파일로 저장">⬇️ 설정 내보내기</button>
+          <button class="set-io-btn" onclick="document.getElementById('import-file-input').click()" title="내보낸 설정 파일을 불러와 복원">⬆️ 설정 가져오기</button>
+        </div>
+      </div>
+      <div id="cur-arrow">
+        <div class="place-tag">
+          <span class="sv-view" id="cur-start">—</span>
+          <input class="sv-edit place-input" id="si-start" type="text" value=""/>
+        </div>
+        <span class="arrow-icon">→</span>
+        <div class="place-tag">
+          <span class="sv-view" id="cur-end">—</span>
+          <input class="sv-edit place-input" id="si-end" type="text" value=""/>
+        </div>
+      </div>
+      <div id="cur-stats">
+        <div class="stat">
+          <div class="stat-v" id="sv-dist-v">—</div>
+          <div class="stat-u">km</div><div class="stat-u" style="color:#3a4570">거리(실제경로)</div>
+        </div>
+        <div class="stat">
+          <div class="stat-v" id="sv-spd-v">—</div>
+          <div class="stat-u">km/h</div><div class="stat-u" style="color:#3a4570">목표속도</div>
+        </div>
+        <div class="stat">
+          <div class="stat-v" id="sv-time-v">—</div>
+          <div class="stat-u">분</div><div class="stat-u" style="color:#3a4570">예상시간</div>
+        </div>
+      </div>
+      <div id="timer-box">
+        <div id="timer-label">TIMER</div>
+        <div id="timer-val">00:00</div>
+        <div id="timer-phase" class="phase-drive"> </div>
+      </div>
+
+      <div id="ctrl">
+        <button class="ctrl-btn" id="btn-prev" onclick="moveLeg(-1)">◀</button>
+        <button class="ctrl-btn" id="btn-play" onclick="togglePlay()">▶ 시작</button>
+        <button class="ctrl-btn" id="btn-next" onclick="moveLeg(1)">▶</button>
+      </div>
+      <div id="warn">⚠️ 경로 이탈! 파란 선으로 복귀하세요</div>
+    </div>
+
+    <div id="leg-list"></div>
+    <!-- 구간 추가/삭제 버튼 (시나리오 수정 모드일 때만 표시) -->
+    <div id="leg-mgmt-btns">
+      <button id="btn-add-leg" class="leg-mgmt-btn" onclick="toggleAddLegForm()">＋ 구간 추가</button>
+      <button id="btn-del-leg" class="leg-mgmt-btn leg-del-btn" onclick="deleteCurrentLeg()">－ 구간 삭제</button>
+    </div>
+    <div id="add-leg-form">
+      <div style="font-size:10px;color:#4a6090;margin-bottom:8px;">지도에서 <b style="color:#60a5fa">출발</b>·<b style="color:#f87171">도착</b> 마커를 드래그해 위치를 설정하세요</div>
+      <div class="alf-row">
+        <div class="alf-field"><label>출발지 이름</label><input id="alf-s" placeholder="위치 확인 중..."/></div>
+        <div class="alf-field"><label>도착지 이름</label><input id="alf-e" placeholder="도착 마커를 이동하세요"/></div>
+      </div>
+      <div class="alf-row">
+        <div class="alf-field"><label>거리 (자동)</label><div class="alf-auto" id="alf-dist">—</div></div>
+        <div class="alf-field"><label>예상시간 (자동)</label><div class="alf-auto" id="alf-time">—</div></div>
+      </div>
+      <div style="font-size:10px;color:#4a6090;margin-bottom:8px;text-align:center">목표속도: <b id="alf-spd-val" style="color:#facc15">—</b> km/h (자동계산)</div>
+      <div style="display:flex;gap:6px;">
+        <button id="btn-alf-cancel" onclick="cancelAddLeg()" style="flex:1;background:#1a1e30;color:#8898cc;border:1px solid #2a3050;border-radius:7px;padding:10px;font-size:12px;font-weight:700;cursor:pointer;">← 뒤로가기</button>
+        <button id="btn-alf-ok" onclick="addNewLeg()" style="flex:2;background:#16a34a;color:#fff;border:none;border-radius:7px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;">구간 추가</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="done-overlay">
+  <div style="font-size:56px">🏁</div>
+  <h2>시나리오 완주!</h2>
+  <p id="done-info">모든 구간을 완료했습니다.</p>
+  <button id="btn-done" onclick="resetScenario()">확인</button>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  시나리오 데이터
+// ══════════════════════════════════════════════════════════
+const SCENARIOS={
+  강남:{center:[37.498,127.032],zoom:13,
+    a:{name:"ㄹ자 그리드",color:"#3b82f6",legs:[
+      {id:"WTGa1",road:"올림픽대로(반포~잠원~압구정~청담)",dist:7.4,spd:31.7,time:14,rest:10,s:"잠원흥동소공원",e:"구산아파트",sId:"1210026703",eId:"1220099200",sLL:[37.5147,127.0050],eLL:[37.5248,127.0608]},
+      {id:"WTGa2",road:"압구정로(청담~압구정~신사)",dist:3.6,spd:15.4,time:14,rest:10,s:"구산아파트",e:"라이프미성2차아파트",sId:"1220099200",eId:"1220035007",sLL:[37.5248,127.0608],eLL:[37.5230,127.0278]},
+      {id:"WTGa3",road:"잠원로~나루터로~도산대로(논현~신사~청담)",dist:4.4,spd:17.6,time:15,rest:10,s:"라이프미성2차아파트",e:"루시아청담546더리버",sId:"1220035007",eId:"1220095800",sLL:[37.5230,127.0278],eLL:[37.5252,127.0555]},
+      {id:"WTGa4",road:"영동대로(청담)~학동로(청담~논현)",dist:3.9,spd:14.6,time:16,rest:10,s:"루시아청담546더리버",e:"논현역",sId:"1220095800",eId:"1220030418",sLL:[37.5252,127.0555],eLL:[37.5114,127.0228]},
+      {id:"WTGa5",road:"신반포로~반포대로~사평대로~봉은사로(논현~역삼~삼성)",dist:3.3,spd:14.1,time:14,rest:10,s:"논현역",e:"삼성중앙역",sId:"1220030418",eId:"1220030112",sLL:[37.5114,127.0228],eLL:[37.5094,127.0596]},
+      {id:"WTGa6",road:"봉은사로~봉은사로114길~테헤란로(삼성)",dist:3.3,spd:13.2,time:15,rest:10,s:"삼성중앙역",e:"선릉역",sId:"1220030112",eId:"1220026901",sLL:[37.5094,127.0596],eLL:[37.5048,127.0490]},
+      {id:"WTGa7",road:"테헤란로(역삼)~서초대로(서초)",dist:3.8,spd:17.5,time:13,rest:10,s:"선릉역",e:"서초역",sId:"1220026901",eId:"1210020302",sLL:[37.5048,127.0490],eLL:[37.4836,127.0127]},
+      {id:"WTGa8",road:"반포대로~사임당로~역삼로(역삼)",dist:3.2,spd:12.8,time:15,rest:10,s:"서초역",e:"카페리빈 역삼신한카드점",sId:"1210020302",eId:"1220020702",sLL:[37.4836,127.0127],eLL:[37.4980,127.0399]},
+      {id:"WTGa9",road:"역삼로(대치)~역삼로107길(대치)",dist:3.1,spd:14.3,time:13,rest:10,s:"카페리빈 역삼신한카드점",e:"그랜드힐컨벤션",sId:"1220020702",eId:"1220027102",sLL:[37.4980,127.0399],eLL:[37.4947,127.0490]},
+      {id:"WTGa10",road:"도곡로101길~도곡로(대치~역삼)~효령로(서초)",dist:4.6,spd:18.4,time:15,rest:10,s:"그랜드힐컨벤션",e:"래미안리더스원아파트",sId:"1220027102",eId:"1210018202",sLL:[37.4947,127.0490],eLL:[37.4779,127.0085]},
+      {id:"WTGa11",road:"반포대로(반포)~남부순환로(서초~도곡)",dist:3.0,spd:12.9,time:14,rest:10,s:"래미안리더스원아파트",e:"도곡역",sId:"1210018202",eId:"1220014202",sLL:[37.4779,127.0085],eLL:[37.4867,127.0417]},
+      {id:"WTGa12",road:"남부순환로(대치)~동부간선도로(일원)",dist:2.4,spd:24.0,time:6,rest:10,s:"도곡역",e:"한국가스안전공사 서울지역본부",sId:"1220014202",eId:"1220022700",sLL:[37.4862,127.0417],eLL:[37.4968,127.0535]},
+    ]},
+    b:{name:"M자 그리드",color:"#f59e0b",legs:[
+      {id:"WTGb1",road:"올림픽대로(삼성)~동부간선도로~남부순환로~영동대로",dist:7.4,spd:27.8,time:16,rest:10,s:"삼성해맞이공원",e:"삼성역",sId:"1220345901",eId:"1220003204",sLL:[37.5103,127.0658],eLL:[37.5088,127.0632]},
+      {id:"WTGb2",road:"영동대로(삼성~청담)~도산대로(청담)~삼성로(청담)",dist:3.7,spd:15.9,time:14,rest:10,s:"삼성역",e:"청담역",sId:"1220003204",eId:"1220034101",sLL:[37.5088,127.0632],eLL:[37.5200,127.0535]},
+      {id:"WTGb3",road:"삼성로(삼성~대치)~남부순환로~선릉로(대치)",dist:4.5,spd:16.9,time:16,rest:10,s:"청담역",e:"한티역",sId:"1220034101",eId:"1220019302",sLL:[37.5200,127.0535],eLL:[37.4947,127.0540]},
+      {id:"WTGb4",road:"선릉로(대치~역삼~삼성~청담~압구정)",dist:3.7,spd:14.8,time:15,rest:10,s:"한티역",e:"압구정로데오역",sId:"1220019302",eId:"1220035510",sLL:[37.4947,127.0540],eLL:[37.5272,127.0400]},
+      {id:"WTGb5",road:"선릉로189길(압구정)~언주로(압구정~신사~논현~역삼)",dist:4.4,spd:17.6,time:15,rest:10,s:"압구정로데오역",e:"조선팰리스",sId:"1220035510",eId:"1220068100",sLL:[37.5272,127.0400],eLL:[37.5199,127.0394]},
+      {id:"WTGb6",road:"언주로(도곡)~남부순환로~논현로(도곡~역삼~논현)",dist:4.1,spd:15.4,time:16,rest:10,s:"조선팰리스",e:"파리바게뜨 역삼뉴스타점",sId:"1220068100",eId:"1220019905",sLL:[37.5199,127.0394],eLL:[37.5006,127.0427]},
+      {id:"WTGb7",road:"논현로(신사~압구정)",dist:3.8,spd:14.3,time:16,rest:10,s:"파리바게뜨 역삼뉴스타점",e:"현대백화점 압구정본점",sId:"1220019905",eId:"1220035004",sLL:[37.5006,127.0427],eLL:[37.5269,127.0337]},
+      {id:"WTGb8",road:"압구정로(신사~압구정)~강남대로(압구정~신사~논현~역삼)",dist:3.9,spd:16.7,time:14,rest:10,s:"현대백화점 압구정본점",e:"강남역",sId:"1220035004",eId:"1220025002",sLL:[37.5269,127.0337],eLL:[37.4979,127.0276]},
+      {id:"WTGb9",road:"강남대로(도곡)~남부순환로~경부고속도로(서초~반포~잠원)",dist:3.0,spd:12.0,time:15,rest:10,s:"강남역",e:"롯데캐슬갤럭시아파트",sId:"1220025002",eId:"1210065300",sLL:[37.4979,127.0276],eLL:[37.5040,127.0070]},
+      {id:"WTGb10",road:"잠원로(잠원~반포)~서초중앙로(반포~서초)",dist:4.1,spd:16.4,time:15,rest:10,s:"롯데캐슬갤럭시아파트",e:"서울중앙지방법원",sId:"1210065300",eId:"1210022408",sLL:[37.5040,127.0070],eLL:[37.4903,127.0126]},
+      {id:"WTGb11",road:"남부순환로(서초)~반포대로(서초~반포~잠원)",dist:4.0,spd:16.0,time:15,rest:10,s:"서울중앙지방법원",e:"고속터미널역",sId:"1210022408",eId:"1210059800",sLL:[37.4903,127.0126],eLL:[37.5046,127.0049]},
+    ]},
+    c:{name:"링",color:"#10b981",legs:[
+      {id:"WTGc1",road:"남부순환로(서초~도곡~대치)",dist:6.4,spd:24.0,time:16,rest:10,s:"예술의전당",e:"한국가스안전공사 서울지역본부",sId:"1210012503",eId:"1220022700",sLL:[37.4773,127.0148],eLL:[37.4945,127.0503]},
+      {id:"WTGc2",road:"남부순환로(대치)~영동대로~역삼로~테헤란로115길~올림픽대로~반포대로",dist:15.0,spd:28.1,time:32,rest:10,s:"한국가스안전공사 서울지역본부",e:"예술의전당",sId:"1220022700",eId:"1210012503",sLL:[37.4945,127.0503],eLL:[37.4773,127.0148]},
+      {id:"WTGc3",road:"남부순환로(서초)~서초중앙로~효령로~도곡로(도곡)",dist:4.9,spd:18.4,time:16,rest:10,s:"예술의전당",e:"한티역",sId:"1210012503",eId:"1220019302",sLL:[37.4773,127.0148],eLL:[37.4947,127.0540]},
+      {id:"WTGc4",road:"도곡로(대치)~삼성로(대치~청담)~압구정로(청담)",dist:4.7,spd:17.6,time:16,rest:10,s:"한티역",e:"압구정로데오역",sId:"1220019302",eId:"1220035510",sLL:[37.4947,127.0540],eLL:[37.5272,127.0400]},
+      {id:"WTGc5",road:"압구정로(압구정)~잠원로(잠원)",dist:3.7,spd:17.1,time:13,rest:10,s:"압구정로데오역",e:"서릿개소공원",sId:"1220035510",eId:"1210029001",sLL:[37.5272,127.0400],eLL:[37.5168,127.0064]},
+      {id:"WTGc6",road:"잠원로(잠원~반포)~서초중앙로(반포~서초)",dist:3.2,spd:13.7,time:14,rest:10,s:"서릿개소공원",e:"남부터미널역",sId:"1210029001",eId:"1210016605",sLL:[37.5168,127.0064],eLL:[37.4812,127.0161]},
+      {id:"WTGc7",road:"효령로(서초)~경부고속도로~사임당로~역삼로~선릉로(역삼)",dist:5.0,spd:17.6,time:17,rest:10,s:"남부터미널역",e:"선릉역",sId:"1210016605",eId:"1220026509",sLL:[37.4812,127.0161],eLL:[37.5048,127.0490]},
+      {id:"WTGc8",road:"선릉로(삼성~논현~청담)~도산대로(신사)",dist:3.5,spd:13.1,time:16,rest:10,s:"선릉역",e:"포포인츠 바이 쉐라톤 서울 강남",sId:"1220026509",eId:"1220033606",sLL:[37.5048,127.0490],eLL:[37.5239,127.0390]},
+      {id:"WTGc9",road:"도산대로(신사~논현)~나루터로~잠원로4길~신반포로33길",dist:2.6,spd:12.0,time:13,rest:10,s:"포포인츠 바이 쉐라톤 서울 강남",e:"반포역",sId:"1220033606",eId:"1210028001",sLL:[37.5239,127.0390],eLL:[37.5043,127.0075]},
+      {id:"WTGc10",road:"신반포로~경부고속도로~남부순환로~강남대로",dist:5.4,spd:19.1,time:17,rest:10,s:"반포역",e:"강남역",sId:"1210028001",eId:"1220025002",sLL:[37.5043,127.0075],eLL:[37.4979,127.0276]},
+      {id:"WTGc11",road:"테헤란로(역삼)~언주로(역삼)",dist:3.2,spd:12.0,time:16,rest:10,s:"강남역",e:"아크로힐스논현아파트",sId:"1220025002",eId:"1220027504",sLL:[37.4979,127.0276],eLL:[37.5076,127.0268]},
+      {id:"WTGc12",road:"언주로(논현)~학동로(논현)~강남대로(논현~역삼)",dist:3.7,spd:14.8,time:15,rest:10,s:"아크로힐스논현아파트",e:"강남역",sId:"1220027504",eId:"1220025002",sLL:[37.5076,127.0268],eLL:[37.4979,127.0276]},
+      {id:"WTGc13",road:"테헤란로(역삼~대치~삼성)",dist:3.5,spd:12.4,time:17,rest:10,s:"강남역",e:"강남소방서",sId:"1220025002",eId:"1220078400",sLL:[37.4979,127.0276],eLL:[37.5016,127.0570]},
+    ]},
+  },
+  판교:{center:[37.385,127.115],zoom:13,
+    a:{name:"ㄹ자 그리드",color:"#3b82f6",legs:[
+      {id:"WTPa1",road:"양현로~돌마로~장미로~탄천로(야탑)",dist:4.3,spd:16.1,time:16,rest:10,s:"야탑초등학교",e:"탄천종합운동장",sId:"2060173303",eId:"2060152602",sLL:[37.4127,127.1284],eLL:[37.3993,127.1307]},
+      {id:"WTPa2",road:"야탑로~판교로743번길~야탑남로(야탑)",dist:4.2,spd:15.8,time:16,rest:10,s:"탄천종합운동장",e:"상탑초등학교",sId:"2060152602",eId:"2060141802",sLL:[37.3993,127.1307],eLL:[37.4074,127.1262]},
+      {id:"WTPa3",road:"야탑남로(야탑~이매)~판교로(이매~야탑~삼평)",dist:2.7,spd:12.5,time:13,rest:10,s:"상탑초등학교",e:"성남송현초등학교",sId:"2060141802",eId:"2060359802",sLL:[37.4074,127.1262],eLL:[37.3981,127.1181]},
+      {id:"WTPa4",road:"판교로~분당내곡간도시고속화도로~분당내곡로~분당수서로~분당로~성남대로~서현로",dist:8.2,spd:32.8,time:15,rest:10,s:"성남송현초등학교",e:"장안타운라이프한신빌라",sId:"2060359802",eId:"2060002700",sLL:[37.3981,127.1181],eLL:[37.3810,127.1081]},
+      {id:"WTPa5",road:"서현로(분당)~분당로~성남대로(수내)",dist:5.7,spd:21.4,time:16,rest:10,s:"장안타운라이프한신빌라",e:"로얄팰리스아파트",sId:"2060002700",eId:"2060088402",sLL:[37.3810,127.1081],eLL:[37.3697,127.1120]},
+      {id:"WTPa6",road:"성남대로~성남대로407번길~정자일로~느티로~백현로~불정로(정자)",dist:3.4,spd:14.6,time:14,rest:10,s:"로얄팰리스아파트",e:"한솔마을1단지청구아파트",sId:"2060088402",eId:"2060048000",sLL:[37.3697,127.1120],eLL:[37.3766,127.1105]},
+      {id:"WTPa7",road:"불정로(수내)~정자로~분당수서로~불정로(정자)",dist:3.5,spd:13.1,time:16,rest:10,s:"한솔마을1단지청구아파트",e:"KT분당본사타워",sId:"2060048000",eId:"2060041300",sLL:[37.3766,127.1105],eLL:[37.3803,127.1144]},
+      {id:"WTPa8",road:"불정로(정자)~돌마로(정자~금곡)",dist:2.7,spd:12.5,time:13,rest:10,s:"KT분당본사타워",e:"미금역",sId:"2060041300",eId:"2060032800",sLL:[37.3803,127.1144],eLL:[37.3728,127.1127]},
+      {id:"WTPa9",road:"돌마로(구미)~미금일로~금곡로~성남대로(구미)",dist:3.6,spd:16.6,time:13,rest:10,s:"미금역",e:"오리역",sId:"2060032800",eId:"260014600",sLL:[37.3728,127.1127],eLL:[37.3569,127.1094]},
+      {id:"WTPa10",road:"구미로~구미로185번길~구미로192번길~구미로144번길~구미로130번길~구미로116번길",dist:3.2,spd:14.8,time:13,rest:10,s:"오리역",e:"현대빌라",sId:"260014600",eId:"2060337300",sLL:[37.3569,127.1094],eLL:[37.3543,127.1063]},
+    ]},
+    b:{name:"M자 그리드",color:"#f59e0b",legs:[
+      {id:"WTPb1",road:"경부고속도로(금곡~궁내~백현~삼평)~판교로~대왕판교로",dist:8.5,spd:34.0,time:15,rest:10,s:"경부고속도로 판교IC",e:"화랑공원야외음악장",sId:"2060358300",eId:"2060185300",sLL:[37.3837,127.1025],eLL:[37.3978,127.1214]},
+      {id:"WTPb2",road:"대왕판교로~서현로~분당내곡로~판교역로3번길~판교역로~대왕판교로606번길~분당내곡간도시고속화도로",dist:4.7,spd:16.6,time:17,rest:10,s:"화랑공원야외음악장",e:"판교봇들마을3단지아파트",sId:"2060185300",eId:"2060359100",sLL:[37.3978,127.1214],eLL:[37.3960,127.1072]},
+      {id:"WTPb3",road:"판교로~분당수서로(이매~서현~수내)",dist:5.0,spd:17.6,time:17,rest:10,s:"판교봇들마을3단지아파트",e:"늘푸른고등학교",sId:"2060359100",eId:"2060081100",sLL:[37.3960,127.1072],eLL:[37.3799,127.1063]},
+      {id:"WTPb4",road:"분당수서로(정자~금곡~구미)~성남대로(구미~금곡~정자)",dist:6.8,spd:24.0,time:17,rest:10,s:"늘푸른고등학교",e:"분당경영고등학교",sId:"2060081100",eId:"2060037300",sLL:[37.3799,127.1063],eLL:[37.3726,127.1098]},
+      {id:"WTPb5",road:"성남대로(정자~수내~이매~야탑)~양현로(야탑)",dist:7.7,spd:27.2,time:17,rest:10,s:"분당경영고등학교",e:"야탑중학교",sId:"2060037300",eId:"2060174100",sLL:[37.3726,127.1098],eLL:[37.4093,127.1270]},
+      {id:"WTPb6",road:"양현로(야탑)~돌마로(야탑~이매~서현)",dist:5.9,spd:22.1,time:16,rest:10,s:"야탑중학교",e:"샛별마을라이프아파트",sId:"2060174100",eId:"2060087600",sLL:[37.4093,127.1270],eLL:[37.3977,127.1195]},
+      {id:"WTPb7",road:"돌마로(수내~정자)~불정로(정자~수내~분당~서현)",dist:5.6,spd:21.0,time:16,rest:10,s:"샛별마을라이프아파트",e:"효자촌그린타운아파트",sId:"2060087600",eId:"2060079400",sLL:[37.3977,127.1195],eLL:[37.3817,127.1088]},
+      {id:"WTPb8",road:"불정로420번길~서현로411번길~분당로263번길~분당로~장안로~서현로",dist:3.7,spd:17.1,time:13,rest:10,s:"효자촌그린타운아파트",e:"(종료 지점)",sId:"2060079400",eId:"",sLL:[37.3817,127.1088],eLL:[37.3814,127.1099]},
+    ]},
+    c:{name:"링",color:"#10b981",legs:[
+      {id:"WTPc1",road:"성남대로(구미)~돌마로~대왕판교로(금곡~궁내~백현~삼평)",dist:7.3,spd:25.8,time:17,rest:10,s:"오리역",e:"판교테크노파크공원",sId:"260014600",eId:"2060181700",sLL:[37.3569,127.1094],eLL:[37.3998,127.1100]},
+      {id:"WTPc2",road:"대왕판교로644번길~분당내곡로~판교역로50번길~판교역로",dist:2.4,spd:8.5,time:17,rest:10,s:"판교테크노파크공원",e:"백현마을7단지아파트",sId:"2060181700",eId:"2060195800",sLL:[37.3998,127.1100],eLL:[37.3953,127.1049]},
+      {id:"WTPc3",road:"판교역로(백현~삼평)~대왕판교로644번길~동판교로~판교로(삼평~야탑)",dist:3.5,spd:12.4,time:17,rest:10,s:"백현마을7단지아파트",e:"올리브영 분당아름마을점",sId:"2060195800",eId:"2060140700",sLL:[37.3953,127.1049],eLL:[37.4101,127.1284]},
+      {id:"WTPc4",road:"판교로(야탑)~야탑남로~성남대로번길~장미로~돌마로(야탑)",dist:3.6,spd:13.5,time:16,rest:10,s:"올리브영 분당아름마을점",e:"목련마을한신아파트",sId:"2060140700",eId:"2060145100",sLL:[37.4101,127.1284],eLL:[37.4074,127.1275]},
+      {id:"WTPc5",road:"야탑남로~성남대로~장미로~벌말로~야탑남로~돌마로(야탑~이매)",dist:5.3,spd:19.9,time:16,rest:10,s:"목련마을한신아파트",e:"카페드노피",sId:"2060145100",eId:"206029700",sLL:[37.4074,127.1275],eLL:[37.3983,127.1196]},
+      {id:"WTPc6",road:"돌마로(이매~서현)~서현로~불정로(분당)",dist:5.9,spd:20.8,time:17,rest:10,s:"카페드노피",e:"분당대진고등학교",sId:"206029700",eId:"2060059100",sLL:[37.3983,127.1196],eLL:[37.3782,127.1085]},
+      {id:"WTPc7",road:"분당로(서현)~양현로~서현로(이매~서현)",dist:4.5,spd:15.9,time:17,rest:10,s:"분당대진고등학교",e:"투썸플레이스 서현도서관점",sId:"2060059100",eId:"2060003900",sLL:[37.3782,127.1085],eLL:[37.3814,127.1099]},
+      {id:"WTPc8",road:"서현로(서현)~불정로(서현~분당~수내~정자)",dist:4.3,spd:17.2,time:15,rest:10,s:"투썸플레이스 서현도서관점",e:"계원예술고등학교",sId:"2060003900",eId:"2060039202",sLL:[37.3814,127.1099],eLL:[37.3783,127.1148]},
+      {id:"WTPc9",road:"불정로(정자)~황새울로~성남대로~백현로(수내~정자)~돌마로(정자)",dist:5.2,spd:19.5,time:16,rest:10,s:"계원예술고등학교",e:"이마트 분당점",sId:"2060039202",eId:"2060039500",sLL:[37.3783,127.1148],eLL:[37.3759,127.1113]},
+      {id:"WTPc10",road:"돌마로(정자)~금곡로~구미로173번길~구미로(구미)",dist:3.9,spd:16.7,time:14,rest:10,s:"이마트 분당점",e:"오리역",sId:"2060039500",eId:"260014600",sLL:[37.3759,127.1113],eLL:[37.3569,127.1094]},
+      {id:"WTPc11",road:"성남대로~성남대로172번길~돌마로90번길~미금일로70번길~금곡로25번길~금곡로",dist:3.1,spd:12.4,time:15,rest:10,s:"오리역",e:"삼익파크빌라2",sId:"260014600",eId:"2060023400",sLL:[37.3569,127.1094],eLL:[37.3607,127.1066]},
+    ]},
+  },
+  시흥:{center:[37.345,126.730],zoom:12,
+    a:{name:"ㄹ자 그리드",color:"#3b82f6",legs:[
+      {id:"WTSa1",road:"배곧~정왕 간선도로",dist:4.1,spd:18.9,time:13,rest:10,s:"서울대학교 시흥캠퍼스",e:"정왕역",sId:"",eId:"",sLL:[37.3742,126.7313],eLL:[37.3466,126.7359]},
+      {id:"WTSa2",road:"정왕 시내 도로",dist:3.9,spd:15.6,time:15,rest:10,s:"정왕역",e:"정왕어린이도서관",sId:"",eId:"",sLL:[37.3466,126.7359],eLL:[37.3509,126.7366]},
+      {id:"WTSa3",road:"정왕 간선도로",dist:4.9,spd:19.6,time:15,rest:10,s:"정왕어린이도서관",e:"메가박스 시흥정왕",sId:"",eId:"",sLL:[37.3509,126.7366],eLL:[37.3531,126.7332]},
+      {id:"WTSa4",road:"정왕~시화 간선도로",dist:5.0,spd:17.6,time:17,rest:10,s:"메가박스 시흥정왕",e:"정왕고등학교",sId:"",eId:"",sLL:[37.3531,126.7332],eLL:[37.3491,126.7288]},
+      {id:"WTSa5",road:"정왕동 내부도로",dist:4.8,spd:19.2,time:15,rest:10,s:"정왕고등학교",e:"곰솔누리숲7블럭",sId:"",eId:"",sLL:[37.3491,126.7288],eLL:[37.3469,126.7188]},
+      {id:"WTSa6",road:"시화공단 진입도로",dist:5.9,spd:20.8,time:17,rest:10,s:"곰솔누리숲7블럭",e:"삼립 시화공장",sId:"",eId:"",sLL:[37.3469,126.7188],eLL:[37.3362,126.7163]},
+      {id:"WTSa7",road:"시화공단 내부도로",dist:6.4,spd:25.6,time:15,rest:10,s:"삼립 시화공장",e:"소망공원",sId:"",eId:"",sLL:[37.3362,126.7163],eLL:[37.3302,126.7179]},
+      {id:"WTSa8",road:"공단 동측 도로",dist:5.9,spd:22.1,time:16,rest:10,s:"소망공원",e:"고려제지",sId:"",eId:"",sLL:[37.3302,126.7179],eLL:[37.3268,126.7242]},
+      {id:"WTSa9",road:"시화공단 서측 도로",dist:7.4,spd:29.6,time:15,rest:10,s:"고려제지",e:"진케미칼",sId:"",eId:"",sLL:[37.3268,126.7242],eLL:[37.3187,126.7168]},
+      {id:"WTSa10",road:"대부도 방면 도로",dist:8.9,spd:31.4,time:17,rest:10,s:"진케미칼",e:"선진솔루텍",sId:"",eId:"",sLL:[37.3187,126.7168],eLL:[37.3143,126.7104]},
+      {id:"WTSa11",road:"시화방조제 인근 도로",dist:8.2,spd:28.9,time:17,rest:10,s:"선진솔루텍",e:"경기산업",sId:"",eId:"",sLL:[37.3143,126.7104],eLL:[37.3119,126.7053]},
+    ]},
+    b:{name:"M자 그리드",color:"#f59e0b",legs:[
+      {id:"WTSb1",road:"시화방조제 및 대부도 진입로",dist:10.0,spd:40.0,time:15,rest:10,s:"시화달전망대",e:"배다리선착장",sId:"",eId:"",sLL:[37.3182,126.7010],eLL:[37.2932,126.6584]},
+      {id:"WTSb2",road:"대부도~시화 연결도로 및 고속도로",dist:13.0,spd:26.0,time:30,rest:10,s:"배다리선착장",e:"DS단석",sId:"",eId:"",sLL:[37.2932,126.6584],eLL:[37.3237,126.7128]},
+      {id:"WTSb3",road:"시화공단 북측 도로",dist:5.3,spd:19.9,time:16,rest:10,s:"DS단석",e:"희망공원",sId:"",eId:"",sLL:[37.3237,126.7128],eLL:[37.3363,126.7278]},
+      {id:"WTSb4",road:"정왕~시화 간선도로",dist:6.2,spd:24.8,time:15,rest:10,s:"희망공원",e:"홈플러스 메가푸드마켓 시화점",sId:"",eId:"",sLL:[37.3363,126.7278],eLL:[37.3437,126.7315]},
+      {id:"WTSb5",road:"시화MTV 인근 도로",dist:6.4,spd:22.6,time:17,rest:10,s:"홈플러스 메가푸드마켓 시화점",e:"진명파워텍",sId:"",eId:"",sLL:[37.3437,126.7315],eLL:[37.3369,126.7171]},
+      {id:"WTSb6",road:"정왕 내부 간선도로",dist:5.0,spd:20.0,time:15,rest:10,s:"진명파워텍",e:"경기과학기술대학교",sId:"",eId:"",sLL:[37.3369,126.7171],eLL:[37.3480,126.7362]},
+      {id:"WTSb7",road:"배곧~산기대 연결도로",dist:5.5,spd:19.4,time:17,rest:10,s:"경기과학기술대학교",e:"정광",sId:"",eId:"",sLL:[37.3480,126.7362],eLL:[37.3502,126.7314]},
+    ]},
+    c:{name:"링",color:"#10b981",legs:[
+      {id:"WTSc1",road:"시화공단 내부 순환로",dist:5.3,spd:19.9,time:16,rest:10,s:"중앙자동차",e:"시흥시중앙도서관",sId:"",eId:"",sLL:[37.3534,126.7288],eLL:[37.3731,126.7316]},
+      {id:"WTSc2",road:"정왕·죽율동 생활도로",dist:5.9,spd:22.1,time:16,rest:10,s:"시흥시중앙도서관",e:"현진테크",sId:"",eId:"",sLL:[37.3731,126.7316],eLL:[37.3628,126.7224]},
+      {id:"WTSc3",road:"공단 진입 이면도로",dist:4.1,spd:17.6,time:14,rest:10,s:"현진테크",e:"시화병원",sId:"",eId:"",sLL:[37.3628,126.7224],eLL:[37.3543,126.7244]},
+      {id:"WTSc4",road:"시화병원 순환 (대형 루프 구간)",dist:13.5,spd:23.8,time:34,rest:10,s:"시화병원",e:"시화병원",sId:"",eId:"",sLL:[37.3543,126.7244],eLL:[37.3543,126.7244]},
+    ]},
+  },
+};
+
+// ══════════════════════════════════════════════════════════
+//  네이버 경로 기준 경유 좌표 (OSRM 경로 고정용)
+//  각 구간별 중간 GPS 좌표 → OSRM이 동일 경로를 따르게 함
+// ══════════════════════════════════════════════════════════
+const WAYPOINTS={
+  // ─ 강남 시나리오 a (네이버 길안내 텍스트 기반 정밀 경유점) ─────────────
+
+  // WTGa1: 반포대교남단 → 올림픽대로(도시고속) 동행 6.3km → 영동대교남단 출구 → 도산대로 520
+  // 신반포로 200 → 반포대교남단 오른쪽 고속도로 진입 → (동호대교남단, 성수대교남단 통과) → 영동대교남단 출구
+  'WTGa1':[
+    [37.5112,127.0055], // 반포대교남단 — 올림픽대로 진입 직후
+    [37.5177,127.0232], // 동호대교남단 통과 지점
+    [37.5212,127.0448], // 성수대교남단 통과 지점
+    [37.5240,127.0572], // 영동대교남단 출구 (고속도로 나가는 지점)
+  ],
+
+  // WTGa2: 도산대로 520 → 555m 직진 → 청담사거리 우회전 → 압구정로 151
+  // 도산대로 남행 555m → 청담사거리에서 압구정로데오역 방면 우회전
+  'WTGa2':[
+    [37.5220,127.0580], // 도산대로 남행 시작
+    [37.5200,127.0552], // 청담사거리 (우회전 직전)
+  ],
+
+  // WTGa3: 압구정로 151 → 1.2km → 신동초교 좌회전(신사역방면) → 잠원동 84 → 3.9km → 영동대교남단 우회전 → 도산대로 546
+  // 서행 → 신동초교에서 좌회전 → 남행(잠원로) → 나루터로 동행 → 영동대교남단에서 우회전 → 우회전
+  'WTGa3':[
+    [37.5210,127.0155], // 압구정로 서행 — 신동초교 방면
+    [37.5188,127.0038], // 신동초교 좌회전 후 (잠원로 방면 남행)
+    [37.5170,127.0078], // 잠원동 84 경유
+    [37.5175,127.0258], // 나루터로 동행 시작
+    [37.5215,127.0478], // 나루터로 동행 (영동대교남단 직전)
+    [37.5245,127.0572], // 영동대교남단 우회전 → 51m 후 재우회전
+  ],
+
+  // WTGa4: 루시아청담546 → 25m 우회전 → 623m → 경기고교앞 강남구청 방면 우회전 → 논현역
+  // 도산대로에서 영동대로로 25m 우회전(남행) → 623m → 경기고교에서 학동로 우회전(서행) → 논현역
+  'WTGa4':[
+    [37.5242,127.0578], // 영동대로 남행 (25m 우회전 직후)
+    [37.5210,127.0578], // 영동대로 623m 지점 (경기고교앞 우회전 직전)
+    [37.5205,127.0490], // 학동로 서행
+    [37.5165,127.0365], // 강남구청 방면
+    [37.5130,127.0258], // 논현역 방향
+  ],
+
+  // WTGa5: 논현역(신반포로 328) → 454m 유턴 → 고속터미널 좌회전(법원검찰청) → 반포동 20-19 → 삼호가든사거리 좌회전 → 봉은사로 → 삼성중앙역
+  // 신반포로 동행 → 유턴 → 서행 → 고속터미널사거리 좌회전 → 남행 → 삼호가든사거리 좌회전 → 봉은사로 북행 → 삼성중앙역
+  'WTGa5':[
+    [37.5105,127.0278], // 신반포로 동행 454m (유턴 직전)
+    [37.5042,127.0050], // 고속터미널사거리 (서행 후 좌회전)
+    [37.5062,127.0100], // 반포대로 방면 남행
+    [37.5060,127.0173], // 삼호가든사거리 (좌회전 — 봉은사로 방면)
+    [37.5075,127.0365], // 봉은사로 (사평대로) 북행
+    [37.5092,127.0528], // 봉은사로 — 삼성중앙역 방향
+  ],
+
+  // WTGa6: 삼성중앙역 → 1.2km 북행 → 강남운전면허시험장 방면 우회전 → 봉은사로112길 11 → 강남경찰서 우회전(삼성역방면) → 1.6km → 선릉역 유턴 → 테헤란로 340
+  'WTGa6':[
+    [37.5155,127.0610], // 봉은사로 북행 1.2km (강남운전면허시험장 방면 우회전 직전)
+    [37.5148,127.0588], // 봉은사로112길 11 경유
+    [37.5108,127.0575], // 강남경찰서 — 삼성역 방면 우회전
+    [37.5060,127.0527], // 삼성로 남행 (선릉역 방향)
+    [37.5050,127.0490], // 선릉역 유턴 직전
+  ],
+
+  // WTGa7: 테헤란로 340(선릉역) → 테헤란로 서행 3.9km → 서초역사거리 우회전(고속터미널방면) → 서초역
+  // 테헤란로 서행 → 강남역 → 계속 서행 → 서초역사거리 우회전(서초대로 남행) → 서초역
+  'WTGa7':[
+    [37.5025,127.0387], // 테헤란로 서행 중간
+    [37.4979,127.0276], // 강남역사거리 통과
+    [37.4888,127.0208], // 서초역사거리 우회전 직전 (서초대로)
+    [37.4860,127.0170], // 서초대로 남행
+  ],
+
+  // WTGa8: 서초역 → 530m 교대입구 좌회전(서울교대방면) → 반포대로 72 → 역삼로 → 카페리빈(역삼로 176)
+  // 서초대로 북행 530m → 교대입구에서 좌회전 → 반포대로 동행 → 역삼로 북행 → 카페리빈
+  'WTGa8':[
+    [37.4935,127.0140], // 교대입구 (서울교대 방면 좌회전)
+    [37.4950,127.0200], // 반포대로 72 경유 (동행)
+    [37.4968,127.0330], // 역삼로 방면 (동행)
+  ],
+
+  // WTGa9: 카페리빈(역삼로 176) → 역삼로 북행 → 3.0km → 회전교차로 유턴 → 대치동 1012-34
+  // 역삼로 북행 → 삼성로 / 봉은사로 방면 회전교차로 (선릉로~역삼로 교차점) 유턴 → 남행 → 대치동
+  'WTGa9':[
+    [37.5020,127.0440], // 역삼로 북행
+    [37.5048,127.0467], // 회전교차로 진입 전
+    [37.5058,127.0485], // 회전교차로 유턴 지점
+    [37.5020,127.0488], // 남행 시작
+    [37.4975,127.0490], // 대치동 방향
+  ],
+
+  // WTGa10: 대치동 1012-34 → 282m 휘문고교 좌회전(학여울역) → 41m 오른쪽 → 470m 대치우성아파트 우회전(한티역) → 효령로 407
+  // 휘문고교 좌회전 → 남행 → 오른쪽 도로 → 대치우성아파트에서 서행(한티역방면) → 효령로 서행
+  'WTGa10':[
+    [37.4938,127.0462], // 휘문고교 좌회전 (남행 시작)
+    [37.4902,127.0460], // 남행 — 오른쪽 도로 (41m 직후)
+    [37.4855,127.0462], // 대치우성아파트 우회전 직전 (한티역 방면)
+    [37.4845,127.0388], // 한티역 방면 서행
+    [37.4810,127.0265], // 효령로 방향
+  ],
+
+  // WTGa11: 효령로 407 → 1.2km → 남부터미널 좌회전(서초IC) → 서초중앙로 27 → 우면삼거리 좌회전(서초IC) → 양재지하차도(도곡역방면 왼쪽) → 도곡역
+  'WTGa11':[
+    [37.4785,127.0135], // 남부터미널 좌회전 (서초IC 방면)
+    [37.4810,127.0250], // 서초중앙로 27 경유
+    [37.4798,127.0270], // 우면삼거리 좌회전 (서초IC 방면)
+    [37.4840,127.0360], // 양재지하차도 진입 (도곡역/잠실역 방면 왼쪽)
+  ],
+
+  // WTGa12: 도곡역 → 2.2km → 탄천1교에서 수서IC/수서역 방면 오른쪽 → 일원동 580-2
+  'WTGa12':[
+    [37.4893,127.0450], // 탄천1교 (수서IC방면 오른쪽)
+    [37.4938,127.0512], // 동부간선도로 북행
+  ],
+};
+
+// ══════════════════════════════════════════════════════════
+//  상태
+// ══════════════════════════════════════════════════════════
+let loc='강남', scKey='a';
+let legs=[], legIdx=0, doneSet=new Set();
+let isPlaying=false, phase='drive';
+let legStartTime=null; // 현재 구간 주행 시작 시각 (주행기록의 '시작 시각'용)
+let legStartPos=null;  // 시작 시점 GPS 위치 [lat,lng] (주행기록의 '출발'용)
+let timerSec=0, timerInterval=null;
+let watchId=null;
+
+// 지도 레이어
+let routeOutline=null, routeLine=null;
+let activeOutline=null, activeLine=null;
+let dotMarkers=[], startMk=null, endMk=null;
+let carMarker=null, carHeading=0, lastCarPos=null;
+
+// OSRM
+let osrmSteps=[], currentStepIdx=0;
+let osrmOutline=null, osrmLine=null;
+let osrmDuration=null, currentRouteCoords=null;
+let osrmAbortCtrl=null;
+
+// 경로 수정 모드
+let editMode=false;
+let editWaypoints=[];   // [[lat,lng], ...]
+let editMarkers=[];     // Leaflet 드래그 마커들
+let editMapClickHandler=null;
+
+// ══════════════════════════════════════════════════════════
+//  지도 초기화
+// ══════════════════════════════════════════════════════════
+const map=L.map('map',{center:[37.498,127.032],zoom:13,zoomControl:true});
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);
+
+// ══════════════════════════════════════════════════════════
+//  OSRM 경로 요청 (실제 도로 경로 + 턴바이턴)
+// ══════════════════════════════════════════════════════════
+async function fetchOSRM(sLL,eLL,legId){
+  // 이전 요청 취소
+  if(osrmAbortCtrl){ try{osrmAbortCtrl.abort();}catch(_){} }
+  osrmAbortCtrl=new AbortController();
+  showRouteLoading(true);
+  clearOSRM();
+
+  // 경유 좌표 조합 (WAYPOINTS + start/end)
+  const wps=WAYPOINTS[legId]||[];
+  const pts=[
+    `${sLL[1]},${sLL[0]}`,
+    ...wps.map(w=>`${w[1]},${w[0]}`),
+    `${eLL[1]},${eLL[0]}`
+  ].join(';');
+
+  const url=`https://router.project-osrm.org/route/v1/driving/${pts}?steps=true&geometries=geojson&overview=full`;
+  try{
+    const res=await fetch(url,{signal:osrmAbortCtrl.signal});
+    const data=await res.json();
+    if(data.code==='Ok'&&data.routes&&data.routes[0]){
+      const route=data.routes[0];
+      osrmDuration=route.duration; // 초 단위
+      // 출발/도착 핀까지 정확히 이어지도록 첫/끝 좌표 고정
+      const coords=route.geometry.coordinates;
+      coords.unshift([sLL[1],sLL[0]]);
+      coords.push([eLL[1],eLL[0]]);
+      currentRouteCoords=coords;
+      drawOSRMRoute(currentRouteCoords);
+      // 다중 waypoint → legs 배열 flatten
+      // 경유점 때문에 각 leg마다 arrive/depart가 생기므로 중간 것들 제거
+      const allSteps=route.legs.flatMap(l=>l.steps||[]);
+      osrmSteps=allSteps.filter((s,i,arr)=>{
+        if(s.maneuver.type==='arrive')  return i===arr.length-1; // 마지막 arrive만
+        if(s.maneuver.type==='depart')  return i===0;            // 첫 depart만
+        return true;
+      });
+      currentStepIdx=0;
+      if(osrmSteps.length>0) showNextStep(0,null);
+      showTurnOverlay(true);
+      updateCurStats();
+      renderStepsList();
+    }
+  }catch(e){
+    if(e.name==='AbortError') return;
+    console.warn('OSRM 실패:',e);
+    drawFallbackRoute(sLL,eLL);
+    osrmDuration=null;
+    updateCurStats();
+  }finally{
+    showRouteLoading(false);
+    osrmAbortCtrl=null;
+  }
+}
+
+function drawOSRMRoute(coords){
+  const latlngs=coords.map(c=>[c[1],c[0]]);
+  osrmLine=L.polyline(latlngs,{color:'#3b82f6',weight:7,opacity:0.93,lineCap:'round',lineJoin:'round'}).addTo(map);
+}
+
+function drawFallbackRoute(sLL,eLL){
+  osrmLine=L.polyline([sLL,eLL],{color:'#6b7280',weight:5,opacity:0.8,dashArray:'8 4'}).addTo(map);
+}
+
+function clearOSRM(){
+  [osrmOutline,osrmLine].forEach(l=>{if(l){try{map.removeLayer(l);}catch(_){}}});
+  osrmOutline=osrmLine=null;
+  osrmSteps=[]; osrmDuration=null; currentRouteCoords=null;
+  showTurnOverlay(false);
+}
+
+// 실제 경로(OSRM) 좌표를 따라 전체 거리를 합산 (단위: km)
+// coords: [[lng,lat], ...] (currentRouteCoords 형식)
+function routeDistanceKm(coords){
+  if(!coords||coords.length<2) return null;
+  let d=0;
+  for(let i=1;i<coords.length;i++){
+    d+=haversine(coords[i-1][1],coords[i-1][0],coords[i][1],coords[i][0]);
+  }
+  return d/1000;
+}
+
+// ── 현재 구간 통계 갱신 ──────────────────────────────────────
+// 거리 = 실제 경로 전체 길이 합산 (직접 입력 X)
+// 목표속도 = 거리 / 계획시간
+// 현재예상 = 계획시간(시나리오 설계 시 실제 경로 기준으로 보정된 값) — 직접 입력 X
+// (※ 시간대별 "교통혼잡 배수" 같은 추정치는 실제 데이터가 아니라 빼버렸습니다.
+//    실데이터 기반 ETA가 필요하면 실시간 교통 API 연동이 필요합니다.)
+function getCurrentEtaMin(){
+  const lg=legs[legIdx]; if(!lg) return 1;
+  return Math.max(1,Math.round(lg.time));
+}
+
+function updateCurStats(){
+  const lg=legs[legIdx]; if(!lg) return;
+
+  const realDist=routeDistanceKm(currentRouteCoords);
+  if(realDist!=null&&realDist>0) lg.dist=+realDist.toFixed(1);
+
+  const targetSpd=lg.time>0?(lg.dist/lg.time*60):0;
+  lg.spd=targetSpd;
+
+  const etaMin=getCurrentEtaMin();
+
+  document.getElementById('sv-dist-v').textContent=lg.dist.toFixed(1);
+  document.getElementById('sv-spd-v').textContent=targetSpd.toFixed(1);
+  document.getElementById('sv-time-v').textContent=etaMin;
+
+  // 대기 중(미재생)일 때는 주행 타이머도 "현재예상"과 동일하게 표시
+  if(!isPlaying&&phase==='drive') updateTimerDisplay(etaMin*60);
+}
+
+// ══════════════════════════════════════════════════════════
+//  턴바이턴 안내
+// ══════════════════════════════════════════════════════════
+const MANEUVER_KO={
+  depart:   {icon:'🟢', text:'출발합니다'},
+  arrive:   {icon:'🔴', text:'도착'},
+  turn:{
+    left:        {icon:'↰', text:'좌회전'},
+    right:       {icon:'↱', text:'우회전'},
+    'sharp left':{icon:'↙', text:'급좌회전'},
+    'sharp right':{icon:'↘', text:'급우회전'},
+    'slight left':{icon:'↖', text:'좌측으로 진행'},
+    'slight right':{icon:'↗', text:'우측으로 진행'},
+    uturn:       {icon:'↩', text:'유턴'},
+    straight:    {icon:'⬆', text:'직진'},
+  },
+  'new name':   {icon:'⬆', text:'계속 직진'},
+  continue:     {icon:'⬆', text:'직진 유지'},
+  merge:        {icon:'⬆', text:'차선 합류'},
+  'on ramp':    {icon:'↗', text:'램프 진입'},
+  'off ramp':   {icon:'↘', text:'램프 진출'},
+  fork:{
+    left: {icon:'↰', text:'좌측 방향 유지'},
+    right:{icon:'↱', text:'우측 방향 유지'},
+  },
+  roundabout:{
+    default:{icon:'🔄', text:'로터리 진입'},
+  },
+  'exit roundabout':{icon:'↗', text:'로터리 진출'},
+  rotary:{default:{icon:'🔄',text:'로터리'}},
+  notification:{icon:'⬆',text:'계속 직진'},
+};
+
+function getManeuverInfo(type,modifier){
+  const mod=modifier||'straight';
+  const base=MANEUVER_KO[type];
+  if(!base) return {icon:'⬆',text:'계속 진행'};
+  if(typeof base.icon!=='undefined') return base; // leaf
+  return base[mod]||base['default']||{icon:'⬆',text:'계속 진행'};
+}
+
+// 거리 표시 단위 — '출발합니다'는 "앞으로 다가올 거리"가 아니라
+// "출발 후 이 도로를 따라 이동할 거리"이므로 '앞' 대신 '주행'으로 표기해 혼동을 방지
+function getDistUnitLabel(maneuverType){
+  return maneuverType==='depart' ? ' 주행' : ' 앞';
+}
+
+function showNextStep(idx,curPos){
+  if(!osrmSteps.length) return;
+  // 다음 실제 턴 스텝 찾기 (depart/arrive 제외하고 거리 > 0인 것 우선)
+  let step=osrmSteps[idx];
+  if(!step) return;
+
+  const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
+  const stepLoc=step.maneuver.location; // [lng,lat]
+  let dist=step.distance;
+  if(curPos){
+    dist=haversine(curPos[0],curPos[1],stepLoc[1],stepLoc[0]);
+  }
+
+  document.getElementById('turn-arrow').textContent=info.icon;
+  document.getElementById('turn-dist').textContent=dist>=1000?(dist/1000).toFixed(1)+'km':Math.round(dist)+'m';
+  document.getElementById('turn-unit').textContent=getDistUnitLabel(step.maneuver.type);
+  document.getElementById('turn-instr').textContent=info.text;
+  document.getElementById('turn-road').textContent=step.name||'';
+}
+
+function updateTurnFromPosition(lat,lng){
+  if(!osrmSteps.length) return;
+  // 현재 위치에서 앞쪽 스텝 찾기
+  for(let i=currentStepIdx;i<osrmSteps.length;i++){
+    const step=osrmSteps[i];
+    const loc=step.maneuver.location;
+    const d=haversine(lat,lng,loc[1],loc[0]);
+    if(d<25){ // 이미 통과
+      currentStepIdx=Math.min(i+1,osrmSteps.length-1);
+      highlightCurrentStep(currentStepIdx);
+      continue;
+    }
+    // 다음 스텝 안내
+    document.getElementById('turn-arrow').textContent=getManeuverInfo(step.maneuver.type,step.maneuver.modifier).icon;
+    document.getElementById('turn-instr').textContent=getManeuverInfo(step.maneuver.type,step.maneuver.modifier).text;
+    document.getElementById('turn-dist').textContent=d>=1000?(d/1000).toFixed(1)+'km':Math.round(d)+'m';
+    document.getElementById('turn-unit').textContent=getDistUnitLabel(step.maneuver.type);
+    document.getElementById('turn-road').textContent=step.name||'';
+    break;
+  }
+}
+
+function showTurnOverlay(show){
+  document.getElementById('turn-overlay').classList.toggle('show',show);
+}
+
+function toggleStepsPanel(){
+  const p=document.getElementById('steps-panel');
+  const btn=document.getElementById('btn-steps-toggle');
+  const collapsed=p.classList.toggle('collapsed');
+  btn.textContent=collapsed?'펼치기 ▲':'접기 ▼';
+}
+
+function renderStepsList(){
+  const el=document.getElementById('steps-list');
+  el.innerHTML='';
+  if(!osrmSteps.length){
+    el.innerHTML='<div style="padding:10px 14px;font-size:11px;color:#3a4570">경로 계산 후 표시됩니다</div>';
+    return;
+  }
+  osrmSteps.forEach((step,i)=>{
+    const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
+    const dist=step.distance;
+    if(step.maneuver.type==='depart') return; // 출발 스텝 리스트에서 제외
+    const distStr=dist>=1000?(dist/1000).toFixed(1)+'km 후 ':(dist>0?Math.round(dist)+'m 후 ':'');
+    const isArrive=step.maneuver.type==='arrive';
+    const div=document.createElement('div');
+    div.className='step-item'+(isArrive?' step-arrive':'');
+    div.id='step-'+i;
+    div.innerHTML=`
+      <div class="step-icon">${info.icon}</div>
+      <div class="step-body">
+        <div class="step-instr">${distStr}${info.text}${step.name?' <span style="color:#4a5580;font-weight:400">— '+step.name+'</span>':''}</div>
+      </div>`;
+    el.appendChild(div);
+  });
+}
+
+function highlightCurrentStep(idx){
+  document.querySelectorAll('.step-item').forEach(el=>el.classList.remove('step-current'));
+  const el=document.getElementById('step-'+idx);
+  if(el){
+    el.classList.add('step-current');
+    el.scrollIntoView({block:'nearest',behavior:'smooth'});
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  차량(GPS) 마커
+// ══════════════════════════════════════════════════════════
+function makeCarIcon(heading){
+  // 차량 SVG (방향 표시)
+  const svg=`<svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+    <g transform="rotate(${heading},18,18)">
+      <circle cx="18" cy="18" r="16" fill="#facc15" stroke="#fff" stroke-width="2.5" opacity="0.95"/>
+      <polygon points="18,4 13,24 18,20 23,24" fill="#1a1a1a" opacity="0.85"/>
+    </g>
+  </svg>`;
+  return L.divIcon({
+    className:'',
+    html:svg,
+    iconSize:[36,36],
+    iconAnchor:[18,18],
+  });
+}
+
+function updateCarMarker(lat,lng,heading){
+  if(!carMarker){
+    carMarker=L.marker([lat,lng],{icon:makeCarIcon(heading||0),zIndexOffset:2000}).addTo(map);
+  } else {
+    carMarker.setLatLng([lat,lng]);
+    carMarker.setIcon(makeCarIcon(heading||carHeading));
+  }
+  carHeading=heading||carHeading;
+  lastCarPos=[lat,lng];
+}
+
+// ══════════════════════════════════════════════════════════
+//  시나리오 로드
+// ══════════════════════════════════════════════════════════
+function loadScenario(restore){
+  stopTimer();
+  finalizeLegSession(legIdx,getGPSPos()); // 시나리오 전환 전 진행 중인 주행 세션 기록
+  legStartTime=null; legStartPos=null;
+  isPlaying=false;
+  doneSet.clear();
+  clearOSRM();
+  showTurnOverlay(false);
+  const sc=SCENARIOS[loc][scKey];
+  legs=sc.legs;
+  let idx=0;
+  if(restore&&legs.length){
+    let found=-1;
+    if(restore.legId) found=legs.findIndex(l=>l.id===restore.legId);
+    if(found>=0) idx=found;
+    else if(typeof restore.legIdx==='number') idx=Math.min(Math.max(0,restore.legIdx),legs.length-1);
+  }
+  legIdx=idx;
+  map.setView(SCENARIOS[loc].center,SCENARIOS[loc].zoom);
+  renderMap();
+  renderLegList();
+  renderCurLeg();
+  updateHeader();
+  document.getElementById('warn').style.display='none';
+}
+
+function renderMap(){
+  [routeOutline,routeLine,activeOutline,activeLine].forEach(l=>l&&map.removeLayer(l));
+  dotMarkers.forEach(m=>map.removeLayer(m));
+  [startMk,endMk].forEach(m=>m&&map.removeLayer(m));
+  dotMarkers=[];
+  renderActiveLeg();
+}
+
+// ── SVG 물방울 핀 마커 (전역)
+function svgPin(label,bg,textCol){
+  const w=38,h=48;
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 38 48">
+    <defs>
+      <filter id="sh${label}" x="-40%" y="-40%" width="180%" height="180%">
+        <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="${bg}" flood-opacity="0.5"/>
+      </filter>
+    </defs>
+    <path d="M19 2 C10 2 3 9 3 18 C3 30 19 46 19 46 C19 46 35 30 35 18 C35 9 28 2 19 2 Z"
+      fill="${bg}" filter="url(#sh${label})" stroke="white" stroke-width="2"/>
+    <text x="19" y="22" text-anchor="middle" font-family="'Apple SD Gothic Neo','Noto Sans KR',sans-serif"
+      font-size="10" font-weight="900" fill="${textCol}" letter-spacing="-0.3">${label}</text>
+  </svg>`;
+  return L.divIcon({className:'',html:svg,iconSize:[w,h],iconAnchor:[w/2,h]});
+}
+
+function renderActiveLeg(){
+  [activeOutline,activeLine].forEach(l=>l&&map.removeLayer(l));
+  [startMk,endMk].forEach(m=>m&&map.removeLayer(m));
+  clearOSRM();
+  if(!legs[legIdx]) return;
+
+  const lg=legs[legIdx];
+  startMk=L.marker(lg.sLL,{icon:svgPin('출발','#00c73c','#fff'),zIndexOffset:900,draggable:false}).addTo(map);
+  endMk  =L.marker(lg.eLL,{icon:svgPin('도착','#ff4444','#fff'),zIndexOffset:900,draggable:false}).addTo(map);
+
+  // 구간 선택 즉시 OSRM 경로 표시 (네이버 고정 경로 기반)
+  fetchOSRM(lg.sLL,lg.eLL,lg.id);
+}
+
+// ══════════════════════════════════════════════════════════
+//  구간 목록
+// ══════════════════════════════════════════════════════════
+function renderLegList(){
+  const el=document.getElementById('leg-list'); el.innerHTML='';
+  legs.forEach((lg,i)=>{
+    const done=doneSet.has(i),active=i===legIdx;
+    const div=document.createElement('div');
+    div.className='leg-item'+(done?' done':'')+(active?' active':'');
+    div.id='li-'+i;
+    div.innerHTML=`
+      <span class="leg-drag-handle">⠿</span>
+      <div class="leg-dot ${done?'dot-done':active?'dot-active':'dot-pending'}"></div>
+      <div class="leg-id">${lg.id}</div>
+      <div class="leg-info">
+        <div class="leg-se">${lg.s} → ${lg.e}</div>
+        <div class="leg-meta">${lg.dist}km · ${lg.time>0?(lg.dist/lg.time*60).toFixed(1):'—'}km/h · ${lg.time}분</div>
+      </div>
+      ${done?'<div class="leg-check">✓</div>':''}`;
+    div.onclick=()=>jumpToLeg(i);
+    if(scEditMode){
+      div.draggable=true;
+      div.addEventListener('dragstart',e=>{
+        e.dataTransfer.setData('text/plain',String(i));
+        e.dataTransfer.effectAllowed='move';
+        div.classList.add('dragging');
+      });
+      div.addEventListener('dragend',()=>div.classList.remove('dragging'));
+      div.addEventListener('dragover',e=>{ e.preventDefault(); div.classList.add('drag-over'); });
+      div.addEventListener('dragleave',()=>div.classList.remove('drag-over'));
+      div.addEventListener('drop',e=>{
+        e.preventDefault();
+        div.classList.remove('drag-over');
+        const from=parseInt(e.dataTransfer.getData('text/plain'));
+        if(!isNaN(from)) reorderLeg(from,i);
+      });
+    }
+    el.appendChild(div);
+  });
+}
+
+// 시나리오 수정 모드 — 구간 순서를 드래그로 변경
+function reorderLeg(fromIdx,toIdx){
+  if(fromIdx===toIdx||fromIdx<0||fromIdx>=legs.length||toIdx<0||toIdx>=legs.length) return;
+  const activeLeg=legs[legIdx];
+  const doneLegs=new Set([...doneSet].map(i=>legs[i]));
+
+  const [moved]=legs.splice(fromIdx,1);
+  legs.splice(toIdx,0,moved);
+
+  // legIdx/doneSet을 새 배열 순서에 맞게 재매핑
+  const newIdx=legs.indexOf(activeLeg);
+  legIdx=newIdx>=0?newIdx:0;
+  doneSet=new Set();
+  legs.forEach((lg,i)=>{ if(doneLegs.has(lg)) doneSet.add(i); });
+
+  saveWaypointsToStorage();
+  renderLegList();
+  const badgeEl=document.getElementById('cur-badge');
+  if(badgeEl) badgeEl.textContent=`${legIdx+1} / ${legs.length} 구간`;
+  updateHeader();
+}
+
+function renderCurLeg(){
+  const lg=legs[legIdx]; if(!lg) return;
+  // 시나리오 수정 모드 중 다른 구간으로 이동해도 편집 모드는 유지 —
+  // 편집 입력값만 새 구간 기준으로 갱신 ("저장"을 눌러야만 모드 종료)
+  if(scEditMode){
+    document.getElementById('si-start').value=lg.s;
+    document.getElementById('si-end').value=lg.e;
+  }
+
+  document.getElementById('cur-id').textContent=lg.id;
+  document.getElementById('cur-badge').textContent=`${legIdx+1} / ${legs.length} 구간`;
+  document.getElementById('cur-start').textContent=lg.s;
+  document.getElementById('cur-end').textContent=lg.e;
+
+  // 거리·목표속도·현재예상의 정확한 값은 경로 로딩 후 updateCurStats()에서 갱신됨.
+  // 여기서는 경로 fetch 전 임시 표시값(현재예상 기준 — 타이머와 동일하게).
+  const etaMin0=getCurrentEtaMin();
+  document.getElementById('sv-dist-v').textContent=lg.dist.toFixed(1);
+  document.getElementById('sv-spd-v').textContent=(lg.time>0?(lg.dist/lg.time*60):0).toFixed(1);
+  document.getElementById('sv-time-v').textContent=etaMin0;
+  setPhaseUI('drive');
+  updateTimerDisplay(etaMin0*60);
+
+  document.getElementById('btn-play').textContent=isPlaying?'⏸ 정지':'▶ 시작';
+  document.getElementById('btn-play').className='ctrl-btn'+(isPlaying?' running':'');
+}
+
+function updateHeader(){
+  const sc=SCENARIOS[loc][scKey];
+  document.getElementById('hdr-progress').textContent=`${loc} · ${sc.name} · ${doneSet.size}/${legs.length} 완료`;
+}
+
+// ══════════════════════════════════════════════════════════
+//  타이머
+// ══════════════════════════════════════════════════════════
+function startTimer(sec){
+  stopTimer(); timerSec=sec;
+  updateTimerDisplay(timerSec);
+  timerInterval=setInterval(()=>{
+    timerSec--;
+    updateTimerDisplay(timerSec);
+    if(timerSec<=0){ if(phase==='drive') startRestPhase(); else advanceLeg(); }
+  },1000);
+}
+
+function stopTimer(){ if(timerInterval){clearInterval(timerInterval);timerInterval=null;} }
+
+function startRestPhase(){
+  stopTimer(); phase='rest'; setPhaseUI('rest');
+  startTimer(legs[legIdx].rest*60);
+}
+
+function setPhaseUI(p){
+  const lbl=document.getElementById('timer-label');
+  const ph=document.getElementById('timer-phase');
+  if(p==='drive'){
+    lbl.textContent='주행 타이머'; ph.textContent=''; ph.className='timer-phase phase-drive';
+    document.getElementById('timer-val').style.color='#60a5fa';
+  } else {
+    lbl.textContent='휴식 타이머'; ph.textContent='🔴 휴식 중'; ph.className='timer-phase phase-rest';
+    document.getElementById('timer-val').style.color='#fb923c';
+  }
+}
+
+function updateTimerDisplay(sec){
+  if(sec<0) sec=0;
+  document.getElementById('timer-val').textContent=`${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;
+  const valEl=document.getElementById('timer-val');
+  const phEl=document.getElementById('timer-phase');
+  const warn=(phase==='drive'&&sec>0&&sec<=300);
+  valEl.classList.toggle('timer-low',warn);
+  if(phase==='drive'){
+    phEl.textContent=warn?'🛑 5분 내 — 정차할 곳을 확인하세요':'';
+    phEl.classList.toggle('show-warn',warn);
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  재생 제어
+// ══════════════════════════════════════════════════════════
+function togglePlay(){
+  if(isPlaying){
+    isPlaying=false; stopTimer();
+    document.getElementById('btn-play').textContent='▶ 시작';
+    document.getElementById('btn-play').className='ctrl-btn';
+    finalizeLegSession(legIdx,getGPSPos());
+  } else {
+    isPlaying=true; phase='drive'; setPhaseUI('drive');
+    legStartTime=new Date();
+    legStartPos=getGPSPos()||[...legs[legIdx].sLL];
+    startTimer(getCurrentEtaMin()*60);
+    document.getElementById('btn-play').textContent='⏸ 정지';
+    document.getElementById('btn-play').className='ctrl-btn running';
+    startGPS();
+    const lg=legs[legIdx];
+    fetchOSRM(lg.sLL,lg.eLL,lg.id);
+  }
+}
+
+function advanceLeg(){
+  stopTimer(); doneSet.add(legIdx);
+  finalizeLegSession(legIdx,getGPSPos());
+  legIdx++;
+  if(legIdx>=legs.length){ isPlaying=false; showDone(); return; }
+  phase='drive';
+  legStartTime=new Date(); // 다음 구간 시작 시각
+  legStartPos=getGPSPos()||[...legs[legIdx].sLL];
+  updateLegUI();
+  startTimer(getCurrentEtaMin()*60);
+  const lg=legs[legIdx];
+  fetchOSRM(lg.sLL,lg.eLL,lg.id);
+}
+
+function jumpToLeg(i){
+  stopTimer();
+  finalizeLegSession(legIdx,getGPSPos());
+  legIdx=i; phase='drive'; isPlaying=false; legStartTime=null; legStartPos=null;
+  updateLegUI();
+}
+
+function moveLeg(delta){
+  const next=legIdx+delta;
+  if(next<0||next>=legs.length) return;
+  if(delta>0) doneSet.add(legIdx);
+  jumpToLeg(next);
+}
+
+function updateLegUI(){
+  renderMap(); renderLegList(); renderCurLeg(); updateHeader();
+  document.getElementById('warn').style.display='none';
+  const el=document.getElementById('li-'+legIdx);
+  if(el) el.scrollIntoView({behavior:'smooth',block:'nearest'});
+  saveCurrentView();
+}
+
+// ══════════════════════════════════════════════════════════
+//  GPS
+// ══════════════════════════════════════════════════════════
+function startGPS(){
+  if(!navigator.geolocation) return;
+  document.getElementById('gps-status').classList.add('show');
+  if(watchId!==null) return;
+  watchId=navigator.geolocation.watchPosition(pos=>{
+    const {latitude:lat,longitude:lng,heading,speed}=pos.coords;
+    document.getElementById('gps-status').textContent=`📡 GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+    // 방향 계산
+    let h=heading||0;
+    if(lastCarPos){
+      const dlat=lat-lastCarPos[0], dlng=lng-lastCarPos[1];
+      if(Math.abs(dlat)+Math.abs(dlng)>0.00001){
+        h=Math.atan2(dlng,dlat)*180/Math.PI;
+      }
+    }
+    updateCarMarker(lat,lng,h);
+    map.panTo([lat,lng],{animate:true,duration:0.4});
+
+    // 턴 안내 업데이트
+    updateTurnFromPosition(lat,lng);
+
+    // 경로 이탈
+    if(legs[legIdx]&&isPlaying){
+      const lg=legs[legIdx];
+      const dS=haversine(lat,lng,...lg.sLL), dE=haversine(lat,lng,...lg.eLL);
+      const off=Math.min(dS,dE)>1000;
+      document.getElementById('warn').style.display=off?'block':'none';
+    }
+  },err=>{
+    document.getElementById('gps-status').textContent='📡 GPS 권한 없음';
+    console.warn('GPS 오류',err);
+  },{enableHighAccuracy:true,maximumAge:1500,timeout:10000});
+}
+
+// ══════════════════════════════════════════════════════════
+//  위치·시나리오 전환
+// ══════════════════════════════════════════════════════════
+const NAVER_MAP_URLS={
+  강남:'https://map.naver.com/p/?c=127.032,37.498,14,0,0,0,dh',
+  판교:'https://map.naver.com/p/?c=127.115,37.385,14,0,0,0,dh',
+  시흥:'https://map.naver.com/p/?c=126.730,37.345,13,0,0,0,dh'
+};
+const LOC_BTN_MAP={강남:'gn',판교:'pg',시흥:'sh'};
+function applyLocUI(l){
+  ['gn','pg','sh'].forEach(k=>document.getElementById('btn-loc-'+k).classList.remove('active'));
+  const btn=document.getElementById('btn-loc-'+LOC_BTN_MAP[l]);
+  if(btn) btn.classList.add('active');
+  document.getElementById('btn-naver-map').href=NAVER_MAP_URLS[l]||'';
+}
+function switchLoc(l){
+  stopTimer(); isPlaying=false; loc=l;
+  applyLocUI(l);
+  loadScenario();
+  saveCurrentView();
+}
+function switchSc(k){ stopTimer(); isPlaying=false; scKey=k; loadScenario(); saveCurrentView(); }
+
+// ══════════════════════════════════════════════════════════
+//  현재 화면(위치·시나리오·구간) 기억
+//  주소 해시(#) + localStorage에 저장. 파일을 다운로드해 일반 브라우저에서
+//  열었을 때 새로고침해도 마지막 위치를 복원한다.
+//  (Claude 채팅 내 미리보기는 새로고침마다 완전히 새로 그려지는 환경이라
+//   클라이언트측 저장 자체가 유지되지 않을 수 있음)
+// ══════════════════════════════════════════════════════════
+function saveCurrentView(){
+  const lg=legs[legIdx];
+  const legId=lg?lg.id:'';
+  const data={loc,scKey,legIdx,legId};
+  const json=JSON.stringify(data);
+  try{
+    const hash='#'+encodeURIComponent(loc)+','+encodeURIComponent(scKey)+','+encodeURIComponent(legId);
+    if(location.hash!==hash) history.replaceState(null,'',hash);
+  }catch(e){}
+  try{ localStorage.setItem('nav_current_view',json); }catch(e){}
+}
+function loadCurrentView(){
+  if(location.hash&&location.hash.length>1){
+    try{
+      const parts=location.hash.slice(1).split(',').map(decodeURIComponent);
+      if(parts[0]) return {loc:parts[0], scKey:parts[1], legId:parts[2]||null};
+    }catch(e){}
+  }
+  try{
+    const raw=localStorage.getItem('nav_current_view');
+    return raw?JSON.parse(raw):null;
+  }catch(e){ return null; }
+}
+
+// ══════════════════════════════════════════════════════════
+//  완료
+// ══════════════════════════════════════════════════════════
+function showDone(){
+  renderLegList(); updateHeader();
+  const sc=SCENARIOS[loc][scKey];
+  const td=legs.reduce((a,l)=>a+l.dist,0).toFixed(1);
+  const tm=legs.reduce((a,l)=>a+l.time+l.rest,0);
+  document.getElementById('done-info').textContent=`${loc} · ${sc.name} | ${legs.length}구간 · ${td}km · ${tm}분`;
+  document.getElementById('done-overlay').classList.add('show');
+}
+function resetScenario(){ document.getElementById('done-overlay').classList.remove('show'); loadScenario(); }
+
+// ══════════════════════════════════════════════════════════
+//  유틸
+// ══════════════════════════════════════════════════════════
+function haversine(lat1,lng1,lat2,lng2){
+  const R=6371000,d2r=Math.PI/180;
+  const dLat=(lat2-lat1)*d2r, dLng=(lng2-lng1)*d2r;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*d2r)*Math.cos(lat2*d2r)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function showRouteLoading(show){ document.getElementById('route-loading').classList.toggle('show',show); }
+
+// ══════════════════════════════════════════════════════════
+//  경로 수정 모드
+// ══════════════════════════════════════════════════════════
+function toggleEditMode(){
+  if(editMode) cancelEditRoute();
+  else enterEditMode();
+}
+// 경로 수정 취소 (저장 없이 종료) — toggleEditMode에서 두 번째 클릭 시 호출
+function cancelEditRoute(){
+  exitEditMode();
+  // 원래 경로 복원 (편집 전 경유점은 editWaypoints에 없으므로 재fetch)
+  if(legs[legIdx]){ const lg=legs[legIdx]; fetchOSRM(lg.sLL,lg.eLL,lg.id); }
+}
+
+// ══════════════════════════════════════════════════════════
+//  시나리오 수정 (거리/목표속도/예상시간 인라인 편집)
+// ══════════════════════════════════════════════════════════
+let scEditMode=false;
+function toggleScEditMode(){
+  if(scEditMode) exitScEditMode(false);
+  else enterScEditMode();
+}
+function enterScEditMode(){
+  if(!legs[legIdx]) return;
+  if(editMode) return; // 경로 수정 중엔 비활성
+  scEditMode=true;
+  const lg=legs[legIdx];
+  document.getElementById('btn-sc-edit').classList.add('active');
+  document.getElementById('btn-edit').disabled=true;
+  document.getElementById('hdr').classList.add('sc-editing');
+  // 구간 추가/삭제 버튼 표시
+  document.getElementById('leg-mgmt-btns').classList.add('show');
+  // 출발/도착 이름 입력값 채운 뒤 CSS 클래스로 표시 전환
+  document.getElementById('si-start').value=lg.s;
+  document.getElementById('si-end').value=lg.e;
+  document.getElementById('cur-card').classList.add('sc-editing');
+  renderLegList(); // 드래그 핸들 표시
+}
+function exitScEditMode(restore){
+  scEditMode=false;
+  document.getElementById('btn-sc-edit').classList.remove('active');
+  document.getElementById('btn-edit').disabled=false;
+  document.getElementById('hdr').classList.remove('sc-editing');
+  // 구간 추가/삭제 버튼 숨김
+  document.getElementById('leg-mgmt-btns').classList.remove('show');
+  // 구간 추가 폼이 열려있으면 닫기
+  if(addLegMode) cancelAddLeg();
+  document.getElementById('cur-card').classList.remove('sc-editing');
+  renderLegList(); // 드래그 핸들 숨김
+  if(restore!==false) renderCurLeg();
+}
+function saveScEdit(){
+  if(!legs[legIdx]) return;
+  const lg=legs[legIdx];
+  const sName=document.getElementById('si-start').value.trim();
+  const eName=document.getElementById('si-end').value.trim();
+  if(sName) lg.s=sName;
+  if(eName) lg.e=eName;
+
+  // 출발/도착 이름 변경 → 같은 지점을 공유하는 이전/다음 구간 이름도 자동 연동
+  const prevLg=legs[legIdx-1];
+  if(prevLg&&sName) prevLg.e=sName;
+  const nextLg=legs[legIdx+1];
+  if(nextLg&&eName) nextLg.s=eName;
+
+  saveWaypointsToStorage();
+  exitScEditMode(false);
+  renderCurLeg();
+  renderLegList();
+}
+
+// ══════════════════════════════════════════════════════════
+//  구간 추가 (지도 마커로 좌표 설정 + OSRM 자동계산 + 역지오코딩)
+// ══════════════════════════════════════════════════════════
+let addLegMode=false, alfStartMk=null, alfEndMk=null;
+let alfSLL=null, alfELL=null;
+let alfOsrmDist=0, alfOsrmTime=0;
+
+async function alfReverseGeocode(lat,lng,inputId){
+  try{
+    const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ko`,
+      {headers:{'Accept-Language':'ko'}});
+    const d=await r.json();
+    const a=d.address||{};
+    const name=a.road||a.suburb||a.neighbourhood||a.village||a.city_district||a.city||(d.display_name||'').split(',')[0];
+    const el=document.getElementById(inputId);
+    if(el&&!el._userEdited) el.value=name||'';
+  }catch(_){}
+}
+
+async function alfFetchOSRM(){
+  if(!alfSLL||!alfELL) return;
+  try{
+    const url=`https://router.project-osrm.org/route/v1/driving/${alfSLL[1]},${alfSLL[0]};${alfELL[1]},${alfELL[0]}?overview=false`;
+    const r=await fetch(url);
+    const d=await r.json();
+    if(d.code==='Ok'&&d.routes[0]){
+      alfOsrmDist=+(d.routes[0].distance/1000).toFixed(1);
+      alfOsrmTime=Math.max(1,Math.round(d.routes[0].duration/60));
+      document.getElementById('alf-dist').textContent=alfOsrmDist+'km';
+      document.getElementById('alf-time').textContent=alfOsrmTime+'분';
+      const spd=alfOsrmTime>0?(alfOsrmDist/alfOsrmTime*60).toFixed(1):'—';
+      document.getElementById('alf-spd-val').textContent=spd;
+    }
+  }catch(_){}
+}
+
+function toggleAddLegForm(){
+  if(addLegMode){ cancelAddLeg(); return; }
+  addLegMode=true;
+  document.getElementById('add-leg-form').classList.add('show');
+
+  // 기존 경로·마커 숨김 (깨끗한 지도)
+  if(osrmLine){try{map.removeLayer(osrmLine);}catch(_){}}
+  if(startMk){map.removeLayer(startMk);}
+  if(endMk){map.removeLayer(endMk);}
+  showTurnOverlay(false);
+  document.getElementById('steps-panel').style.visibility='hidden';
+
+  // 출발점 = 이전 구간 도착 좌표
+  const lastLeg=legs[legs.length-1];
+  alfSLL=lastLeg?[...lastLeg.eLL]:[...SCENARIOS[loc].center];
+  alfELL=[alfSLL[0]-0.006, alfSLL[1]+0.008];
+
+  document.getElementById('alf-s').value=lastLeg?lastLeg.e:'';
+  document.getElementById('alf-e').value='';
+  document.getElementById('alf-dist').textContent='계산 중...';
+  document.getElementById('alf-time').textContent='계산 중...';
+  document.getElementById('alf-spd-val').textContent='—';
+  // 버튼 숨김
+  document.getElementById('leg-mgmt-btns').classList.remove('show');
+
+  // 역지오코딩 초기
+  alfReverseGeocode(alfSLL[0],alfSLL[1],'alf-s');
+
+  // 드래그 마커
+  alfStartMk=L.marker(alfSLL,{icon:svgPin('출발','#00c73c','#fff'),draggable:true,zIndexOffset:1100}).addTo(map);
+  alfEndMk  =L.marker(alfELL,{icon:svgPin('도착','#ff4444','#fff'),draggable:true,zIndexOffset:1100}).addTo(map);
+
+  // 마커 이동 시 역지오코딩 + OSRM
+  alfStartMk.on('dragend',function(){
+    const ll=this.getLatLng(); alfSLL=[ll.lat,ll.lng];
+    alfReverseGeocode(ll.lat,ll.lng,'alf-s');
+    alfFetchOSRM();
+  });
+  alfEndMk.on('dragend',function(){
+    const ll=this.getLatLng(); alfELL=[ll.lat,ll.lng];
+    alfReverseGeocode(ll.lat,ll.lng,'alf-e');
+    alfFetchOSRM();
+  });
+
+  // input을 사용자가 직접 수정하면 자동입력 잠금
+  ['alf-s','alf-e'].forEach(id=>{
+    const el=document.getElementById(id);
+    el._userEdited=false;
+    el.oninput=()=>{ el._userEdited=true; };
+  });
+
+  map.setView(alfSLL,map.getZoom());
+  alfFetchOSRM();
+  alfReverseGeocode(alfELL[0],alfELL[1],'alf-e');
+}
+
+function cancelAddLeg(){
+  addLegMode=false;
+  document.getElementById('add-leg-form').classList.remove('show');
+  if(alfStartMk){map.removeLayer(alfStartMk);alfStartMk=null;}
+  if(alfEndMk)  {map.removeLayer(alfEndMk);  alfEndMk=null;}
+  alfSLL=alfELL=null; alfOsrmDist=0; alfOsrmTime=0;
+  // 버튼 복원 (시나리오 수정 모드일 때만)
+  if(scEditMode) document.getElementById('leg-mgmt-btns').classList.add('show');
+  // 지도 복원
+  document.getElementById('steps-panel').style.visibility='';
+  renderActiveLeg();
+}
+
+function addNewLeg(){
+  const s=document.getElementById('alf-s').value.trim()||'출발지';
+  const e=document.getElementById('alf-e').value.trim()||'도착지';
+  const dist=alfOsrmDist||parseFloat(document.getElementById('alf-dist').textContent)||0;
+  const time=alfOsrmTime||parseInt(document.getElementById('alf-time').textContent)||10;
+  const spd=time>0?(dist/time*60):0;
+
+  if(!alfSLL||!alfELL){ alert('출발·도착 마커를 지도에서 이동해 위치를 설정하세요.'); return; }
+
+  const sc=SCENARIOS[loc][scKey];
+  const prefix=sc.legs[0]?sc.legs[0].id.replace(/\d+$/,''):'NEW';
+  const newId=prefix+(sc.legs.length+1);
+  sc.legs.push({id:newId,s,e,sLL:[...alfSLL],eLL:[...alfELL],dist,spd,time,rest:0});
+
+  cancelAddLeg();
+  saveWaypointsToStorage();
+  loadScenario();
+  saveCurrentView();
+}
+
+// ── 구간 삭제
+function deleteCurrentLeg(){
+  if(!legs[legIdx]){ alert('삭제할 구간이 없습니다.'); return; }
+  const lg=legs[legIdx];
+  if(!confirm(`"${lg.id}: ${lg.s} → ${lg.e}" 구간을 삭제할까요?`)) return;
+  const sc=SCENARIOS[loc][scKey];
+  sc.legs.splice(legIdx,1);
+  if(legIdx>=sc.legs.length) legIdx=Math.max(0,sc.legs.length-1);
+  saveWaypointsToStorage();
+  loadScenario();
+  saveCurrentView();
+}
+
+function enterEditMode(){
+  if(!legs[legIdx]) return;
+  editMode=true;
+  const lg=legs[legIdx];
+  const legId=lg.id;
+  // 현재 WAYPOINTS 복사
+  editWaypoints=(WAYPOINTS[legId]||[]).map(w=>[...w]);
+
+  document.getElementById('btn-edit').classList.add('active');
+  document.getElementById('edit-bar').classList.add('show');
+  document.getElementById('panel').classList.add('edit-locked');
+  document.getElementById('btn-sc-edit').disabled=true; // 시나리오 수정 비활성화
+
+  // 기존 마커 제거 후 draggable:true로 새로 생성 (enable()은 신뢰 불가)
+  if(startMk){ map.removeLayer(startMk); startMk=null; }
+  if(endMk)  { map.removeLayer(endMk);   endMk=null; }
+
+  startMk=L.marker(lg.sLL,{icon:svgPin('출발','#00c73c','#fff'),zIndexOffset:900,draggable:true}).addTo(map);
+  endMk  =L.marker(lg.eLL,{icon:svgPin('도착','#ff4444','#fff'),zIndexOffset:900,draggable:true}).addTo(map);
+
+  // 수정 시작 시 뷰 경계 고정 (auto-pan 고려해 시작 시점 경계로 제한)
+  const editBounds=map.getBounds();
+  function clampLL(mk){
+    const ll=mk.getLatLng();
+    const lat=Math.max(editBounds.getSouth(),Math.min(editBounds.getNorth(),ll.lat));
+    const lng=Math.max(editBounds.getWest(), Math.min(editBounds.getEast(), ll.lng));
+    if(lat!==ll.lat||lng!==ll.lng) mk.setLatLng([lat,lng]);
+    return mk.getLatLng();
+  }
+  startMk.on('drag',function(){ clampLL(this); });
+  startMk.on('dragend',function(){
+    const ll=clampLL(this);
+    lg.sLL=[ll.lat,ll.lng];
+    refetchWithEditWaypoints();
+  });
+  endMk.on('drag',function(){ clampLL(this); });
+  endMk.on('dragend',function(){
+    const ll=clampLL(this);
+    lg.eLL=[ll.lat,ll.lng];
+    refetchWithEditWaypoints();
+  });
+
+  renderEditMarkers();
+}
+
+function addWaypointMidpoint(){
+  // 경로 중간 지점에 경유점 추가
+  const lg=legs[legIdx]; if(!lg) return;
+  let mid;
+  if(currentRouteCoords&&currentRouteCoords.length>2){
+    const c=currentRouteCoords[Math.floor(currentRouteCoords.length/2)];
+    mid=[c[1],c[0]];
+  } else {
+    mid=[(lg.sLL[0]+lg.eLL[0])/2,(lg.sLL[1]+lg.eLL[1])/2];
+  }
+  const insertIdx=findBestInsertIdx(mid);
+  editWaypoints.splice(insertIdx,0,mid);
+  renderEditMarkers();
+  refetchWithEditWaypoints();
+}
+
+function removeLastWaypoint(){
+  if(editWaypoints.length===0) return;
+  editWaypoints.pop();
+  renderEditMarkers();
+  refetchWithEditWaypoints();
+}
+
+function findBestInsertIdx(ll){
+  const lg=legs[legIdx];
+  // 출발 + 경유점 + 도착 전체 배열에서 가장 가까운 세그먼트 찾기
+  const pts=[[...lg.sLL],...editWaypoints,[...lg.eLL]];
+  let bestIdx=editWaypoints.length, bestDist=Infinity;
+  for(let i=0;i<pts.length-1;i++){
+    const d=pointToSegmentDist(ll,pts[i],pts[i+1]);
+    if(d<bestDist){bestDist=d; bestIdx=i;}
+  }
+  return bestIdx; // 이 인덱스 앞에 삽입 (출발 다음부터)
+}
+
+function pointToSegmentDist(p,a,b){
+  // 단순 중점 거리 근사
+  const mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2;
+  return Math.hypot(p[0]-mx,p[1]-my);
+}
+
+function renderEditMarkers(){
+  editMarkers.forEach(m=>{try{map.removeLayer(m);}catch(_){}});
+  editMarkers=[];
+
+  editWaypoints.forEach((wp,i)=>{
+    const icon=L.divIcon({className:'',html:`
+      <div style="width:22px;height:22px;background:#facc15;border:3px solid #fff;
+        border-radius:50%;cursor:grab;box-shadow:0 0 8px #facc1588;
+        display:flex;align-items:center;justify-content:center;
+        font-size:9px;font-weight:700;color:#000;">${i+1}</div>`,
+      iconSize:[22,22],iconAnchor:[11,11]});
+    const m=L.marker(wp,{icon,draggable:true,zIndexOffset:800}).addTo(map);
+
+    m.on('drag',function(){
+      // 뷰 밖으로 나가면 즉시 클램프
+      const b=map.getBounds(), ll=this.getLatLng();
+      const lat=Math.max(b.getSouth(),Math.min(b.getNorth(),ll.lat));
+      const lng=Math.max(b.getWest(), Math.min(b.getEast(), ll.lng));
+      if(lat!==ll.lat||lng!==ll.lng) this.setLatLng([lat,lng]);
+      editWaypoints[i]=[this.getLatLng().lat,this.getLatLng().lng];
+    });
+    m.on('dragend',function(){
+      editWaypoints[i]=[this.getLatLng().lat,this.getLatLng().lng];
+      refetchWithEditWaypoints();
+    });
+
+    editMarkers.push(m);
+  });
+}
+
+async function refetchWithEditWaypoints(){
+  if(!legs[legIdx]) return;
+  const lg=legs[legIdx];
+  // 임시로 WAYPOINTS 덮어써서 fetchOSRM 호출
+  const orig=WAYPOINTS[lg.id];
+  WAYPOINTS[lg.id]=editWaypoints.map(w=>[...w]);
+  await fetchOSRM(lg.sLL,lg.eLL,lg.id);
+  WAYPOINTS[lg.id]=orig; // 저장 전까지 원복
+}
+
+function saveEditedRoute(){
+  if(!legs[legIdx]) return;
+  const lg=legs[legIdx];
+  const legId=lg.id;
+  WAYPOINTS[legId]=editWaypoints.map(w=>[...w]);
+
+  // 도착 변경 → 다음 구간 출발 자동 연동
+  const nextLg=legs[legIdx+1];
+  if(nextLg){
+    nextLg.sLL=[...lg.eLL];
+    console.log(`⛓ ${legId} 도착 변경 → ${nextLg.id} 출발 자동 업데이트`);
+  }
+  // 출발 변경 → 이전 구간 도착 자동 연동
+  const prevLg=legs[legIdx-1];
+  if(prevLg){
+    prevLg.eLL=[...lg.sLL];
+    console.log(`⛓ ${legId} 출발 변경 → ${prevLg.id} 도착 자동 업데이트`);
+  }
+
+  saveWaypointsToStorage();
+  exitEditMode();
+  fetchOSRM(lg.sLL,lg.eLL,legId);
+  renderLegList(); // 목록 갱신
+}
+
+// ══════════════════════════════════════════════════════════
+//  전체 최근 수정 시각 (경로 수정 / 시나리오 수정 / 구간 추가·삭제 시 기록)
+//  위치·시나리오와 무관하게 항상 가장 최근 값을 저장/표시
+// ══════════════════════════════════════════════════════════
+function renderLastSaved(str){
+  const el=document.getElementById('last-saved');
+  if(el&&str) el.textContent='최근 수정: '+str;
+}
+
+function updateLastSaved(){
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const str=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  try{ localStorage.setItem('nav_last_saved',str); }
+  catch(e){ console.warn('수정시각 저장 실패:',e); }
+  renderLastSaved(str);
+}
+
+function loadLastSaved(){
+  try{
+    const str=localStorage.getItem('nav_last_saved');
+    renderLastSaved(str);
+  }catch(e){}
+}
+
+// ══════════════════════════════════════════════════════════
+//  주행 기록 (오늘 완료한 구간을 모아 엑셀로 다운로드)
+// ══════════════════════════════════════════════════════════
+function todayStr(){
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+}
+
+function loadTripLog(){
+  try{
+    const raw=localStorage.getItem('nav_trip_log');
+    return raw?JSON.parse(raw):[];
+  }catch(e){ return []; }
+}
+
+function saveTripLog(log){
+  try{ localStorage.setItem('nav_trip_log',JSON.stringify(log)); }
+  catch(e){ console.warn('주행 기록 저장 실패:',e); }
+}
+
+// 현재 GPS 위치 (없으면 null)
+function getGPSPos(){
+  return lastCarPos?[lastCarPos[0],lastCarPos[1]]:null;
+}
+
+// 진행 중인 주행 세션을 주행기록에 한 줄 저장
+// (시작 시각/위치 ~ 정지(또는 구간완료) 시각/위치, 위치는 GPS 실측 기준)
+function finalizeLegSession(idx,endPos){
+  const lg=legs[idx]; if(!lg||!legStartTime) return;
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const startD=legStartTime;
+  const sPos=legStartPos||lg.sLL;
+  const ePos=endPos||lg.eLL;
+  const fmtPos=p=>`${p[0].toFixed(5)}, ${p[1].toFixed(5)}`;
+  const entryId=Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  const entry={
+    _id:entryId,
+    date:todayStr(),
+    startTime:`${pad(startD.getHours())}:${pad(startD.getMinutes())}:${pad(startD.getSeconds())}`,
+    time:`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+    legId:lg.id, start:fmtPos(sPos), end:fmtPos(ePos),
+  };
+  const log=loadTripLog();
+  log.push(entry);
+  saveTripLog(log);
+  updateTripLogCount();
+  legStartTime=null; legStartPos=null;
+
+  // 출발/도착 GPS 좌표를 건물·장소명으로 비동기 변환 (실패 시 좌표 그대로 유지)
+  reverseGeocodePlace(sPos[0],sPos[1]).then(name=>updateTripLogPlace(entryId,'start',name));
+  reverseGeocodePlace(ePos[0],ePos[1]).then(name=>updateTripLogPlace(entryId,'end',name));
+}
+
+// GPS 좌표 → 건물/장소명 (예: "서울대학교 시흥캠퍼스"). 실패 시 null.
+async function reverseGeocodePlace(lat,lng){
+  // 줌 레벨을 낮춰가며 재시도: 18(건물) → 16(도로/구역) → 12(동/구) → 8(시/도)
+  for(const zoom of [18,16,12,8]){
+    try{
+      const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=${zoom}&addressdetails=1&namedetails=1&accept-language=ko`,
+        {headers:{'Accept-Language':'ko'}});
+      if(!r.ok){ console.warn('역지오코딩 HTTP',r.status,'zoom',zoom); continue; }
+      const d=await r.json();
+      if(d.error){ console.warn('역지오코딩 응답 오류:',d.error,'zoom',zoom); continue; }
+      const a=d.address||{}, nd=d.namedetails||{};
+      const name=nd['name:ko']||nd.name||d.name||
+        a.university||a.college||a.school||a.amenity||a.building||a.tourism||a.leisure||a.office||a.shop||
+        a.man_made||a.railway||a.aeroway||a.industrial||
+        a.road||a.neighbourhood||a.suburb||a.quarter||a.village||a.town||
+        a.city_district||a.city||a.county||a.state||
+        (d.display_name||'').split(',')[0];
+      if(name) return name;
+    }catch(e){ console.warn('역지오코딩 오류:',e,'zoom',zoom); }
+  }
+  return null;
+}
+
+// 주행기록의 특정 항목(entryId)의 start/end 값을 장소명으로 갱신
+function updateTripLogPlace(entryId,field,name){
+  if(!name) return;
+  const log=loadTripLog();
+  const e=log.find(x=>x._id===entryId);
+  if(!e) return;
+  e[field]=name;
+  saveTripLog(log);
+}
+
+function updateTripLogCount(){
+  const el=document.getElementById('export-log-count');
+  if(!el) return;
+  const cnt=loadTripLog().filter(e=>e.date===todayStr()).length;
+  el.textContent=cnt>0?`(${cnt})`:'';
+}
+
+function downloadTodayLogExcel(){
+  const today=todayStr();
+  const todayLogs=loadTripLog().filter(e=>e.date===today);
+  if(todayLogs.length===0){
+    alert('오늘 완료(✓)한 구간이 아직 없습니다.\n구간을 완료(◀▶ 이동 또는 타이머 종료)하면 자동으로 기록됩니다.');
+    return;
+  }
+  const headers=['번호','날짜','시작시각','완료시각','구간ID','출발','도착'];
+  const rows=todayLogs.map((e,i)=>[
+    i+1,e.date,e.startTime||'',e.time,e.legId,e.start,e.end,
+  ]);
+
+  // 1) SheetJS(xlsx) 라이브러리가 정상 로드된 경우 → 진짜 .xlsx로 다운로드
+  if(typeof XLSX!=='undefined'){
+    try{
+      const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+      ws['!cols']=[
+        {wch:5},{wch:11},{wch:9},{wch:9},{wch:9},{wch:20},{wch:20},
+      ];
+      const wb=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb,ws,'주행기록');
+      XLSX.writeFile(wb,`주행기록_${today}.xlsx`);
+      return;
+    }catch(e){
+      console.warn('.xlsx 내보내기 실패 → CSV로 대체:',e);
+    }
+  }
+
+  // 2) 라이브러리를 못 불러왔거나 실패한 경우 → CSV(UTF-8 BOM)로 다운로드
+  //    외부 라이브러리/네트워크 없이도 항상 동작하며, 엑셀에서 한글이 깨지지 않게 BOM 포함
+  downloadCSV(headers,rows,`주행기록_${today}.csv`);
+}
+
+function downloadCSV(headers,rows,filename){
+  const esc=v=>{
+    const s=String(v==null?'':v);
+    return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+  };
+  const lines=[headers.map(esc).join(','),...rows.map(r=>r.map(esc).join(','))];
+  const csv='\uFEFF'+lines.join('\r\n'); // BOM → 엑셀에서 한글 깨짐 방지
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function clearTodayTripLog(){
+  const today=todayStr();
+  const log=loadTripLog();
+  const cnt=log.filter(e=>e.date===today).length;
+  if(cnt===0){ alert('오늘 기록이 없습니다.'); return; }
+  if(!confirm(`오늘(${today}) 기록 ${cnt}건을 모두 삭제할까요?`)) return;
+  saveTripLog(log.filter(e=>e.date!==today));
+  updateTripLogCount();
+}
+
+function saveWaypointsToStorage(){
+  try{
+    const data={waypoints:WAYPOINTS, legCoords:{}, customLegs:{}};
+    Object.keys(SCENARIOS).forEach(locKey=>{
+      Object.keys(SCENARIOS[locKey]).forEach(scKey=>{
+        const sc=SCENARIOS[locKey][scKey];
+        if(!sc.legs) return;
+        // 전체 legs 배열 스냅샷 (추가/삭제 포함)
+        data.customLegs[`${locKey}-${scKey}`]=sc.legs.map(lg=>({
+          id:lg.id,s:lg.s,e:lg.e,
+          sLL:[...lg.sLL],eLL:[...lg.eLL],
+          dist:lg.dist,spd:lg.spd,time:lg.time,rest:lg.rest||0
+        }));
+        sc.legs.forEach(lg=>{
+          data.legCoords[lg.id]={sLL:lg.sLL,eLL:lg.eLL,dist:lg.dist,spd:lg.spd,time:lg.time};
+        });
+      });
+    });
+    localStorage.setItem('nav_custom_routes',JSON.stringify(data));
+  }catch(e){console.warn('저장 실패:',e);}
+  updateLastSaved();
+}
+
+function loadWaypointsFromStorage(){
+  try{
+    const raw=localStorage.getItem('nav_custom_routes');
+    if(!raw) return;
+    const data=JSON.parse(raw);
+    if(data.waypoints) Object.assign(WAYPOINTS,data.waypoints);
+    // 전체 legs 배열 복원 (추가/삭제된 구간 포함)
+    if(data.customLegs){
+      Object.keys(SCENARIOS).forEach(locKey=>{
+        Object.keys(SCENARIOS[locKey]).forEach(scKey=>{
+          const saved=data.customLegs[`${locKey}-${scKey}`];
+          if(saved&&saved.length) SCENARIOS[locKey][scKey].legs=saved;
+        });
+      });
+    } else if(data.legCoords){
+      // 구버전 호환
+      Object.values(SCENARIOS).forEach(loc=>{
+        Object.values(loc).forEach(sc=>{
+          if(!sc.legs) return;
+          sc.legs.forEach(lg=>{
+            const c=data.legCoords[lg.id];
+            if(c){ lg.sLL=c.sLL;lg.eLL=c.eLL;if(c.dist!=null)lg.dist=c.dist;if(c.time!=null)lg.time=c.time; }
+          });
+        });
+      });
+    }
+    console.log('✅ 저장된 경로 불러옴');
+  }catch(e){console.warn('불러오기 실패:',e);}
+}
+
+// ══════════════════════════════════════════════════════════
+//  설정 내보내기/가져오기
+//  (경로 수정·시나리오 수정·구간 추가삭제·오늘 기록을 JSON 파일로 저장/복원.
+//   Claude가 새 버전의 navigation.html을 줄 때마다 localStorage가
+//   초기화되므로, 이 파일로 직접 옮겨 적용한다.)
+// ══════════════════════════════════════════════════════════
+function exportSettings(){
+  const data={
+    exportedAt:new Date().toISOString(),
+    waypoints:WAYPOINTS,
+    customLegs:{},
+    tripLog:loadTripLog(),
+    lastSaved:localStorage.getItem('nav_last_saved')||'',
+    currentView:{loc,scKey,legId:legs[legIdx]?legs[legIdx].id:''},
+  };
+  Object.keys(SCENARIOS).forEach(locKey=>{
+    Object.keys(SCENARIOS[locKey]).forEach(scK=>{
+      const sc=SCENARIOS[locKey][scK];
+      if(!sc.legs) return;
+      data.customLegs[`${locKey}-${scK}`]=sc.legs.map(lg=>({
+        id:lg.id,s:lg.s,e:lg.e,
+        sLL:[...lg.sLL],eLL:[...lg.eLL],
+        dist:lg.dist,spd:lg.spd,time:lg.time,rest:lg.rest||0,
+      }));
+    });
+  });
+
+  const pad=n=>String(n).padStart(2,'0');
+  const now=new Date();
+  const fname=`nav_settings_${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=fname;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function handleImportFile(ev){
+  const file=ev.target.files&&ev.target.files[0];
+  ev.target.value=''; // 같은 파일 재선택 가능하도록 초기화
+  if(!file) return;
+  try{
+    const text=await file.text();
+    const data=JSON.parse(text);
+    if(!confirm('현재 경로 수정·시나리오 수정·구간 추가/삭제·주행기록을 가져온 파일 내용으로 덮어씁니다.\n계속할까요?')) return;
+
+    if(data.waypoints) Object.assign(WAYPOINTS,data.waypoints);
+    if(data.customLegs){
+      Object.keys(SCENARIOS).forEach(locKey=>{
+        Object.keys(SCENARIOS[locKey]).forEach(scK=>{
+          const saved=data.customLegs[`${locKey}-${scK}`];
+          if(saved&&saved.length) SCENARIOS[locKey][scK].legs=saved;
+        });
+      });
+    }
+    if(Array.isArray(data.tripLog)) saveTripLog(data.tripLog);
+    if(data.lastSaved){ try{localStorage.setItem('nav_last_saved',data.lastSaved);}catch(_){} }
+
+    saveWaypointsToStorage(); // 이번 파일의 localStorage에도 반영(다음 새로고침까지 유지)
+    loadLastSaved();
+    updateTripLogCount();
+
+    // 위치/시나리오/구간 복원
+    if(data.currentView&&SCENARIOS[data.currentView.loc]){
+      loc=data.currentView.loc;
+      if(SCENARIOS[loc][data.currentView.scKey]) scKey=data.currentView.scKey;
+      applyLocUI(loc);
+      const scSelEl=document.getElementById('sc-sel');
+      if(scSelEl) scSelEl.value=scKey;
+      loadScenario(data.currentView);
+    } else {
+      loadScenario();
+    }
+    saveCurrentView();
+    alert('가져오기 완료!');
+  }catch(e){
+    alert('가져오기 실패: 올바른 설정 파일(JSON)인지 확인해주세요.\n'+e.message);
+  }
+}
+
+function exitEditMode(){
+  editMode=false;
+  editWaypoints=[];
+  editMarkers.forEach(m=>{try{map.removeLayer(m);}catch(_){}});
+  editMarkers=[];
+  // 드래그 마커 제거 후 non-draggable로 재생성
+  if(startMk){ map.removeLayer(startMk); startMk=null; }
+  if(endMk)  { map.removeLayer(endMk);   endMk=null; }
+  if(legs[legIdx]){
+    const lg=legs[legIdx];
+    startMk=L.marker(lg.sLL,{icon:svgPin('출발','#00c73c','#fff'),zIndexOffset:900,draggable:false}).addTo(map);
+    endMk  =L.marker(lg.eLL,{icon:svgPin('도착','#ff4444','#fff'),zIndexOffset:900,draggable:false}).addTo(map);
+  }
+  document.getElementById('btn-edit').classList.remove('active');
+  document.getElementById('edit-bar').classList.remove('show');
+  document.getElementById('panel').classList.remove('edit-locked');
+  document.getElementById('btn-sc-edit').disabled=false;
+}
+
+// ══════════════════════════════════════════════════════════
+//  패널 크기 조절 (드래그 리사이즈)
+// ══════════════════════════════════════════════════════════
+(function initResize(){
+  // 우측 패널 ← 핸들 드래그
+  let panelDragging=false, panelStartX=0, panelStartW=0;
+  const panelHandle=document.getElementById('panel-resize-handle');
+  panelHandle.addEventListener('mousedown',e=>{
+    panelDragging=true; panelStartX=e.clientX;
+    panelStartW=document.getElementById('panel').offsetWidth;
+    panelHandle.classList.add('dragging');
+    document.body.style.userSelect='none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!panelDragging) return;
+    const delta=panelStartX-e.clientX;
+    const newW=Math.max(280,Math.min(680,panelStartW+delta));
+    document.getElementById('main').style.gridTemplateColumns=`1fr ${newW}px`;
+  });
+  document.addEventListener('mouseup',()=>{
+    if(!panelDragging) return;
+    panelDragging=false;
+    panelHandle.classList.remove('dragging');
+    document.body.style.userSelect='';
+  });
+
+  // 경로 안내 패널 ↑ 핸들 드래그
+  let stepsDragging=false, stepsStartY=0, stepsStartH=0;
+  const stepsHandle=document.getElementById('steps-resize-handle');
+  stepsHandle.addEventListener('mousedown',e=>{
+    if(document.getElementById('steps-panel').classList.contains('collapsed')) return;
+    stepsDragging=true; stepsStartY=e.clientY;
+    stepsStartH=document.getElementById('steps-panel').offsetHeight;
+    document.body.style.userSelect='none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!stepsDragging) return;
+    const delta=stepsStartY-e.clientY; // 위로 드래그 = 더 크게
+    const newH=Math.max(60,Math.min(window.innerHeight*0.65,stepsStartH+delta));
+    document.getElementById('steps-panel').style.height=newH+'px';
+  });
+  document.addEventListener('mouseup',()=>{
+    if(!stepsDragging) return;
+    stepsDragging=false;
+    document.body.style.userSelect='';
+  });
+})();
+
+// 초기화 — 저장된 경로 먼저 불러온 뒤 시나리오 로드
+loadWaypointsFromStorage();
+loadLastSaved();
+updateTripLogCount();
+
+// 이전에 보고 있던 위치·시나리오·구간 복원 (새로고침/Ctrl+F5 대응)
+{
+  const savedView=loadCurrentView();
+  if(savedView&&SCENARIOS[savedView.loc]){
+    loc=savedView.loc;
+    if(SCENARIOS[loc][savedView.scKey]) scKey=savedView.scKey;
+  }
+  applyLocUI(loc);
+  const scSelEl=document.getElementById('sc-sel');
+  if(scSelEl) scSelEl.value=scKey;
+  loadScenario(savedView||undefined);
+}
+
+// ══════════════════════════════════════════════════════════
+//  PWA — 서비스워커 등록 (오프라인 앱 셸)
+//  file://로 직접 열면 서비스워커가 동작하지 않으므로(정상),
+//  https로 호스팅했을 때만 등록됨.
+// ══════════════════════════════════════════════════════════
+if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost')){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('SW 등록 실패:',e));
+  });
+}
+
+</script>
+</body>
+</html>
