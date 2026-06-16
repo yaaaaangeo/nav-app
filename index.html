@@ -217,6 +217,13 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #btn-alf-cancel{width:100%;background:#1a1e30;color:#6b7aaa;border:1px solid #2a3050;border-radius:7px;padding:6px;font-size:11px;cursor:pointer;margin-top:4px;}
 #btn-alf-cancel:hover{background:#252d50;}
 
+/* 구간 목록 헤더 (접기/펼치기) */
+#leg-list-wrap{display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0;}
+#leg-list-hdr{display:flex;align-items:center;justify-content:space-between;padding:7px 14px;background:#0d0f1a;border-bottom:1px solid #1a1e30;border-top:1px solid #1a1e30;cursor:pointer;flex-shrink:0;user-select:none;}
+#leg-list-hdr-title{font-size:12px;font-weight:700;color:#4a5580;letter-spacing:.5px;}
+#btn-leg-list-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
+#leg-list-wrap.collapsed #leg-list{display:none;}
+
 /* 구간 목록 */
 #leg-list{flex:1;overflow-y:auto;padding:0;}
 #leg-list::-webkit-scrollbar{width:4px;}
@@ -345,6 +352,12 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   /* ── 구간 추가/삭제 ── */
   #leg-mgmt-btns{margin:5px 8px 3px;}
   .leg-mgmt-btn{padding:8px 4px;font-size:12px;}
+
+  /* ── 구간 목록: 모바일에서 기본 접힌 상태 ── */
+  #leg-list-wrap{flex:none;}
+  #leg-list-wrap.collapsed #leg-list{display:none;}
+  #leg-list{max-height:40vh;overflow-y:auto;}
+  #leg-list-hdr{padding:8px 12px;}
 
   /* ── sc-export 그룹 ── */
   .sc-export-group .set-io-btn{font-size:10px;padding:3px 7px;}
@@ -482,7 +495,13 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       <div id="warn">⚠️ 경로 이탈! 파란 선으로 복귀하세요</div>
     </div>
 
-    <div id="leg-list"></div>
+    <div id="leg-list-wrap">
+      <div id="leg-list-hdr" onclick="toggleLegList()">
+        <span id="leg-list-hdr-title">구간 목록</span>
+        <button id="btn-leg-list-toggle">펼치기 ▲</button>
+      </div>
+      <div id="leg-list"></div>
+    </div>
     <!-- 구간 추가/삭제 버튼 (시나리오 수정 모드일 때만 표시) -->
     <div id="leg-mgmt-btns">
       <button id="btn-add-leg" class="leg-mgmt-btn" onclick="toggleAddLegForm()">＋ 구간 추가</button>
@@ -990,6 +1009,13 @@ function showTurnOverlay(show){
   document.getElementById('turn-overlay').classList.toggle('show',show);
 }
 
+function toggleLegList(){
+  const wrap=document.getElementById('leg-list-wrap');
+  const btn=document.getElementById('btn-leg-list-toggle');
+  const collapsed=wrap.classList.toggle('collapsed');
+  btn.textContent=collapsed?'펼치기 ▲':'접기 ▼';
+}
+
 function toggleStepsPanel(){
   const p=document.getElementById('steps-panel');
   const btn=document.getElementById('btn-steps-toggle');
@@ -1221,7 +1247,8 @@ function renderCurLeg(){
 
 function updateHeader(){
   const sc=SCENARIOS[loc][scKey];
-  document.getElementById('hdr-progress').textContent=`${loc} · ${sc.name} · ${doneSet.size}/${legs.length} 완료`;
+  const el=document.getElementById('hdr-progress');
+  if(el) el.textContent=`${loc} · ${sc.name} · ${doneSet.size}/${legs.length} 완료`;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2190,6 +2217,14 @@ function exitEditMode(){
 loadWaypointsFromStorage();
 loadLastSaved();
 updateTripLogCount();
+
+// 모바일에서 구간 목록 기본 접힌 상태로 시작
+if(window.innerWidth<=700){
+  const wrap=document.getElementById('leg-list-wrap');
+  const btn=document.getElementById('btn-leg-list-toggle');
+  if(wrap){ wrap.classList.add('collapsed'); }
+  if(btn){ btn.textContent='펼치기 ▲'; }
+}
 
 // 이전에 보고 있던 위치·시나리오·구간 복원 (새로고침/Ctrl+F5 대응)
 {
