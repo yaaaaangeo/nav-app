@@ -412,6 +412,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <button class="sel-btn" id="btn-loc-pg" onclick="switchLoc('판교')">판교</button>
   <button class="sel-btn" id="btn-loc-sh" onclick="switchLoc('시흥')">시흥</button>
   <a id="btn-naver-map" href="https://map.naver.com/p/?c=127.032,37.498,14,0,0,0,dh" target="_blank" rel="noopener">네이버 지도</a>
+  <button id="btn-tts" onclick="toggleTTS()" title="음성 안내 켜기/끄기" style="background:#1a1e30;color:#e0e6f0;border:1px solid #2a3050;border-radius:7px;padding:5px 10px;font-size:14px;cursor:pointer;">🔊</button>
   <button id="btn-export-log" onclick="downloadTodayLogExcel()" title="오늘 완료한 구간을 엑셀로 다운로드">📥 오늘 기록 다운로드<span id="export-log-count"></span></button>
   <button id="btn-clear-log" onclick="clearTodayTripLog()" title="오늘 기록 초기화">🗑</button>
   <input type="file" id="import-file-input" accept="application/json" style="display:none" onchange="handleImportFile(event)"/>
@@ -1001,14 +1002,51 @@ function getDistUnitLabel(maneuverType){
   return maneuverType==='depart' ? ' 주행' : ' 앞';
 }
 
+// ══════════════════════════════════════════════════════════
+//  음성 안내 (Web Speech API — TTS)
+// ══════════════════════════════════════════════════════════
+let ttsEnabled=true;          // 음소거 토글
+let lastSpokenStep=-1;        // 중복 발화 방지
+let lastWarnSpoken=false;     // 경로 이탈 중복 방지
+let timerWarn5Spoken=false;   // 5분 경고 중복 방지
+
+function speak(text, priority=false){
+  if(!ttsEnabled) return;
+  if(!window.speechSynthesis) return;
+  if(priority) window.speechSynthesis.cancel(); // 높은 우선순위면 현재 발화 중단
+  const utt=new SpeechSynthesisUtterance(text);
+  utt.lang='ko-KR';
+  utt.rate=1.05;
+  utt.pitch=1.0;
+  utt.volume=1.0;
+  window.speechSynthesis.speak(utt);
+}
+
+// 음성 안내 버튼 (헤더에 추가)
+function toggleTTS(){
+  ttsEnabled=!ttsEnabled;
+  const btn=document.getElementById('btn-tts');
+  if(btn) btn.textContent=ttsEnabled?'🔊':'🔇';
+  speak(ttsEnabled?'음성 안내를 켭니다':'음성 안내를 끕니다', true);
+}
+
+function getTurnVoiceText(step, distM){
+  if(!step) return null;
+  const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
+  const road=step.name?` — ${step.name}`:'';
+  if(step.maneuver.type==='arrive') return `목적지에 도착했습니다`;
+  if(step.maneuver.type==='depart') return null;
+  const distStr=distM>=1000?`${(distM/1000).toFixed(1)}킬로미터`:`${Math.round(distM/10)*10}미터`;
+  return `${distStr} 앞 ${info.text}${road}`;
+}
+
 function showNextStep(idx,curPos){
   if(!osrmSteps.length) return;
-  // 다음 실제 턴 스텝 찾기 (depart/arrive 제외하고 거리 > 0인 것 우선)
   let step=osrmSteps[idx];
   if(!step) return;
 
   const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
-  const stepLoc=step.maneuver.location; // [lng,lat]
+  const stepLoc=step.maneuver.location;
   let dist=step.distance;
   if(curPos){
     dist=haversine(curPos[0],curPos[1],stepLoc[1],stepLoc[0]);
@@ -1019,26 +1057,47 @@ function showNextStep(idx,curPos){
   document.getElementById('turn-unit').textContent=getDistUnitLabel(step.maneuver.type);
   document.getElementById('turn-instr').textContent=info.text;
   document.getElementById('turn-road').textContent=step.name||'';
+
+  // 첫 출발 음성
+  if(idx===0&&lastSpokenStep<0){
+    const lg=legs[legIdx];
+    speak(`${lg.e} 방향으로 출발합니다`, true);
+    lastSpokenStep=0;
+  }
 }
 
 function updateTurnFromPosition(lat,lng){
   if(!osrmSteps.length) return;
-  // 현재 위치에서 앞쪽 스텝 찾기
   for(let i=currentStepIdx;i<osrmSteps.length;i++){
     const step=osrmSteps[i];
     const loc=step.maneuver.location;
     const d=haversine(lat,lng,loc[1],loc[0]);
-    if(d<25){ // 이미 통과
+    if(d<25){
       currentStepIdx=Math.min(i+1,osrmSteps.length-1);
       highlightCurrentStep(currentStepIdx);
       continue;
     }
-    // 다음 스텝 안내
     document.getElementById('turn-arrow').textContent=getManeuverInfo(step.maneuver.type,step.maneuver.modifier).icon;
     document.getElementById('turn-instr').textContent=getManeuverInfo(step.maneuver.type,step.maneuver.modifier).text;
     document.getElementById('turn-dist').textContent=d>=1000?(d/1000).toFixed(1)+'km':Math.round(d)+'m';
     document.getElementById('turn-unit').textContent=getDistUnitLabel(step.maneuver.type);
     document.getElementById('turn-road').textContent=step.name||'';
+
+    // 거리별 음성 안내 (500m / 200m / 50m)
+    const SPEAK_DISTS=[500,200,50];
+    for(const sd of SPEAK_DISTS){
+      const key=`${i}_${sd}`;
+      if(d<=sd+15&&d>=sd-15&&lastSpokenStep!==key){
+        lastSpokenStep=key;
+        const txt=getTurnVoiceText(step,d);
+        if(txt) speak(txt);
+        break;
+      }
+    }
+    // 스텝이 바뀌면 새 스텝 직전 안내
+    if(i!==currentStepIdx&&lastSpokenStep!==`new_${i}`){
+      lastSpokenStep=`new_${i}`;
+    }
     break;
   }
 }
@@ -1313,6 +1372,8 @@ function stopTimer(){ if(timerInterval){clearInterval(timerInterval);timerInterv
 
 function startRestPhase(){
   stopTimer(); phase='rest'; setPhaseUI('rest');
+  timerWarn5Spoken=false;
+  speak('휴식 시간입니다. 안전한 곳에 정차하세요', true);
   startTimer(legs[legIdx].rest*60);
 }
 
@@ -1338,6 +1399,8 @@ function updateTimerDisplay(sec){
   if(phase==='drive'){
     phEl.textContent=warn?'🛑 5분 내 — 정차할 곳을 확인하세요':'';
     phEl.classList.toggle('show-warn',warn);
+    if(warn&&!timerWarn5Spoken){ timerWarn5Spoken=true; speak('5분 후 휴식입니다. 정차할 곳을 확인하세요',true); }
+    if(!warn) timerWarn5Spoken=false;
   }
 }
 
@@ -1350,10 +1413,12 @@ function togglePlay(){
     document.getElementById('btn-play').textContent='▶ 시작';
     document.getElementById('btn-play').className='ctrl-btn';
     finalizeLegSession(legIdx,getGPSPos());
+    speak('주행을 정지합니다', true);
   } else {
     isPlaying=true; phase='drive'; setPhaseUI('drive');
     legStartTime=new Date();
     legStartPos=getGPSPos()||[...legs[legIdx].sLL];
+    lastSpokenStep=-1; lastWarnSpoken=false; timerWarn5Spoken=false;
     startTimer(getCurrentEtaMin()*60);
     document.getElementById('btn-play').textContent='⏸ 정지';
     document.getElementById('btn-play').className='ctrl-btn running';
@@ -1367,13 +1432,15 @@ function advanceLeg(){
   stopTimer(); doneSet.add(legIdx);
   finalizeLegSession(legIdx,getGPSPos());
   legIdx++;
-  if(legIdx>=legs.length){ isPlaying=false; showDone(); return; }
+  if(legIdx>=legs.length){ isPlaying=false; speak('모든 구간을 완료했습니다. 수고하셨습니다!',true); showDone(); return; }
   phase='drive';
-  legStartTime=new Date(); // 다음 구간 시작 시각
+  legStartTime=new Date();
   legStartPos=getGPSPos()||[...legs[legIdx].sLL];
+  lastSpokenStep=-1; lastWarnSpoken=false; timerWarn5Spoken=false;
+  const lg=legs[legIdx];
+  speak(`${legIdx+1}번 구간, ${lg.s}에서 ${lg.e}로 이동합니다`, true);
   updateLegUI();
   startTimer(getCurrentEtaMin()*60);
-  const lg=legs[legIdx];
   fetchOSRM(lg.sLL,lg.eLL,lg.id);
 }
 
@@ -1430,6 +1497,8 @@ function startGPS(){
       const dS=haversine(lat,lng,...lg.sLL), dE=haversine(lat,lng,...lg.eLL);
       const off=Math.min(dS,dE)>1000;
       document.getElementById('warn').style.display=off?'block':'none';
+      if(off&&!lastWarnSpoken){ lastWarnSpoken=true; speak('경로를 이탈했습니다. 파란 선으로 복귀하세요',true); }
+      if(!off) lastWarnSpoken=false;
     }
   },err=>{
     document.getElementById('gps-status').textContent='📡 GPS 권한 없음';
