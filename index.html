@@ -371,14 +371,53 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #panel-resize-handle{display:none;}
   #steps-resize-handle{display:none;}
 
-  /* ── 경로 안내: 지도 위 오버레이 ── */
+  /* ── 경로 수정 바 + 전체 경로 안내: 서로 겹치지 않게 세로 배치 ── */
+  #bottom-stack{
+    position:absolute;
+    bottom:0;left:0;right:0;
+    display:flex;
+    flex-direction:column;
+    align-items:stretch;
+  }
+  #edit-bar{
+    align-self:center;
+    width:calc(100% - 16px);
+    max-width:none;
+    margin:0 8px 6px;
+    padding:8px;
+    gap:6px;
+    justify-content:center;
+    overflow:hidden;
+  }
+  #btn-wp-add,#btn-wp-del{
+    flex:0 1 auto;
+    min-width:0;
+    padding:7px 10px;
+    font-size:11px;
+  }
+  #edit-hint{
+    flex:1 1 auto;
+    min-width:0;
+    font-size:10px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  #btn-save-route{
+    flex:0 1 auto;
+    min-width:0;
+    padding:8px 12px;
+    font-size:11px;
+  }
   #steps-panel{
+    position:relative;
+    bottom:auto;left:auto;right:auto;
+    width:100%;
     height:30px!important;
+    flex:0 0 30px;
     max-height:40vh;
-    position:absolute;bottom:0;left:0;right:0;
     z-index:1003;
   }
-  #steps-panel:not(.collapsed){height:200px!important;}
+  #steps-panel:not(.collapsed){height:200px!important;flex-basis:200px;}
 
   /* ── 턴바이턴 ── */
   #turn-overlay{top:6px;left:6px;right:6px;padding:10px 12px;}
@@ -422,8 +461,13 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #timer-val{font-size:22px;}
   .stat-v{font-size:14px;}
   #btn-play{padding:9px;font-size:13px;}
-  #steps-panel{position:absolute;bottom:0;left:0;right:0;height:36px!important;}
-  #steps-panel:not(.collapsed){height:150px!important;}
+  #bottom-stack{position:absolute;bottom:0;left:0;right:0;display:flex;flex-direction:column;align-items:stretch;}
+  #edit-bar{align-self:center;width:calc(100% - 12px);margin:0 6px 4px;padding:6px;gap:5px;justify-content:center;overflow:hidden;}
+  #btn-wp-add,#btn-wp-del{padding:5px 8px;font-size:10px;}
+  #edit-hint{min-width:0;font-size:9px;overflow:hidden;text-overflow:ellipsis;}
+  #btn-save-route{padding:6px 10px;font-size:10px;}
+  #steps-panel{position:relative;bottom:auto;left:auto;right:auto;width:100%;height:36px!important;flex:0 0 36px;}
+  #steps-panel:not(.collapsed){height:150px!important;flex-basis:150px;}
   #leg-list{max-height:22vh;overflow-y:auto;}
   #leg-list-wrap{flex:none;}
 }
