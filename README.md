@@ -44,7 +44,7 @@
  <img 
   src="./docs/images/main-screen.jpg" 
   alt="자율주행 데이터 취득 내비게이션 메인 화면" 
-  width="500" 
+  width="300" 
  > 
 </p>
 
