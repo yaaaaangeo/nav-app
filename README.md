@@ -42,7 +42,7 @@
 
 <p align="center"> 
  <img 
-  src="./docs/images/main-screen.png" 
+  src="./docs/images/main-screen.jpg" 
   alt="자율주행 데이터 취득 내비게이션 메인 화면" 
   width="650" 
  > 
