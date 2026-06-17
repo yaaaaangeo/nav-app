@@ -26,10 +26,11 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 /* 현재구간 카드 접기/펼치기 헤더 */
 #panel-card-wrap{flex-shrink:0;}
-#panel-card-hdr{display:none;align-items:center;justify-content:space-between;padding:5px 12px;background:#0d0f1a;border-bottom:1px solid #1a1e30;cursor:pointer;user-select:none;min-height:30px;}
+#panel-card-hdr{display:none;align-items:center;justify-content:space-between;height:30px;min-height:30px;padding:0 12px;background:#0d0f1a;border-bottom:1px solid #1a1e30;cursor:pointer;user-select:none;}
 #panel-card-hdr-title{font-size:12px;font-weight:700;color:#4a5580;letter-spacing:.5px;}
 #btn-panel-card-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
-#panel-card-wrap.collapsed #panel-card-body{display:none;}
+#panel-card-wrap.collapsed{height:30px;min-height:30px;max-height:30px;overflow:hidden;}
+#panel-card-wrap.collapsed #panel-card-body{display:none!important;}
 
 /* ── 헤더 ── */
 #hdr{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#0f111a;border-bottom:1px solid #1e2230;flex-shrink:0;z-index:100;}
@@ -226,10 +227,13 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 /* 구간 목록 헤더 (접기/펼치기) */
 #leg-list-wrap{display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0;}
-#leg-list-hdr{display:flex;align-items:center;justify-content:space-between;padding:5px 12px;background:#0d0f1a;border-bottom:1px solid #1a1e30;border-top:1px solid #1a1e30;cursor:pointer;flex-shrink:0;user-select:none;min-height:30px;}
+#leg-list-hdr{display:flex;align-items:center;justify-content:space-between;height:30px;min-height:30px;padding:0 12px;background:#0d0f1a;border-bottom:1px solid #1a1e30;border-top:1px solid #1a1e30;cursor:pointer;flex-shrink:0;user-select:none;}
 #leg-list-hdr-title{font-size:12px;font-weight:700;color:#4a5580;letter-spacing:.5px;}
 #btn-leg-list-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
-#leg-list-wrap.collapsed #leg-list{display:none;}
+#leg-list-wrap.collapsed{flex:0 0 30px!important;height:30px!important;min-height:30px!important;max-height:30px!important;overflow:hidden;}
+#leg-list-wrap.collapsed #leg-list{display:none!important;}
+#leg-list-wrap.collapsed + #leg-mgmt-btns,
+#leg-list-wrap.collapsed + #leg-mgmt-btns + #add-leg-form{display:none!important;}
 
 /* 구간 목록 */
 #leg-list{flex:1;overflow-y:auto;padding:0;}
@@ -263,11 +267,12 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   height:200px;min-height:60px;max-height:60vh;
   display:flex;flex-direction:column;overflow:hidden;
 }
-#steps-panel.collapsed{height:30px!important;}
-#steps-panel.collapsed #steps-list{display:none;}
+#steps-panel.collapsed{height:30px!important;min-height:30px!important;max-height:30px!important;}
+#steps-panel.collapsed #steps-resize-handle,
+#steps-panel.collapsed #steps-list{display:none!important;}
 #steps-hdr{
   display:flex;align-items:center;justify-content:space-between;
-  padding:5px 12px;font-size:12px;font-weight:700;color:#4a5580;
+  height:30px;min-height:30px;padding:0 12px;font-size:12px;font-weight:700;color:#4a5580;
   letter-spacing:.5px;flex-shrink:0;
 }
 #btn-steps-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
@@ -297,10 +302,10 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     overflow-y:auto;
     overflow-x:hidden;
   }
-  /* 지도는 고정 높이, 패널은 내용만큼 */
+  /* 지도는 최소 38vh를 유지하고, 접힌 패널이 남긴 공간은 지도가 채움 */
   #map-wrap{
-    flex:none;
-    height:38vh;
+    flex:1 0 38vh;
+    height:auto;
     min-height:38vh;
   }
   #panel{
@@ -316,6 +321,8 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #panel-card-wrap{flex:none;height:auto;}
   #panel-card-body{overflow:visible;height:auto;}
   #leg-list-wrap{flex:none;height:auto;}
+  #panel-card-wrap.collapsed,
+  #leg-list-wrap.collapsed{flex:0 0 30px!important;height:30px!important;min-height:30px!important;max-height:30px!important;}
   #leg-list{flex:none;max-height:40vh;overflow-y:auto;}
 
   /* ── 헤더 ── */
