@@ -1,4 +1,4 @@
-# nav-app(자율주행 데이터 취득 내비게이션)
+# 자율주행 데이터 취득 내비게이션
 
 차량 기반 자율주행 데이터 취득 작업을 지원하기 위한 모바일·웹 내비게이션 PWA입니다.
 
@@ -40,7 +40,13 @@
 
 ## 화면 예시
 
-![메인 화면](./docs/images/main-screen.jpg)
+<p align="center"> 
+ <img 
+  src="./docs/images/main-screen.png" 
+  alt="자율주행 데이터 취득 내비게이션 메인 화면" 
+  width="650" 
+ > 
+</p>
 
 ---
 
