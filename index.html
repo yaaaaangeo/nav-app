@@ -289,17 +289,36 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #btn-done{background:#16a34a;color:#fff;padding:12px 32px;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;}
 
 @media(max-width:700px){
-  /* ── 레이아웃: 패널을 block으로 — flex 자식들이 공간 잡아먹지 않게 ── */
-  #main{grid-template-columns:1fr;grid-template-rows:38vh 1fr;}
-  #panel{border-left:none;border-top:2px solid #1e2230;overflow-y:auto;display:block;}
+  /* ── 레이아웃 ── */
+  /* grid 대신 flex column으로 전환 — 패널이 콘텐츠 높이만큼만 차지 */
+  #main{
+    display:flex;
+    flex-direction:column;
+    overflow-y:auto;
+    overflow-x:hidden;
+  }
+  /* 지도는 고정 높이, 패널은 내용만큼 */
+  #map-wrap{
+    flex:none;
+    height:38vh;
+    min-height:38vh;
+  }
+  #panel{
+    flex:none;           /* ← 핵심: 남은 공간 채우지 않음 */
+    border-left:none;
+    border-top:2px solid #1e2230;
+    overflow:visible;
+    display:block;
+    height:auto;
+  }
 
-  /* 패널 안 모든 flex 자식의 flex 비율 제거 */
+  /* 패널 내부 flex 자식들도 모두 auto 높이로 */
   #panel-card-wrap{flex:none;height:auto;}
-  #panel-card-body{overflow:hidden;}
+  #panel-card-body{overflow:visible;height:auto;}
   #leg-list-wrap{flex:none;height:auto;}
   #leg-list{flex:none;max-height:40vh;overflow-y:auto;}
 
-  /* ── 헤더: 두 줄로 압축 ── */
+  /* ── 헤더 ── */
   #hdr{flex-wrap:wrap;gap:5px;padding:6px 8px;}
   #hdr-title{font-size:12px;}
   .sel-btn{padding:4px 8px;font-size:11px;}
@@ -341,11 +360,11 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   .leg-meta{font-size:10px;}
   #leg-list-hdr{padding:5px 12px;}
 
-  /* ── 패널 리사이즈 핸들 숨김 ── */
+  /* ── 리사이즈 핸들 숨김 ── */
   #panel-resize-handle{display:none;}
   #steps-resize-handle{display:none;}
 
-  /* ── 경로 안내 패널: 지도 위 오버레이 ── */
+  /* ── 경로 안내: 지도 위 오버레이 ── */
   #steps-panel{
     height:30px!important;
     max-height:40vh;
@@ -354,7 +373,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   }
   #steps-panel:not(.collapsed){height:200px!important;}
 
-  /* ── 턴바이턴 오버레이 ── */
+  /* ── 턴바이턴 ── */
   #turn-overlay{top:6px;left:6px;right:6px;padding:10px 12px;}
   #turn-arrow-box{width:44px;height:44px;font-size:24px;}
   #turn-dist{font-size:20px;}
@@ -368,7 +387,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #leg-mgmt-btns{margin:5px 8px 3px;}
   .leg-mgmt-btn{padding:8px 4px;font-size:12px;}
 
-  /* ── sc-export 그룹 ── */
+  /* ── sc-export ── */
   .sc-export-group .set-io-btn{font-size:10px;padding:3px 7px;}
 
   /* ── 경고 ── */
