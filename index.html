@@ -909,8 +909,11 @@ let carMarker=null, carHeading=0, lastCarPos=null;
 
 // OSRM
 let osrmSteps=[], currentStepIdx=0;
-let osrmOutline=null, osrmLine=null;
+let osrmOutline=null, osrmLine=null, passedRouteLine=null;
 let osrmDuration=null, currentRouteCoords=null;
+let routeCumulativeMeters=[];
+let routeProgressMeters=0;
+let routeProgressInitialized=false;
 let osrmAbortCtrl=null;
 
 // 경로 수정 모드
@@ -1026,19 +1029,57 @@ async function fetchOSRM(sLL,eLL,legId){
   }
 }
 
+function resetRouteProgress(coords){
+  routeCumulativeMeters=[];
+  routeProgressMeters=0;
+  routeProgressInitialized=false;
+
+  if(!coords||coords.length===0) return;
+
+  routeCumulativeMeters=[0];
+  for(let i=1;i<coords.length;i++){
+    const prev=coords[i-1];
+    const cur=coords[i];
+    routeCumulativeMeters.push(
+      routeCumulativeMeters[i-1]+map.distance([prev[1],prev[0]],[cur[1],cur[0]])
+    );
+  }
+}
+
 function drawOSRMRoute(coords){
+  resetRouteProgress(coords);
   const latlngs=coords.map(c=>[c[1],c[0]]);
-  osrmLine=L.polyline(latlngs,{color:'#3b82f6',weight:7,opacity:0.93,lineCap:'round',lineJoin:'round'}).addTo(map);
+
+  // 지나간 경로는 회색, 남은 경로는 파란색으로 별도 레이어에 표시한다.
+  passedRouteLine=L.polyline([],{
+    color:'#6b7280',weight:7,opacity:0.95,lineCap:'round',lineJoin:'round'
+  }).addTo(map);
+
+  osrmLine=L.polyline(latlngs,{
+    color:'#3b82f6',weight:7,opacity:0.93,lineCap:'round',lineJoin:'round'
+  }).addTo(map);
 }
 
 function drawFallbackRoute(sLL,eLL){
-  osrmLine=L.polyline([sLL,eLL],{color:'#6b7280',weight:5,opacity:0.8,dashArray:'8 4'}).addTo(map);
+  currentRouteCoords=[[sLL[1],sLL[0]],[eLL[1],eLL[0]]];
+  resetRouteProgress(currentRouteCoords);
+
+  passedRouteLine=L.polyline([],{
+    color:'#6b7280',weight:5,opacity:0.9,dashArray:'8 4',lineCap:'round',lineJoin:'round'
+  }).addTo(map);
+
+  osrmLine=L.polyline([sLL,eLL],{
+    color:'#3b82f6',weight:5,opacity:0.85,dashArray:'8 4',lineCap:'round',lineJoin:'round'
+  }).addTo(map);
 }
 
 function clearOSRM(){
-  [osrmOutline,osrmLine].forEach(l=>{if(l){try{map.removeLayer(l);}catch(_){}}});
-  osrmOutline=osrmLine=null;
+  [osrmOutline,osrmLine,passedRouteLine].forEach(l=>{if(l){try{map.removeLayer(l);}catch(_){}}});
+  osrmOutline=osrmLine=passedRouteLine=null;
   osrmSteps=[]; osrmDuration=null; currentRouteCoords=null;
+  routeCumulativeMeters=[];
+  routeProgressMeters=0;
+  routeProgressInitialized=false;
   showTurnOverlay(false);
 }
 
@@ -1051,6 +1092,137 @@ function routeDistanceKm(coords){
     d+=haversine(coords[i-1][1],coords[i-1][0],coords[i][1],coords[i][0]);
   }
   return d/1000;
+}
+
+
+// GPS 위치를 현재 경로의 가장 가까운 선분에 투영한다.
+// 반환값의 alongMeters는 경로 시작점부터 투영 지점까지의 누적 거리다.
+function findNearestPointOnRoute(lat,lng){
+  if(!currentRouteCoords||currentRouteCoords.length<2||routeCumulativeMeters.length<2) return null;
+
+  const R=6371000;
+  const DEG=Math.PI/180;
+  let best=null;
+
+  for(let i=0;i<currentRouteCoords.length-1;i++){
+    const a=currentRouteCoords[i];     // [lng,lat]
+    const b=currentRouteCoords[i+1];
+    const meanLat=((a[1]+b[1]+lat)/3)*DEG;
+    const cosLat=Math.max(0.000001,Math.cos(meanLat));
+
+    const bx=(b[0]-a[0])*DEG*R*cosLat;
+    const by=(b[1]-a[1])*DEG*R;
+    const px=(lng-a[0])*DEG*R*cosLat;
+    const py=(lat-a[1])*DEG*R;
+    const len2=bx*bx+by*by;
+
+    let t=len2>0?(px*bx+py*by)/len2:0;
+    t=Math.max(0,Math.min(1,t));
+
+    const projLng=a[0]+(b[0]-a[0])*t;
+    const projLat=a[1]+(b[1]-a[1])*t;
+    const dx=px-bx*t;
+    const dy=py-by*t;
+    const distanceMeters=Math.sqrt(dx*dx+dy*dy);
+    const segmentMeters=routeCumulativeMeters[i+1]-routeCumulativeMeters[i];
+    const alongMeters=routeCumulativeMeters[i]+segmentMeters*t;
+
+    if(!best||distanceMeters<best.distanceMeters){
+      best={
+        segmentIndex:i,
+        t,
+        lat:projLat,
+        lng:projLng,
+        distanceMeters,
+        alongMeters
+      };
+    }
+  }
+
+  return best;
+}
+
+function getRouteSplitAtMeters(progressMeters){
+  if(!currentRouteCoords||currentRouteCoords.length<2||routeCumulativeMeters.length<2) return null;
+
+  const total=routeCumulativeMeters[routeCumulativeMeters.length-1];
+  const clamped=Math.max(0,Math.min(total,progressMeters));
+  let segmentIndex=0;
+
+  while(
+    segmentIndex<routeCumulativeMeters.length-2&&
+    routeCumulativeMeters[segmentIndex+1]<clamped
+  ){
+    segmentIndex++;
+  }
+
+  const startM=routeCumulativeMeters[segmentIndex];
+  const endM=routeCumulativeMeters[segmentIndex+1];
+  const span=Math.max(0.001,endM-startM);
+  const t=Math.max(0,Math.min(1,(clamped-startM)/span));
+  const a=currentRouteCoords[segmentIndex];
+  const b=currentRouteCoords[segmentIndex+1];
+  const splitLng=a[0]+(b[0]-a[0])*t;
+  const splitLat=a[1]+(b[1]-a[1])*t;
+  const split=[splitLat,splitLng];
+
+  const passed=currentRouteCoords
+    .slice(0,segmentIndex+1)
+    .map(c=>[c[1],c[0]]);
+  passed.push(split);
+
+  const remaining=[split];
+  for(let i=segmentIndex+1;i<currentRouteCoords.length;i++){
+    remaining.push([currentRouteCoords[i][1],currentRouteCoords[i][0]]);
+  }
+
+  return {passed,remaining};
+}
+
+function renderRouteProgress(){
+  if(!passedRouteLine||!osrmLine) return;
+  const split=getRouteSplitAtMeters(routeProgressMeters);
+  if(!split) return;
+
+  passedRouteLine.setLatLngs(split.passed.length>=2?split.passed:[]);
+  osrmLine.setLatLngs(split.remaining.length>=2?split.remaining:[]);
+
+  // 남은 파란 경로가 분할 지점에서 회색 경로 위에 또렷하게 보이도록 한다.
+  if(passedRouteLine.bringToFront) passedRouteLine.bringToFront();
+  if(osrmLine.bringToFront) osrmLine.bringToFront();
+  if(carMarker&&carMarker.bringToFront) carMarker.bringToFront();
+}
+
+function updatePassedRoute(lat,lng,currentSpeed=0,elapsedSec=0){
+  if(!isPlaying||!currentRouteCoords||currentRouteCoords.length<2) return;
+
+  const nearest=findNearestPointOnRoute(lat,lng);
+  if(!nearest) return;
+
+  // 경로와 너무 멀리 떨어진 GPS는 지나간 경로 계산에 사용하지 않는다.
+  if(nearest.distanceMeters>120) return;
+
+  if(!routeProgressInitialized){
+    routeProgressMeters=nearest.alongMeters;
+    routeProgressInitialized=true;
+    renderRouteProgress();
+    return;
+  }
+
+  // GPS 오차로 지나간 경로가 뒤로 되돌아가지 않도록 누적 진행률은 증가만 허용한다.
+  if(nearest.alongMeters<=routeProgressMeters) return;
+
+  // 교차로나 평행 도로에서 경로 후반으로 갑자기 점프하는 현상을 줄인다.
+  // GPS 갱신 간격과 속도를 바탕으로 한 번에 허용할 최대 전진량을 정한다.
+  const safeElapsed=Math.max(0,Number.isFinite(elapsedSec)?elapsedSec:0);
+  const safeSpeed=Math.max(0,Number.isFinite(currentSpeed)?currentSpeed:0);
+  const maxAdvance=Math.max(300,safeSpeed*safeElapsed*4+150);
+  const advance=nearest.alongMeters-routeProgressMeters;
+
+  if(safeElapsed>0&&safeElapsed<30&&advance>maxAdvance) return;
+
+  routeProgressMeters=nearest.alongMeters;
+  renderRouteProgress();
 }
 
 // ── 현재 구간 통계 갱신 ──────────────────────────────────────
@@ -1751,6 +1923,9 @@ function startGPS(){
 
     // 차량 마커는 GPS 추적 상태와 관계없이 항상 최신 위치로 이동한다.
     updateCarMarker(lat,lng,h);
+
+    // 현재 GPS 위치까지 지나온 도로는 회색으로, 남은 도로는 파란색으로 갱신한다.
+    updatePassedRoute(lat,lng,currentSpeed,elapsedSec);
 
     // 주행 중 실제 이동이 감지되면 GPS 위치를 지도 중심으로 따라간다.
     // 사용자가 지도를 조작한 경우에는 10초간 기다렸다가 자동 추적을 재개한다.
