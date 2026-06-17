@@ -1269,11 +1269,32 @@ function restorePanelState(){
   setPanelCollapsed('leg-list-wrap','btn-leg-list-toggle',state.legsCollapsed);
 }
 
+function refreshMapSize(){
+  // 패널 접기/펼치기나 모바일 브라우저 UI 변화로 지도 영역 크기가 바뀐 뒤
+  // Leaflet이 새 크기를 다시 계산하도록 한다. 지도 중심과 줌은 유지한다.
+  if(!map) return;
+
+  requestAnimationFrame(()=>{
+    if(map && map._loaded){
+      map.invalidateSize({pan:false,debounceMoveend:true});
+    }
+  });
+
+  // 모바일 브라우저는 레이아웃 반영이 한 박자 늦을 수 있어 한 번 더 보정한다.
+  clearTimeout(refreshMapSize._timer);
+  refreshMapSize._timer=setTimeout(()=>{
+    if(map && map._loaded){
+      map.invalidateSize({pan:false,debounceMoveend:true});
+    }
+  },180);
+}
+
 function toggleLegList(){
   const wrap=document.getElementById('leg-list-wrap');
   const collapsed=!wrap.classList.contains('collapsed');
   setPanelCollapsed('leg-list-wrap','btn-leg-list-toggle',collapsed);
   savePanelState();
+  refreshMapSize();
 }
 
 function togglePanelCard(){
@@ -1281,6 +1302,7 @@ function togglePanelCard(){
   const collapsed=!wrap.classList.contains('collapsed');
   setPanelCollapsed('panel-card-wrap','btn-panel-card-toggle',collapsed);
   savePanelState();
+  refreshMapSize();
 }
 
 function toggleStepsPanel(){
@@ -1288,6 +1310,7 @@ function toggleStepsPanel(){
   const collapsed=!panel.classList.contains('collapsed');
   setPanelCollapsed('steps-panel','btn-steps-toggle',collapsed);
   savePanelState();
+  refreshMapSize();
 }
 
 function renderStepsList(){
@@ -2534,12 +2557,20 @@ updateTripLogCount();
 
 // 전체 경로 안내 / 현재 구간 / 구간 목록의 마지막 접힘 상태 복원
 restorePanelState();
+refreshMapSize();
 
-// 화면 회전 시 지도 크기 재계산
+// 지도 래퍼의 실제 크기 변화를 감지해 회색 빈 영역 없이 타일을 다시 채운다.
+const mapWrapEl=document.getElementById('map-wrap');
+if(mapWrapEl && 'ResizeObserver' in window){
+  const mapResizeObserver=new ResizeObserver(()=>refreshMapSize());
+  mapResizeObserver.observe(mapWrapEl);
+}
+
+// 화면 회전·브라우저 크기 변경 시에도 지도 크기를 다시 계산한다.
 window.addEventListener('orientationchange',()=>{
-  setTimeout(()=>{ map.invalidateSize(); },300);
+  setTimeout(refreshMapSize,300);
 });
-window.addEventListener('resize',()=>{ map.invalidateSize(); });
+window.addEventListener('resize',refreshMapSize);
 
 // 이전에 보고 있던 위치·시나리오·구간 복원 (새로고침/Ctrl+F5 대응)
 {
