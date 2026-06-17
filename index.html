@@ -26,7 +26,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 /* 현재구간 카드 접기/펼치기 헤더 */
 #panel-card-wrap{flex-shrink:0;}
-#panel-card-hdr{display:none;align-items:center;justify-content:space-between;padding:8px 14px;background:#0d0f1a;border-bottom:1px solid #1a1e30;cursor:pointer;user-select:none;}
+#panel-card-hdr{display:none;align-items:center;justify-content:space-between;padding:5px 12px;background:#0d0f1a;border-bottom:1px solid #1a1e30;cursor:pointer;user-select:none;min-height:30px;}
 #panel-card-hdr-title{font-size:12px;font-weight:700;color:#4a5580;letter-spacing:.5px;}
 #btn-panel-card-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
 #panel-card-wrap.collapsed #panel-card-body{display:none;}
@@ -226,7 +226,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 /* 구간 목록 헤더 (접기/펼치기) */
 #leg-list-wrap{display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0;}
-#leg-list-hdr{display:flex;align-items:center;justify-content:space-between;padding:7px 14px;background:#0d0f1a;border-bottom:1px solid #1a1e30;border-top:1px solid #1a1e30;cursor:pointer;flex-shrink:0;user-select:none;}
+#leg-list-hdr{display:flex;align-items:center;justify-content:space-between;padding:5px 12px;background:#0d0f1a;border-bottom:1px solid #1a1e30;border-top:1px solid #1a1e30;cursor:pointer;flex-shrink:0;user-select:none;min-height:30px;}
 #leg-list-hdr-title{font-size:12px;font-weight:700;color:#4a5580;letter-spacing:.5px;}
 #btn-leg-list-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
 #leg-list-wrap.collapsed #leg-list{display:none;}
@@ -263,11 +263,11 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   height:200px;min-height:60px;max-height:60vh;
   display:flex;flex-direction:column;overflow:hidden;
 }
-#steps-panel.collapsed{height:36px!important;}
+#steps-panel.collapsed{height:30px!important;}
 #steps-panel.collapsed #steps-list{display:none;}
 #steps-hdr{
   display:flex;align-items:center;justify-content:space-between;
-  padding:6px 14px;font-size:12px;font-weight:700;color:#4a5580;
+  padding:5px 12px;font-size:12px;font-weight:700;color:#4a5580;
   letter-spacing:.5px;flex-shrink:0;
 }
 #btn-steps-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
@@ -873,11 +873,11 @@ async function fetchOSRM(sLL,eLL,legId){
       currentRouteCoords=coords;
       drawOSRMRoute(currentRouteCoords);
       // 다중 waypoint → legs 배열 flatten
-      // 경유점 때문에 각 leg마다 arrive/depart가 생기므로 중간 것들 제거
+      // depart/중간arrive 모두 제거 — 실제 회전 지시 스텝만 남김
       const allSteps=route.legs.flatMap(l=>l.steps||[]);
       osrmSteps=allSteps.filter((s,i,arr)=>{
-        if(s.maneuver.type==='arrive')  return i===arr.length-1; // 마지막 arrive만
-        if(s.maneuver.type==='depart')  return i===0;            // 첫 depart만
+        if(s.maneuver.type==='depart') return false;       // 출발 스텝 전부 제거
+        if(s.maneuver.type==='arrive') return i===arr.length-1; // 마지막 arrive만
         return true;
       });
       currentStepIdx=0;
@@ -1042,7 +1042,7 @@ function getTurnVoiceText(step, distM){
 
 function showNextStep(idx,curPos){
   if(!osrmSteps.length) return;
-  let step=osrmSteps[idx];
+  const step=osrmSteps[idx];
   if(!step) return;
 
   const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
@@ -1058,47 +1058,52 @@ function showNextStep(idx,curPos){
   document.getElementById('turn-instr').textContent=info.text;
   document.getElementById('turn-road').textContent=step.name||'';
 
-  // 첫 출발 음성
-  if(idx===0&&lastSpokenStep<0){
+  // 출발 음성 (경로 로드 완료 시)
+  if(isPlaying&&lastSpokenStep<0){
     const lg=legs[legIdx];
-    speak(`${lg.e} 방향으로 출발합니다`, true);
-    lastSpokenStep=0;
+    if(lg) speak(`${lg.e} 방향으로 출발합니다`, true);
+    lastSpokenStep='started';
   }
 }
 
 function updateTurnFromPosition(lat,lng){
   if(!osrmSteps.length) return;
-  for(let i=currentStepIdx;i<osrmSteps.length;i++){
-    const step=osrmSteps[i];
-    const loc=step.maneuver.location;
-    const d=haversine(lat,lng,loc[1],loc[0]);
-    if(d<25){
-      currentStepIdx=Math.min(i+1,osrmSteps.length-1);
-      highlightCurrentStep(currentStepIdx);
-      continue;
-    }
-    document.getElementById('turn-arrow').textContent=getManeuverInfo(step.maneuver.type,step.maneuver.modifier).icon;
-    document.getElementById('turn-instr').textContent=getManeuverInfo(step.maneuver.type,step.maneuver.modifier).text;
-    document.getElementById('turn-dist').textContent=d>=1000?(d/1000).toFixed(1)+'km':Math.round(d)+'m';
-    document.getElementById('turn-unit').textContent=getDistUnitLabel(step.maneuver.type);
-    document.getElementById('turn-road').textContent=step.name||'';
 
-    // 거리별 음성 안내 (500m / 200m / 50m)
-    const SPEAK_DISTS=[500,200,50];
-    for(const sd of SPEAK_DISTS){
-      const key=`${i}_${sd}`;
-      if(d<=sd+15&&d>=sd-15&&lastSpokenStep!==key){
-        lastSpokenStep=key;
-        const txt=getTurnVoiceText(step,d);
-        if(txt) speak(txt);
-        break;
-      }
+  // 현재 스텝의 분기점을 이미 지났으면 다음 스텝으로 이동
+  // (분기점 40m 이내 + 이미 가장 가까웠다가 멀어지기 시작하면 통과로 간주)
+  while(currentStepIdx<osrmSteps.length-1){
+    const step=osrmSteps[currentStepIdx];
+    const loc=step.maneuver.location; // [lng, lat]
+    const d=haversine(lat,lng,loc[1],loc[0]);
+    if(d<40){
+      currentStepIdx++;
+      highlightCurrentStep(currentStepIdx);
+    } else { break; }
+  }
+
+  // 다음 분기점까지의 거리 표시
+  const step=osrmSteps[currentStepIdx];
+  if(!step) return;
+  const loc=step.maneuver.location;
+  const d=haversine(lat,lng,loc[1],loc[0]);
+  const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
+
+  document.getElementById('turn-arrow').textContent=info.icon;
+  document.getElementById('turn-instr').textContent=info.text;
+  document.getElementById('turn-dist').textContent=d>=1000?(d/1000).toFixed(1)+'km':Math.round(d)+'m';
+  document.getElementById('turn-unit').textContent=getDistUnitLabel(step.maneuver.type);
+  document.getElementById('turn-road').textContent=step.name||'';
+
+  // 거리별 음성 안내 (500m / 200m / 50m)
+  const SPEAK_DISTS=[500,200,50];
+  for(const sd of SPEAK_DISTS){
+    const key=`${currentStepIdx}_${sd}`;
+    if(d<=sd+25&&d>=sd-25&&lastSpokenStep!==key){
+      lastSpokenStep=key;
+      const txt=getTurnVoiceText(step,d);
+      if(txt) speak(txt);
+      break;
     }
-    // 스텝이 바뀌면 새 스텝 직전 안내
-    if(i!==currentStepIdx&&lastSpokenStep!==`new_${i}`){
-      lastSpokenStep=`new_${i}`;
-    }
-    break;
   }
 }
 
@@ -1491,14 +1496,36 @@ function startGPS(){
     // 턴 안내 업데이트
     updateTurnFromPosition(lat,lng);
 
-    // 경로 이탈
     if(legs[legIdx]&&isPlaying){
       const lg=legs[legIdx];
-      const dS=haversine(lat,lng,...lg.sLL), dE=haversine(lat,lng,...lg.eLL);
-      const off=Math.min(dS,dE)>1000;
-      document.getElementById('warn').style.display=off?'block':'none';
-      if(off&&!lastWarnSpoken){ lastWarnSpoken=true; speak('경로를 이탈했습니다. 파란 선으로 복귀하세요',true); }
-      if(!off) lastWarnSpoken=false;
+
+      // ── 도착 자동 감지 (목적지 80m 이내) ──────────────────
+      const dE=haversine(lat,lng,...lg.eLL);
+      if(dE<80){
+        speak(`${lg.e}에 도착했습니다`,true);
+        advanceLeg();
+        return;
+      }
+
+      // ── 경로 이탈 감지 (실제 경로 좌표 기준) ──────────────
+      // currentRouteCoords가 있으면 경로상 최근접점 거리로 판단,
+      // 없으면 단순 출발/도착 직선 기준
+      let offRoute=false;
+      if(currentRouteCoords&&currentRouteCoords.length>1){
+        let minDist=Infinity;
+        for(let i=0;i<currentRouteCoords.length;i++){
+          const d=haversine(lat,lng,currentRouteCoords[i][1],currentRouteCoords[i][0]);
+          if(d<minDist) minDist=d;
+          if(minDist<80) break; // 충분히 가까우면 일찍 중단
+        }
+        offRoute=minDist>120; // 경로에서 120m 이상 벗어나면 이탈
+      } else {
+        const dS=haversine(lat,lng,...lg.sLL);
+        offRoute=Math.min(dS,dE)>1000;
+      }
+      document.getElementById('warn').style.display=offRoute?'block':'none';
+      if(offRoute&&!lastWarnSpoken){ lastWarnSpoken=true; speak('경로를 이탈했습니다. 파란 선으로 복귀하세요',true); }
+      if(!offRoute) lastWarnSpoken=false;
     }
   },err=>{
     document.getElementById('gps-status').textContent='📡 GPS 권한 없음';
