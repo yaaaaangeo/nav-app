@@ -887,10 +887,19 @@ let timerSec=0, timerInterval=null;
 let watchId=null;
 
 // GPS 자동 추적 상태
-// 사용자가 지도를 한 번이라도 드래그/확대/축소하면 false가 되어
-// 이후 GPS가 갱신되어도 사용자가 만든 지도 위치와 배율을 유지한다.
+// 주행 중 실제 이동이 감지되면 GPS 위치를 지도 중심으로 따라간다.
+// 사용자가 지도를 직접 조작하면 일정 시간 동안 추적을 멈춘 뒤 자동 복귀한다.
 let gpsAutoFollow=true;
+let manualMapPauseUntil=0;
+let lastGpsSample=null;
 let mapViewSaveTimer=null;
+
+// 사용자 조작 후 자동 GPS 추적 복귀 시간
+const GPS_FOLLOW_RESUME_MS=10000;
+// 이동 중 판단 기준: 약 5.4km/h 이상
+const GPS_MOVING_SPEED_MPS=1.5;
+// speed 값이 없을 때 사용할 최소 이동 거리
+const GPS_MOVING_DISTANCE_M=8;
 
 // 지도 레이어
 let routeOutline=null, routeLine=null;
@@ -940,14 +949,22 @@ function loadManualMapView(){
   }catch(e){ return null; }
 }
 
-// 지도에 손을 대는 순간 GPS 자동 중심 이동을 해제한다.
-// 이후 이동/확대/축소가 끝날 때 현재 화면을 저장한다.
+// 사용자가 지도를 직접 조작하면 GPS 자동 추적을 잠시 중지한다.
+// 주행 중에는 마지막 조작 후 10초가 지나면 자동으로 GPS 추적을 재개한다.
+// 주행 중이 아닐 때는 사용자가 맞춘 지도 중심과 배율을 계속 유지한다.
+function pauseGpsFollowByUser(){
+  gpsAutoFollow=false;
+  manualMapPauseUntil=isPlaying
+    ? Date.now()+GPS_FOLLOW_RESUME_MS
+    : Number.POSITIVE_INFINITY;
+}
+
 const mapContainer=map.getContainer();
 ['pointerdown','touchstart','wheel'].forEach(type=>{
-  mapContainer.addEventListener(type,()=>{ gpsAutoFollow=false; },{passive:true});
+  mapContainer.addEventListener(type,pauseGpsFollowByUser,{passive:true});
 });
-map.on('dragstart',()=>{ gpsAutoFollow=false; });
-map.on('zoomstart',e=>{ if(e.originalEvent) gpsAutoFollow=false; });
+map.on('dragstart',pauseGpsFollowByUser);
+map.on('zoomstart',e=>{ if(e.originalEvent) pauseGpsFollowByUser(); });
 map.on('moveend zoomend',()=>{
   if(!gpsAutoFollow) saveManualMapView();
 });
@@ -1606,12 +1623,19 @@ function updateTimerDisplay(sec){
 function togglePlay(){
   if(isPlaying){
     isPlaying=false; stopTimer();
+    gpsAutoFollow=false;
+    manualMapPauseUntil=Number.POSITIVE_INFINITY;
+    lastGpsSample=null;
+    saveManualMapView();
     document.getElementById('btn-play').textContent='▶ 시작';
     document.getElementById('btn-play').className='ctrl-btn';
     finalizeLegSession(legIdx,getGPSPos());
     speak('주행을 정지합니다', true);
   } else {
     isPlaying=true; phase='drive'; setPhaseUI('drive');
+    gpsAutoFollow=true;
+    manualMapPauseUntil=0;
+    lastGpsSample=null;
     legStartTime=new Date();
     legStartPos=getGPSPos()||[...legs[legIdx].sLL];
     lastSpokenStep=-1; lastWarnSpoken=false; timerWarn5Spoken=false;
@@ -1681,12 +1705,75 @@ function startGPS(){
         h=Math.atan2(dlng,dlat)*180/Math.PI;
       }
     }
+    const now=Date.now();
+    const accuracy=Number.isFinite(pos.coords.accuracy)
+      ? pos.coords.accuracy
+      : 0;
+
+    let movedMeters=0;
+    let calculatedSpeed=0;
+    let elapsedSec=0;
+
+    if(lastGpsSample){
+      elapsedSec=(now-lastGpsSample.time)/1000;
+      movedMeters=map.distance(
+        [lastGpsSample.lat,lastGpsSample.lng],
+        [lat,lng]
+      );
+
+      if(elapsedSec>0){
+        calculatedSpeed=movedMeters/elapsedSec;
+      }
+    }
+
+    // 휴대폰이 GPS speed를 제공하면 해당 값을 우선 사용한다.
+    const currentSpeed=
+      Number.isFinite(speed)&&speed>=0
+        ? speed
+        : calculatedSpeed;
+
+    // GPS 정확도가 좋지 않을 때는 이동 거리 판단 기준을 조금 높인다.
+    const movementDistanceThreshold=Math.max(
+      GPS_MOVING_DISTANCE_M,
+      Math.min(accuracy,20)
+    );
+
+    // 속도 또는 짧은 시간 동안의 위치 변화로 실제 이동 여부를 판단한다.
+    const gpsIsMoving=
+      currentSpeed>=GPS_MOVING_SPEED_MPS||
+      (
+        elapsedSec>0&&
+        elapsedSec<=10&&
+        movedMeters>=movementDistanceThreshold
+      );
+
+    lastGpsSample={lat,lng,time:now};
+
+    // 차량 마커는 GPS 추적 상태와 관계없이 항상 최신 위치로 이동한다.
     updateCarMarker(lat,lng,h);
 
-    // 사용자가 지도를 직접 조작하기 전까지만 GPS 위치를 따라간다.
-    // 한 번이라도 드래그/확대/축소한 뒤에는 현재 중심과 배율을 그대로 유지한다.
-    if(gpsAutoFollow){
-      map.panTo([lat,lng],{animate:true,duration:0.4});
+    // 주행 중 실제 이동이 감지되면 GPS 위치를 지도 중심으로 따라간다.
+    // 사용자가 지도를 조작한 경우에는 10초간 기다렸다가 자동 추적을 재개한다.
+    if(isPlaying&&gpsIsMoving){
+      if(now>=manualMapPauseUntil){
+        gpsAutoFollow=true;
+      }
+
+      if(gpsAutoFollow){
+        const distanceFromCenter=map.distance(
+          map.getCenter(),
+          [lat,lng]
+        );
+
+        // GPS 오차에 따른 미세한 흔들림을 줄이기 위해 8m 이상 차이 날 때만 이동한다.
+        if(distanceFromCenter>=8){
+          map.panTo([lat,lng],{
+            animate:true,
+            duration:0.35,
+            easeLinearity:0.25
+          });
+        }
+      }
     }
 
     // 턴 안내 업데이트
