@@ -40,7 +40,7 @@
 
 ## 화면 예시
 
-![메인 화면](./docs/images/main-screen.png)
+![메인 화면](./docs/images/main-screen.jpg)
 
 ---
 
