@@ -8,17 +8,17 @@
 
 | 구분 | 사용 기술 |
 | --- | --- |
-| 화면 | HTML5, CSS3, JavaScript |
-| 지도 | Leaflet 1.9.4 |
-| 지도 타일 | OpenStreetMap |
-| 도로 경로 | OSRM Routing API |
-| GPS | Browser Geolocation API |
-| 음성 안내 | Web Speech API |
-| 엑셀 생성 | SheetJS |
-| 데이터 저장 | Browser localStorage |
-| 오프라인 지원 | Service Worker |
-| 배포 | GitHub Pages |
-| 앱 형태 | Progressive Web App |
+| 화면  | HTML5, CSS3, JavaScript    |
+| 지도  | Leaflet 1.9.4    |
+| 지도 타일  | OpenStreetMap    |
+| 도로 경로  | OSRM Routing API    |
+| GPS  | Browser Geolocation API    |
+| 음성 안내  | Web Speech API    |
+| 엑셀 생성  | SheetJS    |
+| 데이터 저장  | Browser localStorage    |
+| 오프라인 지원  | Service Worker    |
+| 배포  | GitHub Pages    |
+| 앱 형태  | Progressive Web App    |
 
 ---
 
