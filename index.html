@@ -1222,25 +1222,72 @@ function showTurnOverlay(show){
   document.getElementById('turn-overlay').classList.toggle('show',show);
 }
 
+const PANEL_STATE_STORAGE_KEY='nav-panel-state-v1';
+
+function setPanelCollapsed(elementId,buttonId,collapsed){
+  const element=document.getElementById(elementId);
+  const button=document.getElementById(buttonId);
+  if(!element) return;
+  element.classList.toggle('collapsed',Boolean(collapsed));
+  if(button) button.textContent=collapsed?'펼치기 ▲':'접기 ▼';
+}
+
+function savePanelState(){
+  try{
+    const state={
+      stepsCollapsed:document.getElementById('steps-panel')?.classList.contains('collapsed')??false,
+      currentCollapsed:document.getElementById('panel-card-wrap')?.classList.contains('collapsed')??false,
+      legsCollapsed:document.getElementById('leg-list-wrap')?.classList.contains('collapsed')??false
+    };
+    localStorage.setItem(PANEL_STATE_STORAGE_KEY,JSON.stringify(state));
+  }catch(error){
+    console.warn('패널 상태 저장 실패:',error);
+  }
+}
+
+function restorePanelState(){
+  let state=null;
+  try{
+    const saved=localStorage.getItem(PANEL_STATE_STORAGE_KEY);
+    if(saved) state=JSON.parse(saved);
+  }catch(error){
+    console.warn('패널 상태 복원 실패:',error);
+  }
+
+  // 저장된 상태가 없는 첫 실행에서는 모바일 공간을 넓게 쓰도록 모두 접는다.
+  if(!state){
+    const collapseByDefault=window.innerWidth<=700;
+    state={
+      stepsCollapsed:collapseByDefault,
+      currentCollapsed:collapseByDefault,
+      legsCollapsed:collapseByDefault
+    };
+  }
+
+  setPanelCollapsed('steps-panel','btn-steps-toggle',state.stepsCollapsed);
+  setPanelCollapsed('panel-card-wrap','btn-panel-card-toggle',state.currentCollapsed);
+  setPanelCollapsed('leg-list-wrap','btn-leg-list-toggle',state.legsCollapsed);
+}
+
 function toggleLegList(){
   const wrap=document.getElementById('leg-list-wrap');
-  const btn=document.getElementById('btn-leg-list-toggle');
-  const collapsed=wrap.classList.toggle('collapsed');
-  btn.textContent=collapsed?'펼치기 ▲':'접기 ▼';
+  const collapsed=!wrap.classList.contains('collapsed');
+  setPanelCollapsed('leg-list-wrap','btn-leg-list-toggle',collapsed);
+  savePanelState();
 }
 
 function togglePanelCard(){
   const wrap=document.getElementById('panel-card-wrap');
-  const btn=document.getElementById('btn-panel-card-toggle');
-  const collapsed=wrap.classList.toggle('collapsed');
-  btn.textContent=collapsed?'펼치기 ▲':'접기 ▼';
+  const collapsed=!wrap.classList.contains('collapsed');
+  setPanelCollapsed('panel-card-wrap','btn-panel-card-toggle',collapsed);
+  savePanelState();
 }
 
 function toggleStepsPanel(){
-  const p=document.getElementById('steps-panel');
-  const btn=document.getElementById('btn-steps-toggle');
-  const collapsed=p.classList.toggle('collapsed');
-  btn.textContent=collapsed?'펼치기 ▲':'접기 ▼';
+  const panel=document.getElementById('steps-panel');
+  const collapsed=!panel.classList.contains('collapsed');
+  setPanelCollapsed('steps-panel','btn-steps-toggle',collapsed);
+  savePanelState();
 }
 
 function renderStepsList(){
@@ -2485,13 +2532,8 @@ loadWaypointsFromStorage();
 loadLastSaved();
 updateTripLogCount();
 
-// 모바일에서 구간 목록 + 현재구간 카드 기본 접힌 상태로 시작
-if(window.innerWidth<=700){
-  const legWrap=document.getElementById('leg-list-wrap');
-  const legBtn=document.getElementById('btn-leg-list-toggle');
-  if(legWrap){ legWrap.classList.add('collapsed'); }
-  if(legBtn){ legBtn.textContent='펼치기 ▲'; }
-}
+// 전체 경로 안내 / 현재 구간 / 구간 목록의 마지막 접힘 상태 복원
+restorePanelState();
 
 // 화면 회전 시 지도 크기 재계산
 window.addEventListener('orientationchange',()=>{
