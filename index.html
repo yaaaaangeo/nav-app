@@ -362,11 +362,12 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #hdr-title{font-size:12px;flex-shrink:0;}
   .sel-btn{padding:4px 8px;font-size:11px;flex-shrink:0;}
   #btn-naver-map{font-size:11px;padding:4px 8px;flex-shrink:0;}
-  /* 2행: 나머지 버튼들 */
-  #btn-tts{order:10;padding:4px 8px;font-size:12px;flex-shrink:0;}
+  /* hdr-icon-group(🔊🔍⚙️) 은 항상 한 덩어리로 — order 제거 */
+  #btn-tts{padding:4px 8px;font-size:12px;}
   #btn-traffic{order:10;font-size:10px;padding:4px 7px;flex-shrink:0;}
   #btn-export-log{order:10;font-size:10px;padding:4px 7px;flex-shrink:0;}
   #btn-clear-log{order:10;padding:4px 7px;font-size:11px;flex-shrink:0;}
+  #hdr-icon-group{flex-shrink:0;}
   /* hdr-right-group 새 줄에 full width */
   #hdr-right-group{order:10;width:100%;gap:4px;margin-left:0;flex-wrap:wrap;align-items:center;}
   #login-user-badge{font-size:10px;padding:3px 7px;flex-shrink:0;}
@@ -785,7 +786,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v1.1.1</span>
+    <span id="app-version" title="애플리케이션 버전">v1.1.2</span>
   </div>
 </div>
 
