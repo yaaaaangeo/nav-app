@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v1.0.0"/>
+<meta name="app-version" content="2026-06-18-version-only-v1"/>
 
 <!-- PWA -->
 <link rel="manifest" href="./manifest.json"/>
@@ -104,7 +104,6 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #imported-file-name.empty{color:#4a5580;}
 #config-meta-row{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;white-space:nowrap;}
 #app-version{display:inline-flex;align-items:center;height:18px;padding:0 6px;border:1px solid #2a4080;border-radius:5px;background:#10182c;color:#7aa0ff;font-size:10px;font-weight:700;letter-spacing:.03em;}
-#last-saved{font-size:11px;color:#4a5580;white-space:nowrap;letter-spacing:.02em;}
 #hdr-right-group{display:flex;align-items:center;gap:8px;margin-left:auto;}
 
 /* 현재 구간 카드 */
@@ -346,7 +345,6 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #imported-file-name{max-width:210px;font-size:9px;}
   #config-meta-row{gap:4px;}
   #app-version{height:16px;padding:0 5px;font-size:8px;}
-  #last-saved{font-size:9px;}
 
   /* ── 현재구간 카드 헤더 모바일에서 표시 ── */
   #panel-card-hdr{display:flex;}
@@ -558,8 +556,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     <div id="config-status">
       <span id="imported-file-name" class="empty" title="아직 가져온 설정 JSON 파일이 없습니다.">가져온 설정: 없음</span>
       <div id="config-meta-row">
-        <span id="app-version" title="애플리케이션 버전">v1.0.0</span>
-        <span id="last-saved"></span>
+        <span id="app-version" title="애플리케이션 버전">v1.0.2</span>
       </div>
     </div>
   </div>
@@ -755,7 +752,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 <script>
 // 화면에 표시할 애플리케이션 버전입니다. 배포할 때 이 값만 변경하면 됩니다.
-const APP_VERSION='v1.0.0';
+const APP_VERSION='v1.0.1';
 
 // ══════════════════════════════════════════════════════════
 //  시나리오 데이터
@@ -1036,6 +1033,9 @@ let osrmDuration=null, currentRouteCoords=null;
 let routeCumulativeMeters=[];
 let routeProgressMeters=0;
 let routeProgressInitialized=false;
+// 화면에 표시하는 다음 안내 거리도 같은 단계 안에서는 증가하지 않도록 관리한다.
+let lastGuidanceStepIdx=-1;
+let lastGuidanceDistanceMeters=null;
 let osrmAbortCtrl=null;
 
 // 턴 안내 단계는 분기점을 경로상 5m 이상 통과하고,
@@ -1452,12 +1452,18 @@ async function fetchOSRM(sLL,eLL,legId){
       // 다중 waypoint → legs 배열 flatten
       // depart/중간arrive 모두 제거 — 실제 회전 지시 스텝만 남김
       const allSteps=route.legs.flatMap(l=>l.steps||[]);
-      osrmSteps=allSteps.filter((s,i,arr)=>{
-        if(s.maneuver.type==='depart') return false;       // 출발 스텝 전부 제거
-        if(s.maneuver.type==='arrive') return i===arr.length-1; // 마지막 arrive만
-        return true;
-      });
+      osrmSteps=allSteps
+        .filter((s,i,arr)=>{
+          if(s.maneuver.type==='depart') return false;       // 출발 스텝 전부 제거
+          if(s.maneuver.type==='arrive') return i===arr.length-1; // 마지막 arrive만
+          return true;
+        })
+        // 도로명 변경이나 단순 직진 유지처럼 운전자 행동이 필요 없는
+        // 중간 스텝은 제외한다. 같은 문구가 반복되며 거리가 다시 커지는
+        // 현상을 막고, 다음 실제 회전·진출·도착까지의 거리를 안내한다.
+        .filter(isActionableGuidanceStep);
       currentStepIdx=0;
+      resetGuidanceDistanceState();
       buildStepRouteMeters();
       if(osrmSteps.length>0) showNextStep(0,null);
       showTurnOverlay(true);
@@ -1531,6 +1537,7 @@ function clearOSRM(){
   routeCumulativeMeters=[];
   routeProgressMeters=0;
   routeProgressInitialized=false;
+  resetGuidanceDistanceState();
   showTurnOverlay(false);
 }
 
@@ -1662,6 +1669,39 @@ function getStepRouteDistanceMeters(stepIdx,progressMeters=routeProgressMeters){
   const stepMeters=osrmStepRouteMeters[stepIdx];
   if(!Number.isFinite(stepMeters)) return null;
   return Math.max(0,stepMeters-progressMeters);
+}
+
+// 실제 운전자 조작이 필요한 안내만 남긴다.
+// 단순 도로명 변경, 알림, 직진 유지 스텝은 다음 유효 안내와 합친다.
+function isActionableGuidanceStep(step){
+  const type=step&&step.maneuver&&step.maneuver.type;
+  const modifier=(step&&step.maneuver&&step.maneuver.modifier)||'straight';
+
+  if(type==='arrive') return true;
+  if(type==='new name'||type==='notification') return false;
+  if(type==='continue'&&(modifier==='straight'||modifier==='')) return false;
+  if(type==='turn'&&modifier==='straight') return false;
+  return true;
+}
+
+function resetGuidanceDistanceState(){
+  lastGuidanceStepIdx=-1;
+  lastGuidanceDistanceMeters=null;
+}
+
+// 같은 안내 단계에서는 GPS 투영 오차가 있더라도 표시 거리가 증가하지 않는다.
+function getStableGuidanceDistance(stepIdx,rawDistanceMeters){
+  if(!Number.isFinite(rawDistanceMeters)) return rawDistanceMeters;
+  const raw=Math.max(0,rawDistanceMeters);
+
+  if(lastGuidanceStepIdx!==stepIdx||!Number.isFinite(lastGuidanceDistanceMeters)){
+    lastGuidanceStepIdx=stepIdx;
+    lastGuidanceDistanceMeters=raw;
+    return raw;
+  }
+
+  lastGuidanceDistanceMeters=Math.min(lastGuidanceDistanceMeters,raw);
+  return lastGuidanceDistanceMeters;
 }
 
 function normalizeHeadingDegrees(value){
@@ -2017,12 +2057,16 @@ function updateTurnFromPosition(lat,lng,vehicleHeading=null,headingReliable=fals
   // GPS 위치를 경로 선분에 투영해 현재 진행거리를 구한다.
   // 단계 전환에는 분기점과의 직선거리를 사용하지 않는다.
   const projected=findNearestPointOnRoute(lat,lng);
-  let guidanceProgress=routeProgressMeters;
 
-  if(projected&&projected.distanceMeters<=150){
-    guidanceProgress=routeProgressInitialized
-      ? Math.max(routeProgressMeters,projected.alongMeters)
-      : projected.alongMeters;
+  // 주행 중에는 updatePassedRoute()가 교차로·평행도로 점프를 검증한
+  // 누적 진행거리만 사용한다. 원시 GPS 투영값을 직접 사용하면 한 번
+  // 앞쪽 경로로 잘못 붙었다가 정상 위치로 돌아올 때 남은 거리가
+  // 2.4km → 2.7km처럼 다시 증가할 수 있다.
+  let guidanceProgress=routeProgressInitialized?routeProgressMeters:0;
+
+  // 주행 시작 전 등 누적 진행률이 아직 없는 경우에만 가까운 투영값을 사용한다.
+  if(!routeProgressInitialized&&projected&&projected.distanceMeters<=150){
+    guidanceProgress=projected.alongMeters;
   }
 
   // 다음 두 조건을 모두 만족할 때만 안내 단계를 넘긴다.
@@ -2042,6 +2086,7 @@ function updateTurnFromPosition(lat,lng,vehicleHeading=null,headingReliable=fals
 
     if(passedMeters>=STEP_PASS_MARGIN_METERS&&headingMatched){
       currentStepIdx++;
+      resetGuidanceDistanceState();
       highlightCurrentStep(currentStepIdx);
     }
   }
@@ -2057,6 +2102,8 @@ function updateTurnFromPosition(lat,lng,vehicleHeading=null,headingReliable=fals
     const loc=step.maneuver.location;
     d=haversine(lat,lng,loc[1],loc[0]);
   }
+
+  d=getStableGuidanceDistance(currentStepIdx,d);
 
   document.getElementById('turn-arrow').textContent=info.icon;
   document.getElementById('turn-instr').textContent=info.text;
@@ -3166,7 +3213,7 @@ function loadLastSaved(){
   }
 }
 
-// 마지막으로 가져온 설정 JSON 파일명을 최근 수정 시각 위에 표시한다.
+// 마지막으로 가져온 설정 JSON 파일명을 버전 위에 표시한다.
 function renderImportedFileName(fileName){
   const el=document.getElementById('imported-file-name');
   if(!el) return;
