@@ -565,6 +565,18 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #btn-focus-start:hover{background:#1f2d5a;border-color:#3d5abf;}
 #btn-focus-start:active{transform:scale(0.93);}
 
+/* 🔊 🔍 ⚙️ 묶음 — 항상 한 줄 유지 */
+#hdr-icon-group{
+  display:flex;align-items:center;gap:5px;flex-shrink:0;
+}
+#hdr-icon-group button{
+  background:#1a1e30;color:#e0e6f0;border:1px solid #2a3050;
+  border-radius:7px;padding:5px 10px;font-size:14px;cursor:pointer;
+  transition:.15s;white-space:nowrap;
+}
+#hdr-icon-group button:hover{background:#1f2d5a;border-color:#3d5abf;}
+#hdr-icon-group #btn-settings.open{background:#1f2d5a;border-color:#4a7aff;}
+
 #settings-menu{
   display:none;
   position:fixed;top:0;right:0;
@@ -773,7 +785,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v1.1.0</span>
+    <span id="app-version" title="애플리케이션 버전">v1.1.1</span>
   </div>
 </div>
 
@@ -814,9 +826,11 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <button class="sel-btn" id="btn-loc-pg" onclick="switchLoc('판교')">판교</button>
   <button class="sel-btn" id="btn-loc-sh" onclick="switchLoc('시흥')">시흥</button>
   <span id="login-user-badge" style="font-size:11px;color:#6b8ae8;background:#111830;border:1px solid #1e2a50;border-radius:6px;padding:4px 9px;white-space:nowrap;font-weight:700;margin-left:auto;"></span>
-  <button id="btn-tts" onclick="toggleTTS()" title="음성 안내 켜기/끄기" style="background:#1a1e30;color:#e0e6f0;border:1px solid #2a3050;border-radius:7px;padding:5px 10px;font-size:14px;cursor:pointer;">🔊</button>
-  <button id="btn-focus-start" onclick="focusToStart()" title="출발지로 지도 이동">🔍</button>
-  <button id="btn-settings" onclick="toggleSettingsMenu()" title="설정">⚙️</button>
+  <div id="hdr-icon-group">
+    <button id="btn-tts" onclick="toggleTTS()" title="음성 안내 켜기/끄기">🔊</button>
+    <button id="btn-focus-start" onclick="focusToStart()" title="출발지로 지도 이동">🔍</button>
+    <button id="btn-settings" onclick="toggleSettingsMenu()" title="설정">⚙️</button>
+  </div>
 
   <input type="file" id="import-file-input" accept="application/json" style="display:none" onchange="handleImportFile(event)"/>
   <div id="hdr-right-group" style="display:none">
