@@ -714,8 +714,8 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     <div id="config-status">
       <span id="imported-file-name" class="empty" title="아직 가져온 설정 JSON 파일이 없습니다.">가져온 설정: 없음</span>
       <div id="config-meta-row">
-        <!-- ★ 버전 -->
-        <span id="app-version" title="애플리케이션 버전">v1.0.2</span>
+        <!-- ★버전 -->
+        <span id="app-version" title="애플리케이션 버전">v1.0.3</span>
       </div>
     </div>
   </div>
@@ -910,7 +910,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 </div>
 
 <script>
-// ══════════════════════════════════════════════════════════\\
+// ══════════════════════════════════════════════════════════
 //  ★ 로그인 / 접근 제어
 // ══════════════════════════════════════════════════════════
 const ALLOWED_USERS = [
@@ -961,6 +961,10 @@ function submitLogin() {
   try {
     sessionStorage.setItem('nav_user', name);
     sessionStorage.setItem('nav_vehicle', selectedVehicle);
+    const now=new Date();
+    const pad=n=>String(n).padStart(2,'0');
+    const loginTime=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    sessionStorage.setItem('nav_login_time', loginTime);
   } catch(e) {}
 
   // 헤더에 사용자 정보 표시
@@ -3573,6 +3577,17 @@ function downloadTodayLogExcel(){
     alert('오늘 완료(✓)한 구간이 아직 없습니다.\n구간을 완료(◀▶ 이동 또는 타이머 종료)하면 자동으로 기록됩니다.');
     return;
   }
+
+  // 로그인 정보 (sessionStorage에서)
+  let loginUser='', loginVehicle='', loginTime='';
+  try{
+    loginUser=sessionStorage.getItem('nav_user')||'';
+    loginVehicle=sessionStorage.getItem('nav_vehicle')||'';
+    loginTime=sessionStorage.getItem('nav_login_time')||'';
+  }catch(e){}
+
+  const infoRow=['차량',loginVehicle,'이름',loginUser,'입장시각',loginTime];
+  const blankRow=[];
   const headers=['번호','날짜','시작시각','완료시각','구간ID','출발','도착'];
   const rows=todayLogs.map((e,i)=>[
     i+1,e.date,e.startTime||'',e.time,e.legId,e.start,e.end,
@@ -3581,9 +3596,9 @@ function downloadTodayLogExcel(){
   // 1) SheetJS(xlsx) 라이브러리가 정상 로드된 경우 → 진짜 .xlsx로 다운로드
   if(typeof XLSX!=='undefined'){
     try{
-      const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+      const ws=XLSX.utils.aoa_to_sheet([infoRow,blankRow,headers,...rows]);
       ws['!cols']=[
-        {wch:5},{wch:11},{wch:9},{wch:9},{wch:9},{wch:20},{wch:20},
+        {wch:8},{wch:14},{wch:8},{wch:10},{wch:10},{wch:20},{wch:20},
       ];
       const wb=XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb,ws,'주행기록');
@@ -3595,16 +3610,15 @@ function downloadTodayLogExcel(){
   }
 
   // 2) 라이브러리를 못 불러왔거나 실패한 경우 → CSV(UTF-8 BOM)로 다운로드
-  //    외부 라이브러리/네트워크 없이도 항상 동작하며, 엑셀에서 한글이 깨지지 않게 BOM 포함
-  downloadCSV(headers,rows,`주행기록_${today}.csv`);
+  downloadCSV([infoRow,blankRow,headers,...rows].map(r=>r),`주행기록_${today}.csv`);
 }
 
-function downloadCSV(headers,rows,filename){
+function downloadCSV(allRows,filename){
   const esc=v=>{
     const s=String(v==null?'':v);
     return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
   };
-  const lines=[headers.map(esc).join(','),...rows.map(r=>r.map(esc).join(','))];
+  const lines=allRows.map(r=>r.map(esc).join(','));
   const csv='\uFEFF'+lines.join('\r\n'); // BOM → 엑셀에서 한글 깨짐 방지
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const url=URL.createObjectURL(blob);
