@@ -559,7 +559,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 #settings-menu{
   display:none;
-  position:absolute;top:calc(100% + 6px);right:0;
+  position:fixed;top:0;right:0;
   min-width:210px;
   background:#0f1424;
   border:1px solid #2a3560;
@@ -747,6 +747,28 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 </head>
 <body>
 
+<!-- 설정 드롭다운 메뉴 (body 레벨 — hdr overflow 영향 안 받음) -->
+<div id="settings-menu">
+  <div class="settings-item" onclick="window.open('https://map.naver.com/p/?c=127.032,37.498,14,0,0,0,dh','_blank');closeSettingsMenu()">🗺️ 네이버 지도</div>
+  <div class="settings-item" onclick="openTrafficConfig();closeSettingsMenu()">🚦 교통 설정</div>
+  <div class="settings-divider"></div>
+  <div class="settings-item" onclick="downloadTodayLogExcel();closeSettingsMenu()">📥 오늘 기록 다운로드<span id="export-log-count" style="margin-left:4px;color:#facc15;"></span></div>
+  <div class="settings-item" onclick="clearTodayTripLog();closeSettingsMenu()">🗑️ 오늘 기록 초기화</div>
+  <div class="settings-divider"></div>
+  <div class="settings-item" onclick="toggleEditMode();closeSettingsMenu()" id="menu-btn-edit">✏️ 경로 수정</div>
+  <div class="settings-item" onclick="toggleScEditMode();closeSettingsMenu()" id="menu-btn-sc-edit">✎ 시나리오 수정</div>
+  <div class="settings-item" id="menu-btn-sc-save" onclick="saveScEdit();closeSettingsMenu()" style="display:none">💾 시나리오 저장</div>
+  <div class="settings-divider"></div>
+  <div class="settings-item" onclick="document.getElementById('import-file-input').click();closeSettingsMenu()">📂 설정 가져오기</div>
+  <div class="settings-item" onclick="exportSettings();closeSettingsMenu()">📤 설정 내보내기</div>
+  <div class="settings-divider"></div>
+  <div class="settings-meta">
+    <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
+    <!-- ★버전 -->
+    <span id="app-version" title="애플리케이션 버전">v1.0.9</span>
+  </div>
+</div>
+
 <!-- ══════════════════════════════════════════════════════════
      로그인 화면
 ══════════════════════════════════════════════════════════ -->
@@ -786,28 +808,6 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <button id="btn-tts" onclick="toggleTTS()" title="음성 안내 켜기/끄기" style="background:#1a1e30;color:#e0e6f0;border:1px solid #2a3050;border-radius:7px;padding:5px 10px;font-size:14px;cursor:pointer;">🔊</button>
   <span id="login-user-badge" style="font-size:11px;color:#6b8ae8;background:#111830;border:1px solid #1e2a50;border-radius:6px;padding:4px 9px;white-space:nowrap;font-weight:700;margin-left:auto;"></span>
   <button id="btn-settings" onclick="toggleSettingsMenu()" title="설정">⚙️</button>
-
-  <!-- 설정 드롭다운 메뉴 -->
-  <div id="settings-menu">
-    <div class="settings-item" onclick="window.open('https://map.naver.com/p/?c=127.032,37.498,14,0,0,0,dh','_blank');closeSettingsMenu()">🗺️ 네이버 지도</div>
-    <div class="settings-item" onclick="openTrafficConfig();closeSettingsMenu()">🚦 교통 설정</div>
-    <div class="settings-divider"></div>
-    <div class="settings-item" onclick="downloadTodayLogExcel();closeSettingsMenu()">📥 오늘 기록 다운로드<span id="export-log-count" style="margin-left:4px;color:#facc15;"></span></div>
-    <div class="settings-item" onclick="clearTodayTripLog();closeSettingsMenu()">🗑️ 오늘 기록 초기화</div>
-    <div class="settings-divider"></div>
-    <div class="settings-item" onclick="toggleEditMode();closeSettingsMenu()" id="menu-btn-edit">✏️ 경로 수정</div>
-    <div class="settings-item" onclick="toggleScEditMode();closeSettingsMenu()" id="menu-btn-sc-edit">✎ 시나리오 수정</div>
-    <div class="settings-item" id="menu-btn-sc-save" onclick="saveScEdit();closeSettingsMenu()" style="display:none">💾 시나리오 저장</div>
-    <div class="settings-divider"></div>
-    <div class="settings-item" onclick="document.getElementById('import-file-input').click();closeSettingsMenu()">📂 설정 가져오기</div>
-    <div class="settings-item" onclick="exportSettings();closeSettingsMenu()">📤 설정 내보내기</div>
-    <div class="settings-divider"></div>
-    <div class="settings-meta">
-      <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
-      <!-- ★버전 -->
-      <span id="app-version" title="애플리케이션 버전">v1.0.8</span>
-    </div>
-  </div>
 
   <input type="file" id="import-file-input" accept="application/json" style="display:none" onchange="handleImportFile(event)"/>
   <div id="hdr-right-group" style="display:none">
@@ -1093,9 +1093,13 @@ function toggleSettingsMenu(){
   const isOpen=menu.classList.contains('show');
   if(isOpen){ closeSettingsMenu(); }
   else {
+    // 버튼 위치 기준으로 메뉴 좌표 계산
+    const rect=btn.getBoundingClientRect();
+    menu.style.top=(rect.bottom+6)+'px';
+    menu.style.right=(window.innerWidth-rect.right)+'px';
+    menu.style.left='auto';
     menu.classList.add('show');
     btn.classList.add('open');
-    // 메뉴 외부 클릭 시 닫기
     setTimeout(()=>document.addEventListener('click', _closeOnOutside), 0);
   }
 }
