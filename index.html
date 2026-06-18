@@ -557,6 +557,14 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #btn-settings:hover{background:#1f2d5a;border-color:#3d5abf;}
 #btn-settings.open{background:#1f2d5a;border-color:#4a7aff;}
 
+#btn-focus-start{
+  background:#1a1e30;color:#e0e6f0;border:1px solid #2a3050;
+  border-radius:7px;padding:5px 11px;font-size:14px;cursor:pointer;
+  flex-shrink:0;transition:.15s;
+}
+#btn-focus-start:hover{background:#1f2d5a;border-color:#3d5abf;}
+#btn-focus-start:active{transform:scale(0.93);}
+
 #settings-menu{
   display:none;
   position:fixed;top:0;right:0;
@@ -765,7 +773,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v1.0.9</span>
+    <span id="app-version" title="애플리케이션 버전">v1.1.0</span>
   </div>
 </div>
 
@@ -805,8 +813,9 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <button class="sel-btn active" id="btn-loc-gn" onclick="switchLoc('강남')">강남</button>
   <button class="sel-btn" id="btn-loc-pg" onclick="switchLoc('판교')">판교</button>
   <button class="sel-btn" id="btn-loc-sh" onclick="switchLoc('시흥')">시흥</button>
-  <button id="btn-tts" onclick="toggleTTS()" title="음성 안내 켜기/끄기" style="background:#1a1e30;color:#e0e6f0;border:1px solid #2a3050;border-radius:7px;padding:5px 10px;font-size:14px;cursor:pointer;">🔊</button>
   <span id="login-user-badge" style="font-size:11px;color:#6b8ae8;background:#111830;border:1px solid #1e2a50;border-radius:6px;padding:4px 9px;white-space:nowrap;font-weight:700;margin-left:auto;"></span>
+  <button id="btn-tts" onclick="toggleTTS()" title="음성 안내 켜기/끄기" style="background:#1a1e30;color:#e0e6f0;border:1px solid #2a3050;border-radius:7px;padding:5px 10px;font-size:14px;cursor:pointer;">🔊</button>
+  <button id="btn-focus-start" onclick="focusToStart()" title="출발지로 지도 이동">🔍</button>
   <button id="btn-settings" onclick="toggleSettingsMenu()" title="설정">⚙️</button>
 
   <input type="file" id="import-file-input" accept="application/json" style="display:none" onchange="handleImportFile(event)"/>
@@ -1087,6 +1096,17 @@ function submitLogin() {
 // ══════════════════════════════════════════════════════════
 //  설정 드롭다운 메뉴
 // ══════════════════════════════════════════════════════════
+// 출발지로 지도 포커스
+function focusToStart(){
+  if(!legs[legIdx]) return;
+  const sLL=legs[legIdx].sLL;
+  if(!sLL) return;
+  // 현재 zoom 유지하되 최소 15레벨 보장
+  const zoom=Math.max(map.getZoom(),15);
+  map.flyTo(sLL, zoom, {animate:true, duration:0.6});
+  gpsAutoFollow=false;
+}
+
 function toggleSettingsMenu(){
   const menu=document.getElementById('settings-menu');
   const btn=document.getElementById('btn-settings');
