@@ -71,14 +71,40 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #turn-instr{font-size:16px;font-weight:700;color:#e0eaff;margin-top:4px;}
 #turn-road{font-size:11px;color:#6f82b0;margin-top:3px;white-space:normal;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 
-/* GPS 로딩 표시 */
+/* GPS 상태 표시 */
 #gps-status{
   position:absolute;bottom:12px;left:12px;z-index:1000;
-  background:rgba(5,8,20,0.85);border:1px solid #1e2a50;
-  border-radius:8px;padding:5px 10px;font-size:11px;color:#6b7aaa;
-  display:none;
+  background:rgba(5,8,20,0.88);border:1px solid #1e2a50;
+  border-radius:10px;padding:7px 11px;font-size:11px;color:#6b7aaa;
+  display:none;min-width:130px;
+  backdrop-filter:blur(6px);
+  transition:border-color .3s, background .3s;
 }
 #gps-status.show{display:block;}
+#gps-status.good {border-color:#16a34a;background:rgba(5,20,10,0.88);}
+#gps-status.ok   {border-color:#ca8a04;background:rgba(20,15,5,0.88);}
+#gps-status.bad  {border-color:#dc2626;background:rgba(20,5,5,0.88);}
+#gps-status.lost {border-color:#7f1d1d;background:rgba(20,5,5,0.88);animation:gps-blink 1.2s infinite;}
+@keyframes gps-blink{0%,100%{opacity:1;}50%{opacity:0.4;}}
+
+#gps-dot{
+  display:inline-block;width:8px;height:8px;border-radius:50%;
+  margin-right:5px;vertical-align:middle;background:#4a5580;
+  transition:background .3s;
+}
+#gps-status.good #gps-dot{background:#4ade80;box-shadow:0 0 5px #4ade8088;}
+#gps-status.ok   #gps-dot{background:#facc15;box-shadow:0 0 5px #facc1588;}
+#gps-status.bad  #gps-dot{background:#f87171;box-shadow:0 0 5px #f8717188;}
+#gps-status.lost #gps-dot{background:#f87171;}
+
+#gps-main-line{font-size:11px;font-weight:700;color:#c8d4f8;}
+#gps-status.good #gps-main-line{color:#4ade80;}
+#gps-status.ok   #gps-main-line{color:#facc15;}
+#gps-status.bad  #gps-main-line{color:#f87171;}
+#gps-status.lost #gps-main-line{color:#f87171;}
+
+#gps-acc-line{font-size:10px;color:#4a5580;margin-top:2px;}
+#gps-coord-line{font-size:9px;color:#3a4560;margin-top:1px;font-variant-numeric:tabular-nums;}
 
 /* OSRM 로딩 스피너 */
 #route-loading{
@@ -331,18 +357,24 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #leg-list{flex:none;max-height:40vh;overflow-y:auto;}
 
   /* ── 헤더 ── */
-  #hdr{flex-wrap:wrap;gap:5px;padding:6px 8px;}
-  #hdr-title{font-size:12px;}
-  .sel-btn{padding:4px 8px;font-size:11px;}
-  #btn-naver-map{font-size:11px;padding:4px 8px;}
-  #btn-export-log{font-size:11px;padding:4px 8px;}
-  #btn-clear-log{padding:4px 7px;font-size:11px;}
-  #hdr-right-group{gap:5px;}
+  /* 1행: 타이틀 + 지역버튼 + 네이버지도 */
+  #hdr{flex-wrap:wrap;gap:4px;padding:5px 8px;align-items:center;}
+  #hdr-title{font-size:12px;flex-shrink:0;}
+  .sel-btn{padding:4px 8px;font-size:11px;flex-shrink:0;}
+  #btn-naver-map{font-size:11px;padding:4px 8px;flex-shrink:0;}
+  /* 2행: 나머지 버튼들 */
+  #btn-tts{order:10;padding:4px 8px;font-size:12px;flex-shrink:0;}
+  #btn-traffic{order:10;font-size:10px;padding:4px 7px;flex-shrink:0;}
+  #btn-export-log{order:10;font-size:10px;padding:4px 7px;flex-shrink:0;}
+  #btn-clear-log{order:10;padding:4px 7px;font-size:11px;flex-shrink:0;}
+  /* hdr-right-group 새 줄에 full width */
+  #hdr-right-group{order:10;width:100%;gap:4px;margin-left:0;flex-wrap:wrap;align-items:center;}
+  #login-user-badge{font-size:10px;padding:3px 7px;flex-shrink:0;}
   #btn-edit{padding:4px 8px;font-size:11px;}
   #btn-sc-edit{padding:4px 8px;font-size:11px;}
   #btn-sc-save-hdr{padding:4px 8px;font-size:11px;}
-  #config-status{align-items:flex-end;max-width:210px;}
-  #imported-file-name{max-width:210px;font-size:9px;}
+  #config-status{align-items:flex-end;margin-left:auto;}
+  #imported-file-name{max-width:160px;font-size:9px;}
   #config-meta-row{gap:4px;}
   #app-version{height:16px;padding:0 5px;font-size:8px;}
 
@@ -715,7 +747,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       <span id="imported-file-name" class="empty" title="아직 가져온 설정 JSON 파일이 없습니다.">가져온 설정: 없음</span>
       <div id="config-meta-row">
         <!-- ★버전 -->
-        <span id="app-version" title="애플리케이션 버전">v1.0.3</span>
+        <span id="app-version" title="애플리케이션 버전">v1.0.4</span>
       </div>
     </div>
   </div>
@@ -778,7 +810,11 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     </div>
 
     <!-- GPS 상태 -->
-    <div id="gps-status">📡 GPS 수신 중...</div>
+    <div id="gps-status">
+      <div><span id="gps-dot"></span><span id="gps-main-line">GPS 수신 중...</span></div>
+      <div id="gps-acc-line">정확도 확인 중</div>
+      <div id="gps-coord-line"></div>
+    </div>
 
     <!-- 경로 로딩 -->
     <div id="route-loading">
@@ -2823,13 +2859,49 @@ function updateLegUI(){
 // ══════════════════════════════════════════════════════════
 //  GPS
 // ══════════════════════════════════════════════════════════
+function updateGpsStatus(accuracy, coords, level){
+  const el=document.getElementById('gps-status');
+  const mainEl=document.getElementById('gps-main-line');
+  const accEl=document.getElementById('gps-acc-line');
+  const coordEl=document.getElementById('gps-coord-line');
+  if(!el||!mainEl||!accEl||!coordEl) return;
+  el.classList.remove('good','ok','bad','lost');
+  if(level==='lost'){
+    el.classList.add('lost');
+    mainEl.textContent='GPS 신호 없음';
+    accEl.textContent='수신 대기 중...';
+    coordEl.textContent='';
+    return;
+  }
+  const acc=Math.round(accuracy||0);
+  if(acc<=10){
+    el.classList.add('good');
+    mainEl.textContent='GPS 양호';
+  } else if(acc<=30){
+    el.classList.add('ok');
+    mainEl.textContent='GPS 보통';
+  } else {
+    el.classList.add('bad');
+    mainEl.textContent='GPS 불량';
+  }
+  accEl.textContent='정확도 ±'+acc+'m';
+  if(coords) coordEl.textContent=coords[0].toFixed(5)+', '+coords[1].toFixed(5);
+}
+
 function startGPS(){
   if(!navigator.geolocation) return;
   document.getElementById('gps-status').classList.add('show');
   if(watchId!==null) return;
+  let gpsLostTimer=null;
+  function resetGpsLostTimer(){
+    if(gpsLostTimer) clearTimeout(gpsLostTimer);
+    gpsLostTimer=setTimeout(()=>updateGpsStatus(999,null,'lost'),8000);
+  }
+  resetGpsLostTimer();
   watchId=navigator.geolocation.watchPosition(pos=>{
+    resetGpsLostTimer();
     const {latitude:lat,longitude:lng,heading,speed}=pos.coords;
-    document.getElementById('gps-status').textContent=`📡 GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    updateGpsStatus(pos.coords.accuracy,[lat,lng]);
 
     // 차량 방향은 단말 GPS heading을 우선 사용하고,
     // 값이 없을 때는 직전 GPS 위치에서 실제로 이동한 방향으로 계산한다.
@@ -2966,7 +3038,7 @@ function startGPS(){
       if(!offRoute) lastWarnSpoken=false;
     }
   },err=>{
-    document.getElementById('gps-status').textContent='📡 GPS 권한 없음';
+    updateGpsStatus(999,null,'lost');
     console.warn('GPS 오류',err);
   },{enableHighAccuracy:true,maximumAge:1500,timeout:10000});
 }
