@@ -98,7 +98,10 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #sc-select{flex-shrink:0;padding:10px;border-bottom:1px solid #1a1e30;}
 #sc-select select{width:100%;background:#141828;border:1px solid #252d50;color:#c0caee;padding:7px 10px;border-radius:7px;font-size:13px;cursor:pointer;}
 #sc-select select option{background:#141828;}
-#last-saved{font-size:11px;color:#4a5580;white-space:nowrap;margin-left:4px;letter-spacing:.02em;}
+#config-status{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:2px;margin-left:4px;min-width:0;}
+#imported-file-name{display:none;max-width:300px;font-size:11px;color:#7aa0ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em;}
+#imported-file-name.show{display:block;}
+#last-saved{font-size:11px;color:#4a5580;white-space:nowrap;letter-spacing:.02em;}
 #hdr-right-group{display:flex;align-items:center;gap:8px;margin-left:auto;}
 
 /* 현재 구간 카드 */
@@ -336,6 +339,8 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #btn-edit{padding:4px 8px;font-size:11px;}
   #btn-sc-edit{padding:4px 8px;font-size:11px;}
   #btn-sc-save-hdr{padding:4px 8px;font-size:11px;}
+  #config-status{align-items:flex-end;max-width:180px;}
+  #imported-file-name{max-width:180px;font-size:9px;}
   #last-saved{font-size:9px;}
 
   /* ── 현재구간 카드 헤더 모바일에서 표시 ── */
@@ -471,6 +476,61 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #leg-list{max-height:22vh;overflow-y:auto;}
   #leg-list-wrap{flex:none;}
 }
+
+
+/* ── 공공 교통정보 오버레이 ── */
+#btn-traffic{
+  background:#18223a;color:#9ec5ff;border:1px solid #31518c;border-radius:7px;
+  padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;
+}
+#btn-traffic:hover{background:#21345a;color:#fff;}
+#btn-traffic.loading{color:#facc15;border-color:#8a6d1d;}
+#btn-traffic.live{color:#4ade80;border-color:#1f6b3a;background:#10291c;}
+#btn-traffic.error{color:#fca5a5;border-color:#7f1d1d;background:#2b1115;}
+#traffic-card{
+  position:absolute;top:12px;right:12px;z-index:1001;width:min(320px,calc(100% - 24px));
+  background:rgba(7,10,22,.93);border:1px solid #273a68;border-radius:11px;
+  box-shadow:0 5px 20px rgba(0,0,0,.45);backdrop-filter:blur(8px);padding:10px 12px;
+  display:none;
+}
+#traffic-card.show{display:block;}
+#traffic-card-head{display:flex;align-items:center;gap:7px;}
+#traffic-source{font-size:12px;font-weight:800;color:#b8c8ef;flex:1;}
+#traffic-refresh-btn{background:#17223c;color:#8fb2f4;border:1px solid #2b4377;border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;}
+#traffic-close-btn{background:none;border:none;color:#6375a3;font-size:13px;cursor:pointer;padding:2px;}
+#traffic-status-line{font-size:10px;color:#6d82b5;margin-top:4px;}
+#traffic-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;}
+.traffic-stat{border:1px solid #1f2c4a;background:#0c1425;border-radius:6px;padding:5px 3px;text-align:center;}
+.traffic-stat b{display:block;font-size:13px;color:#dbe7ff;}
+.traffic-stat span{font-size:9px;color:#62739d;}
+#traffic-legend{display:flex;flex-wrap:wrap;gap:7px;margin-top:7px;font-size:9px;color:#7183ae;}
+.traffic-key{display:inline-flex;align-items:center;gap:3px;}
+.traffic-swatch{width:13px;height:4px;border-radius:4px;display:inline-block;}
+#traffic-note{font-size:9px;color:#55688f;line-height:1.35;margin-top:6px;}
+.traffic-event-icon{background:transparent;border:none;}
+.traffic-event-pin{width:25px;height:25px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#ef4444;border:2px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;}
+.traffic-event-pin span{transform:rotate(45deg);font-size:12px;}
+
+#traffic-modal{display:none;position:fixed;inset:0;z-index:12000;background:rgba(0,0,0,.78);align-items:center;justify-content:center;padding:18px;}
+#traffic-modal.show{display:flex;}
+#traffic-modal-box{width:min(520px,100%);background:#0e1321;border:1px solid #2b3d68;border-radius:13px;padding:17px;box-shadow:0 12px 45px rgba(0,0,0,.6);}
+#traffic-modal-title{font-size:16px;font-weight:800;color:#dbe7ff;margin-bottom:7px;}
+#traffic-modal-desc{font-size:11px;color:#7f91ba;line-height:1.55;margin-bottom:12px;}
+#traffic-worker-url{width:100%;background:#080d18;border:1px solid #2b3d68;color:#dce8ff;border-radius:7px;padding:9px 10px;font-size:12px;outline:none;}
+#traffic-worker-url:focus{border-color:#4c79d8;}
+#traffic-modal-actions{display:flex;gap:7px;margin-top:11px;}
+.traffic-modal-btn{flex:1;border:none;border-radius:7px;padding:9px;font-size:12px;font-weight:700;cursor:pointer;}
+#traffic-save-btn{background:#2563eb;color:white;}
+#traffic-cancel-btn{background:#1a2235;color:#9aabd0;border:1px solid #2b3d58;}
+#traffic-clear-btn{background:#3a1518;color:#fca5a5;border:1px solid #7f1d1d;}
+
+@media(max-width:700px){
+  #btn-traffic{font-size:10px;padding:4px 7px;}
+  #traffic-card{top:6px;right:6px;width:calc(100% - 12px);padding:8px 9px;}
+  #traffic-summary{gap:3px;}
+  .traffic-stat b{font-size:12px;}
+}
+
 </style>
 </head>
 <body>
@@ -482,6 +542,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <button class="sel-btn" id="btn-loc-sh" onclick="switchLoc('시흥')">시흥</button>
   <a id="btn-naver-map" href="https://map.naver.com/p/?c=127.032,37.498,14,0,0,0,dh" target="_blank" rel="noopener">네이버 지도</a>
   <button id="btn-tts" onclick="toggleTTS()" title="음성 안내 켜기/끄기" style="background:#1a1e30;color:#e0e6f0;border:1px solid #2a3050;border-radius:7px;padding:5px 10px;font-size:14px;cursor:pointer;">🔊</button>
+  <button id="btn-traffic" onclick="openTrafficConfig()" title="TOPIS/국가 ITS 교통정보 설정">🚦 교통 설정</button>
   <button id="btn-export-log" onclick="downloadTodayLogExcel()" title="오늘 완료한 구간을 엑셀로 다운로드">📥 오늘 기록 다운로드<span id="export-log-count"></span></button>
   <button id="btn-clear-log" onclick="clearTodayTripLog()" title="오늘 기록 초기화">🗑</button>
   <input type="file" id="import-file-input" accept="application/json" style="display:none" onchange="handleImportFile(event)"/>
@@ -489,7 +550,10 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     <button id="btn-edit" onclick="toggleEditMode()" title="경로 수정">✏️ 경로 수정</button>
     <button id="btn-sc-save-hdr" onclick="saveScEdit()" title="시나리오 수정 저장">💾 저장</button>
     <button id="btn-sc-edit" onclick="toggleScEditMode()" title="거리·속도·시간 수정">✎ 시나리오 수정</button>
-    <span id="last-saved"></span>
+    <div id="config-status">
+      <span id="imported-file-name" title="마지막으로 가져온 설정 JSON 파일"></span>
+      <span id="last-saved"></span>
+    </div>
   </div>
 </div>
 
@@ -523,6 +587,30 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
         <div id="steps-hdr">전체 경로 안내 <button id="btn-steps-toggle" onclick="toggleStepsPanel()">접기 ▼</button></div>
         <div id="steps-list"></div>
       </div>
+    </div>
+
+    <!-- 공공 교통정보 상태 -->
+    <div id="traffic-card">
+      <div id="traffic-card-head">
+        <span id="traffic-source">교통정보 준비 중</span>
+        <button id="traffic-refresh-btn" onclick="refreshTrafficData(true)">새로고침</button>
+        <button id="traffic-close-btn" onclick="document.getElementById('traffic-card').classList.remove('show')">✕</button>
+      </div>
+      <div id="traffic-status-line">중계 서버를 설정해주세요.</div>
+      <div id="traffic-summary">
+        <div class="traffic-stat"><b id="traffic-smooth">0</b><span>원활</span></div>
+        <div class="traffic-stat"><b id="traffic-slow">0</b><span>서행</span></div>
+        <div class="traffic-stat"><b id="traffic-jam">0</b><span>정체</span></div>
+        <div class="traffic-stat"><b id="traffic-events">0</b><span>돌발</span></div>
+      </div>
+      <div id="traffic-legend">
+        <span class="traffic-key"><i class="traffic-swatch" style="background:#22c55e"></i>원활</span>
+        <span class="traffic-key"><i class="traffic-swatch" style="background:#facc15"></i>서행</span>
+        <span class="traffic-key"><i class="traffic-swatch" style="background:#ef4444"></i>정체</span>
+        <span class="traffic-key"><i class="traffic-swatch" style="background:#6b7280"></i>지나간 길</span>
+        <span class="traffic-key"><i class="traffic-swatch" style="background:#3b82f6"></i>정보 없음</span>
+      </div>
+      <div id="traffic-note">강남은 서울 TOPIS, 판교·시흥은 국가교통정보센터 ITS를 사용하며 15분마다 갱신합니다.</div>
     </div>
 
     <!-- GPS 상태 -->
@@ -630,6 +718,22 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
         <button id="btn-alf-cancel" onclick="cancelAddLeg()" style="flex:1;background:#1a1e30;color:#8898cc;border:1px solid #2a3050;border-radius:7px;padding:10px;font-size:12px;font-weight:700;cursor:pointer;">← 뒤로가기</button>
         <button id="btn-alf-ok" onclick="addNewLeg()" style="flex:2;background:#16a34a;color:#fff;border:none;border-radius:7px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;">구간 추가</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<div id="traffic-modal" onclick="if(event.target===this) closeTrafficConfig()">
+  <div id="traffic-modal-box">
+    <div id="traffic-modal-title">🚦 공공 교통정보 연결</div>
+    <div id="traffic-modal-desc">
+      GitHub Pages에서 인증키를 노출하지 않도록 Cloudflare Worker 중계 주소를 사용합니다.<br/>
+      강남은 서울 TOPIS, 판교·시흥은 국가 ITS를 즉시 조회하고 이후 15분마다 갱신합니다.
+    </div>
+    <input id="traffic-worker-url" type="url" placeholder="https://nav-traffic-proxy.계정.workers.dev" autocomplete="off"/>
+    <div id="traffic-modal-actions">
+      <button class="traffic-modal-btn" id="traffic-cancel-btn" onclick="closeTrafficConfig()">취소</button>
+      <button class="traffic-modal-btn" id="traffic-clear-btn" onclick="clearTrafficConfig()">설정 삭제</button>
+      <button class="traffic-modal-btn" id="traffic-save-btn" onclick="saveTrafficConfig()">저장 및 적용</button>
     </div>
   </div>
 </div>
@@ -916,6 +1020,18 @@ let routeProgressMeters=0;
 let routeProgressInitialized=false;
 let osrmAbortCtrl=null;
 
+// 공공 교통정보: 강남=서울 TOPIS, 판교/시흥=국가 ITS
+const TRAFFIC_REFRESH_MS=15*60*1000;
+let trafficRefreshTimer=null;
+let trafficLastUpdatedAt=0;
+let trafficLoading=false;
+let trafficData={source:null,traffic:[],events:[],updatedAt:null,note:''};
+let trafficRouteLayers=[];
+let trafficEventLayer=null;
+let trafficAbortCtrl=null;
+let trafficWorkerUrl='';
+
+
 // 경로 수정 모드
 let editMode=false;
 let editWaypoints=[];   // [[lat,lng], ...]
@@ -927,6 +1043,311 @@ let editMapClickHandler=null;
 // ══════════════════════════════════════════════════════════
 const map=L.map('map',{center:[37.498,127.032],zoom:13,zoomControl:true});
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);
+
+trafficEventLayer=L.layerGroup().addTo(map);
+
+function normalizeWorkerUrl(value){
+  return String(value||'').trim().replace(/\/+$/,'');
+}
+
+function loadTrafficConfig(){
+  try{ trafficWorkerUrl=normalizeWorkerUrl(localStorage.getItem('nav_traffic_worker_url')); }
+  catch(_){ trafficWorkerUrl=''; }
+  updateTrafficButton();
+}
+
+function openTrafficConfig(){
+  const input=document.getElementById('traffic-worker-url');
+  if(input) input.value=trafficWorkerUrl||'';
+  document.getElementById('traffic-modal').classList.add('show');
+}
+
+function closeTrafficConfig(){
+  document.getElementById('traffic-modal').classList.remove('show');
+}
+
+function saveTrafficConfig(){
+  const input=document.getElementById('traffic-worker-url');
+  const value=normalizeWorkerUrl(input?input.value:'');
+  if(!/^https:\/\//i.test(value)){
+    alert('Cloudflare Worker의 https:// 주소를 입력해주세요.');
+    return;
+  }
+  trafficWorkerUrl=value;
+  try{ localStorage.setItem('nav_traffic_worker_url',value); }catch(_){}
+  closeTrafficConfig();
+  updateTrafficButton();
+  startTrafficUpdates(loc);
+}
+
+function clearTrafficConfig(){
+  trafficWorkerUrl='';
+  try{ localStorage.removeItem('nav_traffic_worker_url'); }catch(_){}
+  stopTrafficUpdates(true);
+  closeTrafficConfig();
+  updateTrafficButton();
+}
+
+function updateTrafficButton(state){
+  const btn=document.getElementById('btn-traffic');
+  if(!btn) return;
+  btn.classList.remove('loading','live','error');
+  if(state==='loading'){
+    btn.classList.add('loading'); btn.textContent='🚦 교통 조회 중'; return;
+  }
+  if(state==='live'){
+    btn.classList.add('live');
+    btn.textContent=loc==='강남'?'🚦 TOPIS 실시간':'🚦 국가 ITS 실시간';
+    return;
+  }
+  if(state==='error'){
+    btn.classList.add('error'); btn.textContent='🚦 교통 오류'; return;
+  }
+  btn.textContent=trafficWorkerUrl?'🚦 교통 대기':'🚦 교통 설정';
+}
+
+function clearTrafficLayers(){
+  trafficRouteLayers.forEach(layer=>{try{map.removeLayer(layer);}catch(_){}});
+  trafficRouteLayers=[];
+  if(trafficEventLayer) trafficEventLayer.clearLayers();
+}
+
+function stopTrafficUpdates(clearLayers=false){
+  if(trafficRefreshTimer!==null){ clearInterval(trafficRefreshTimer); trafficRefreshTimer=null; }
+  if(trafficAbortCtrl){ try{trafficAbortCtrl.abort();}catch(_){} trafficAbortCtrl=null; }
+  if(clearLayers) clearTrafficLayers();
+}
+
+function startTrafficUpdates(location){
+  stopTrafficUpdates(true);
+  updateTrafficButton();
+  if(!trafficWorkerUrl){
+    updateTrafficStatusCard('설정 필요','Cloudflare Worker 중계 주소를 입력해주세요.');
+    return;
+  }
+  refreshTrafficData(true);
+  trafficRefreshTimer=setInterval(()=>refreshTrafficData(false),TRAFFIC_REFRESH_MS);
+}
+
+function getTrafficBounds(){
+  let points=[];
+  if(currentRouteCoords&&currentRouteCoords.length){
+    points=currentRouteCoords.map(c=>[c[1],c[0]]);
+  }else{
+    legs.forEach(lg=>{
+      if(lg.sLL) points.push(lg.sLL);
+      if(lg.eLL) points.push(lg.eLL);
+    });
+  }
+  if(!points.length){
+    const c=SCENARIOS[loc].center;
+    return {minX:c[1]-.08,maxX:c[1]+.08,minY:c[0]-.08,maxY:c[0]+.08};
+  }
+  const lats=points.map(p=>p[0]), lngs=points.map(p=>p[1]);
+  const pad=.025;
+  return {
+    minX:Math.min(...lngs)-pad,maxX:Math.max(...lngs)+pad,
+    minY:Math.min(...lats)-pad,maxY:Math.max(...lats)+pad
+  };
+}
+
+function getCurrentRoadNames(){
+  const names=[];
+  osrmSteps.forEach(step=>{
+    const name=String(step.name||'').trim();
+    if(name&&!names.includes(name)) names.push(name);
+  });
+  const lg=legs[legIdx];
+  if(lg&&lg.road){
+    lg.road.split(/[~(),]/).map(s=>s.trim()).filter(Boolean).forEach(name=>{
+      if(name.length>=2&&!names.includes(name)) names.push(name);
+    });
+  }
+  return names.slice(0,20);
+}
+
+function getTopisLinkIds(){
+  if(loc!=='강남') return [];
+  const ids=[];
+  const lg=legs[legIdx];
+  [lg&&lg.sId,lg&&lg.eId].forEach(v=>{
+    const id=String(v||'').trim();
+    if(/^\d{10}$/.test(id)&&!ids.includes(id)) ids.push(id);
+  });
+  return ids;
+}
+
+async function refreshTrafficData(manual=false){
+  if(trafficLoading||!trafficWorkerUrl) return;
+  trafficLoading=true;
+  updateTrafficButton('loading');
+  document.getElementById('traffic-card').classList.add('show');
+  updateTrafficStatusCard(loc==='강남'?'서울 TOPIS':'국가 ITS',manual?'수동 갱신 중...':'교통정보 갱신 중...');
+
+  if(trafficAbortCtrl){ try{trafficAbortCtrl.abort();}catch(_){} }
+  trafficAbortCtrl=new AbortController();
+  const bounds=getTrafficBounds();
+  const params=new URLSearchParams({
+    loc,
+    minX:String(bounds.minX),maxX:String(bounds.maxX),
+    minY:String(bounds.minY),maxY:String(bounds.maxY),
+    roads:getCurrentRoadNames().join('|'),
+    linkIds:getTopisLinkIds().join(',')
+  });
+  try{
+    const response=await fetch(`${trafficWorkerUrl}/traffic?${params.toString()}`,{
+      signal:trafficAbortCtrl.signal,
+      headers:{'Accept':'application/json'}
+    });
+    const body=await response.json().catch(()=>({}));
+    if(!response.ok||body.ok===false){
+      throw new Error(body.error||`HTTP ${response.status}`);
+    }
+    trafficData={
+      source:body.source||(loc==='강남'?'TOPIS':'ITS'),
+      traffic:Array.isArray(body.traffic)?body.traffic:[],
+      events:Array.isArray(body.events)?body.events:[],
+      updatedAt:body.updatedAt||new Date().toISOString(),
+      note:body.note||''
+    };
+    trafficLastUpdatedAt=Date.now();
+    renderTrafficOverlay();
+    updateTrafficSummary();
+    updateTrafficButton('live');
+  }catch(error){
+    if(error&&error.name==='AbortError') return;
+    console.error('교통정보 갱신 실패:',error);
+    updateTrafficButton('error');
+    updateTrafficStatusCard(loc==='강남'?'서울 TOPIS':'국가 ITS',`갱신 실패: ${error.message}`);
+  }finally{
+    trafficLoading=false;
+    trafficAbortCtrl=null;
+  }
+}
+
+function normalizeRoadName(name){
+  return String(name||'')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g,'')
+    .replace(/[\s·ㆍ.,\-_/]/g,'')
+    .replace(/대로|로|길/g,m=>m);
+}
+
+function findTrafficForRoad(roadName){
+  const key=normalizeRoadName(roadName);
+  if(!key) return null;
+  let best=null,bestScore=0;
+  for(const item of trafficData.traffic){
+    const candidate=normalizeRoadName(item.roadName||item.name||'');
+    if(!candidate) continue;
+    let score=0;
+    if(candidate===key) score=100;
+    else if(candidate.includes(key)||key.includes(candidate)) score=Math.min(candidate.length,key.length);
+    if(score>bestScore){bestScore=score;best=item;}
+  }
+  return bestScore>=2?best:null;
+}
+
+function classifyTraffic(speed,roadType){
+  const s=Number(speed);
+  if(!Number.isFinite(s)||s<=0) return 'unknown';
+  const t=String(roadType||'').toLowerCase();
+  if(t.includes('고속')||t==='ex'||t.includes('express')){
+    if(s>=80) return 'smooth';
+    if(s>=40) return 'slow';
+    return 'jam';
+  }
+  if(s>=25) return 'smooth';
+  if(s>=15) return 'slow';
+  return 'jam';
+}
+
+function trafficColor(status){
+  return status==='smooth'?'#22c55e':status==='slow'?'#facc15':status==='jam'?'#ef4444':'#3b82f6';
+}
+
+function routeWideFallbackTraffic(){
+  const valid=trafficData.traffic.filter(v=>Number.isFinite(Number(v.speed))&&Number(v.speed)>0);
+  if(!valid.length) return null;
+  const speed=valid.reduce((sum,v)=>sum+Number(v.speed),0)/valid.length;
+  return {speed,roadType:valid[0].roadType||'',roadName:'구간 평균'};
+}
+
+function renderTrafficOverlay(){
+  trafficRouteLayers.forEach(layer=>{try{map.removeLayer(layer);}catch(_){}});
+  trafficRouteLayers=[];
+  if(trafficEventLayer) trafficEventLayer.clearLayers();
+
+  const fallback=routeWideFallbackTraffic();
+  osrmSteps.forEach(step=>{
+    const coords=step&&step.geometry&&Array.isArray(step.geometry.coordinates)
+      ? step.geometry.coordinates:null;
+    if(!coords||coords.length<2) return;
+    const item=findTrafficForRoad(step.name)||fallback;
+    const status=item?classifyTraffic(item.speed,item.roadType):'unknown';
+    const layer=L.polyline(coords.map(c=>[c[1],c[0]]),{
+      color:trafficColor(status),weight:7,opacity:.9,lineCap:'round',lineJoin:'round',interactive:true
+    }).addTo(map);
+    const speed=item&&Number.isFinite(Number(item.speed))?`${Math.round(Number(item.speed))} km/h`:'속도 정보 없음';
+    layer.bindTooltip(`${step.name||'도로명 없음'} · ${speed}`,{sticky:true,direction:'top'});
+    trafficRouteLayers.push(layer);
+  });
+
+  trafficData.events.forEach(event=>{
+    const lat=Number(event.lat),lng=Number(event.lng);
+    if(!Number.isFinite(lat)||!Number.isFinite(lng)) return;
+    const icon=L.divIcon({
+      className:'traffic-event-icon',
+      html:`<div class="traffic-event-pin"><span>${event.icon||'⚠'}</span></div>`,
+      iconSize:[25,25],iconAnchor:[12,25]
+    });
+    const marker=L.marker([lat,lng],{icon,zIndexOffset:1500});
+    marker.bindPopup(`<b>${escapeTrafficHtml(event.type||'돌발정보')}</b><br>${escapeTrafficHtml(event.roadName||'')}<br>${escapeTrafficHtml(event.message||'')}`);
+    marker.addTo(trafficEventLayer);
+  });
+
+  // 교통색 위에 지나간 회색 경로가 보이도록 순서를 보정한다.
+  if(passedRouteLine&&passedRouteLine.bringToFront) passedRouteLine.bringToFront();
+  if(carMarker&&carMarker.bringToFront) carMarker.bringToFront();
+}
+
+function escapeTrafficHtml(value){
+  return String(value||'').replace(/[&<>'"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+}
+
+function updateTrafficSummary(){
+  let smooth=0,slow=0,jam=0;
+  trafficData.traffic.forEach(item=>{
+    const status=classifyTraffic(item.speed,item.roadType);
+    if(status==='smooth') smooth++;
+    else if(status==='slow') slow++;
+    else if(status==='jam') jam++;
+  });
+  document.getElementById('traffic-smooth').textContent=smooth;
+  document.getElementById('traffic-slow').textContent=slow;
+  document.getElementById('traffic-jam').textContent=jam;
+  document.getElementById('traffic-events').textContent=trafficData.events.length;
+  const dt=new Date(trafficData.updatedAt||Date.now());
+  const label=Number.isNaN(dt.getTime())?'방금':dt.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+  const source=trafficData.source==='TOPIS'?'서울 TOPIS':'국가교통정보센터 ITS';
+  document.getElementById('traffic-source').textContent=`🚦 ${source} · ${loc}`;
+  document.getElementById('traffic-status-line').textContent=`${label} 업데이트 · 다음 갱신 약 15분 후`;
+  document.getElementById('traffic-note').textContent=trafficData.note||'도로명 매칭이 가능한 구간은 실시간 속도 색상으로 표시합니다.';
+  document.getElementById('traffic-card').classList.add('show');
+}
+
+function updateTrafficStatusCard(source,message){
+  document.getElementById('traffic-source').textContent=`🚦 ${source}`;
+  document.getElementById('traffic-status-line').textContent=message;
+  document.getElementById('traffic-card').classList.add('show');
+}
+
+// 모바일에서 백그라운드 타이머가 멈춘 경우 화면 복귀 시 즉시 보정한다.
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState!=='visible'||!trafficWorkerUrl) return;
+  if(Date.now()-trafficLastUpdatedAt>=TRAFFIC_REFRESH_MS) refreshTrafficData(false);
+});
+
 
 // 사용자가 직접 만든 지도 중심/배율 저장
 function saveManualMapView(){
@@ -1016,6 +1437,8 @@ async function fetchOSRM(sLL,eLL,legId){
       showTurnOverlay(true);
       updateCurStats();
       renderStepsList();
+      // 현재 도로명 기준으로 최근 교통정보를 다시 입힌다.
+      renderTrafficOverlay();
     }
   }catch(e){
     if(e.name==='AbortError') return;
@@ -1075,6 +1498,8 @@ function drawFallbackRoute(sLL,eLL){
 
 function clearOSRM(){
   [osrmOutline,osrmLine,passedRouteLine].forEach(l=>{if(l){try{map.removeLayer(l);}catch(_){}}});
+  trafficRouteLayers.forEach(l=>{try{map.removeLayer(l);}catch(_){}});
+  trafficRouteLayers=[];
   osrmOutline=osrmLine=passedRouteLine=null;
   osrmSteps=[]; osrmDuration=null; currentRouteCoords=null;
   routeCumulativeMeters=[];
@@ -1187,9 +1612,9 @@ function renderRouteProgress(){
   passedRouteLine.setLatLngs(split.passed.length>=2?split.passed:[]);
   osrmLine.setLatLngs(split.remaining.length>=2?split.remaining:[]);
 
-  // 남은 파란 경로가 분할 지점에서 회색 경로 위에 또렷하게 보이도록 한다.
+  // 교통색 경로를 표시한 뒤, 지나간 구간은 회색이 가장 위에 보이도록 한다.
+  trafficRouteLayers.forEach(l=>{if(l&&l.bringToFront) l.bringToFront();});
   if(passedRouteLine.bringToFront) passedRouteLine.bringToFront();
-  if(osrmLine.bringToFront) osrmLine.bringToFront();
   if(carMarker&&carMarker.bringToFront) carMarker.bringToFront();
 }
 
@@ -2011,8 +2436,9 @@ function switchLoc(l){
   applyLocUI(l);
   loadScenario();
   saveCurrentView();
+  startTrafficUpdates(l);
 }
-function switchSc(k){ stopTimer(); isPlaying=false; scKey=k; loadScenario(); saveCurrentView(); }
+function switchSc(k){ stopTimer(); isPlaying=false; scKey=k; loadScenario(); saveCurrentView(); startTrafficUpdates(loc); }
 
 // ══════════════════════════════════════════════════════════
 //  현재 화면(위치·시나리오·구간) 기억
@@ -2454,6 +2880,33 @@ function loadLastSaved(){
   }catch(e){}
 }
 
+// 마지막으로 가져온 설정 JSON 파일명 표시
+function renderImportedFileName(fileName){
+  const el=document.getElementById('imported-file-name');
+  if(!el) return;
+  const name=String(fileName||'').trim();
+  if(!name){
+    el.textContent='';
+    el.title='마지막으로 가져온 설정 JSON 파일';
+    el.classList.remove('show');
+    return;
+  }
+  el.textContent='가져온 설정: '+name;
+  el.title='가져온 설정 파일: '+name;
+  el.classList.add('show');
+}
+
+function saveImportedFileName(fileName){
+  try{ localStorage.setItem('nav_imported_settings_filename',fileName); }
+  catch(e){ console.warn('가져온 설정 파일명 저장 실패:',e); }
+  renderImportedFileName(fileName);
+}
+
+function loadImportedFileName(){
+  try{ renderImportedFileName(localStorage.getItem('nav_imported_settings_filename')); }
+  catch(e){ renderImportedFileName(''); }
+}
+
 // ══════════════════════════════════════════════════════════
 //  주행 기록 (오늘 완료한 구간을 모아 엑셀로 다운로드)
 // ══════════════════════════════════════════════════════════
@@ -2737,7 +3190,8 @@ async function handleImportFile(ev){
       loadScenario();
     }
     saveCurrentView();
-    alert('가져오기 완료!');
+    saveImportedFileName(file.name);
+    alert(`가져오기 완료!\n설정 파일: ${file.name}`);
   }catch(e){
     alert('가져오기 실패: 올바른 설정 파일(JSON)인지 확인해주세요.\n'+e.message);
   }
@@ -2815,7 +3269,9 @@ function exitEditMode(){
 // 초기화 — 저장된 경로 먼저 불러온 뒤 시나리오 로드
 loadWaypointsFromStorage();
 loadLastSaved();
+loadImportedFileName();
 updateTripLogCount();
+loadTrafficConfig();
 
 // 전체 경로 안내 / 현재 구간 / 구간 목록의 마지막 접힘 상태 복원
 restorePanelState();
@@ -2845,6 +3301,7 @@ window.addEventListener('resize',refreshMapSize);
   const scSelEl=document.getElementById('sc-sel');
   if(scSelEl) scSelEl.value=scKey;
   loadScenario(savedView||undefined);
+  startTrafficUpdates(loc);
 }
 
 // ══════════════════════════════════════════════════════════
