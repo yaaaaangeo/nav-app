@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="2026-06-18-imported-filename-v3"/>
+<meta name="app-version" content="2026-06-18-heading-matched-v1"/>
 
 <!-- PWA -->
 <link rel="manifest" href="./manifest.json"/>
@@ -69,7 +69,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #turn-dist{font-size:26px;font-weight:800;color:#facc15;line-height:1;}
 #turn-unit{font-size:13px;color:#6b7aaa;margin-left:3px;}
 #turn-instr{font-size:16px;font-weight:700;color:#e0eaff;margin-top:4px;}
-#turn-road{font-size:11px;color:#4a5a80;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#turn-road{font-size:11px;color:#6f82b0;margin-top:3px;white-space:normal;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 
 /* GPS 로딩 표시 */
 #gps-status{
@@ -1006,6 +1006,12 @@ const GPS_MOVING_SPEED_MPS=1.5;
 // speed 값이 없을 때 사용할 최소 이동 거리
 const GPS_MOVING_DISTANCE_M=8;
 
+// 도착·경로 이탈 판단 기준
+const ARRIVAL_DISTANCE_M=50;
+const OFF_ROUTE_DISTANCE_M=100;
+const OFF_ROUTE_REQUIRED_COUNT=3;
+let offRouteConsecutiveCount=0;
+
 // 지도 레이어
 let routeOutline=null, routeLine=null;
 let activeOutline=null, activeLine=null;
@@ -1014,12 +1020,20 @@ let carMarker=null, carHeading=0, lastCarPos=null;
 
 // OSRM
 let osrmSteps=[], currentStepIdx=0;
+let osrmStepRouteMeters=[];
 let osrmOutline=null, osrmLine=null, passedRouteLine=null;
 let osrmDuration=null, currentRouteCoords=null;
 let routeCumulativeMeters=[];
 let routeProgressMeters=0;
 let routeProgressInitialized=false;
 let osrmAbortCtrl=null;
+
+// 턴 안내 단계는 분기점을 경로상 5m 이상 통과하고,
+// 차량 방향이 분기점 이후 경로 방향과 비슷할 때만 전환한다.
+const STEP_PASS_MARGIN_METERS=5;
+const HEADING_MATCH_TOLERANCE_DEG=45;
+const ROUTE_HEADING_LOOKAHEAD_METERS=20;
+const COMBINED_MANEUVER_MAX_GAP_METERS=150;
 
 // 공공 교통정보: 강남=서울 TOPIS, 판교/시흥=국가 ITS
 const TRAFFIC_REFRESH_MS=15*60*1000;
@@ -1434,6 +1448,7 @@ async function fetchOSRM(sLL,eLL,legId){
         return true;
       });
       currentStepIdx=0;
+      buildStepRouteMeters();
       if(osrmSteps.length>0) showNextStep(0,null);
       showTurnOverlay(true);
       updateCurStats();
@@ -1502,7 +1517,7 @@ function clearOSRM(){
   trafficRouteLayers.forEach(l=>{try{map.removeLayer(l);}catch(_){}});
   trafficRouteLayers=[];
   osrmOutline=osrmLine=passedRouteLine=null;
-  osrmSteps=[]; osrmDuration=null; currentRouteCoords=null;
+  osrmSteps=[]; osrmStepRouteMeters=[]; osrmDuration=null; currentRouteCoords=null;
   routeCumulativeMeters=[];
   routeProgressMeters=0;
   routeProgressInitialized=false;
@@ -1566,6 +1581,196 @@ function findNearestPointOnRoute(lat,lng){
   }
 
   return best;
+}
+
+
+// 분기점 좌표를 경로 위의 누적거리로 변환한다.
+// 교차로나 동일 좌표 재방문 구간에서도 안내 순서가 뒤로 가지 않도록
+// 직전 분기점 이후 구간을 우선해 투영한다.
+function findNearestPointOnRouteAfter(lat,lng,minAlongMeters=0){
+  if(!currentRouteCoords||currentRouteCoords.length<2||routeCumulativeMeters.length<2) return null;
+
+  const R=6371000;
+  const DEG=Math.PI/180;
+  let best=null;
+
+  for(let i=0;i<currentRouteCoords.length-1;i++){
+    if(routeCumulativeMeters[i+1]<minAlongMeters-30) continue;
+
+    const a=currentRouteCoords[i];
+    const b=currentRouteCoords[i+1];
+    const meanLat=((a[1]+b[1]+lat)/3)*DEG;
+    const cosLat=Math.max(0.000001,Math.cos(meanLat));
+    const bx=(b[0]-a[0])*DEG*R*cosLat;
+    const by=(b[1]-a[1])*DEG*R;
+    const px=(lng-a[0])*DEG*R*cosLat;
+    const py=(lat-a[1])*DEG*R;
+    const len2=bx*bx+by*by;
+
+    let t=len2>0?(px*bx+py*by)/len2:0;
+    t=Math.max(0,Math.min(1,t));
+
+    const projLng=a[0]+(b[0]-a[0])*t;
+    const projLat=a[1]+(b[1]-a[1])*t;
+    const dx=px-bx*t;
+    const dy=py-by*t;
+    const distanceMeters=Math.sqrt(dx*dx+dy*dy);
+    const segmentMeters=routeCumulativeMeters[i+1]-routeCumulativeMeters[i];
+    const alongMeters=routeCumulativeMeters[i]+segmentMeters*t;
+    const backwardPenalty=alongMeters<minAlongMeters
+      ? (minAlongMeters-alongMeters)*4
+      : 0;
+    const score=distanceMeters+backwardPenalty;
+
+    if(!best||score<best.score){
+      best={segmentIndex:i,t,lat:projLat,lng:projLng,distanceMeters,alongMeters,score};
+    }
+  }
+
+  return best||findNearestPointOnRoute(lat,lng);
+}
+
+function buildStepRouteMeters(){
+  osrmStepRouteMeters=[];
+  let minAlong=0;
+
+  for(const step of osrmSteps){
+    const loc=step&&step.maneuver&&step.maneuver.location;
+    if(!loc){
+      osrmStepRouteMeters.push(minAlong);
+      continue;
+    }
+
+    const projected=findNearestPointOnRouteAfter(loc[1],loc[0],minAlong);
+    const along=projected?Math.max(minAlong,projected.alongMeters):minAlong;
+    osrmStepRouteMeters.push(along);
+    minAlong=along;
+  }
+}
+
+function getStepRouteDistanceMeters(stepIdx,progressMeters=routeProgressMeters){
+  const stepMeters=osrmStepRouteMeters[stepIdx];
+  if(!Number.isFinite(stepMeters)) return null;
+  return Math.max(0,stepMeters-progressMeters);
+}
+
+function normalizeHeadingDegrees(value){
+  if(!Number.isFinite(value)) return null;
+  return ((value%360)+360)%360;
+}
+
+function getHeadingDifferenceDegrees(a,b){
+  const na=normalizeHeadingDegrees(a);
+  const nb=normalizeHeadingDegrees(b);
+  if(na==null||nb==null) return Infinity;
+  const diff=Math.abs(na-nb)%360;
+  return Math.min(diff,360-diff);
+}
+
+// 경로 시작점부터 targetMeters 지점의 좌표를 보간한다.
+function getRoutePointAtMeters(targetMeters){
+  if(!currentRouteCoords||currentRouteCoords.length<2||routeCumulativeMeters.length<2) return null;
+
+  const total=routeCumulativeMeters[routeCumulativeMeters.length-1];
+  const target=Math.max(0,Math.min(total,targetMeters));
+  let segmentIndex=0;
+
+  while(
+    segmentIndex<routeCumulativeMeters.length-2&&
+    routeCumulativeMeters[segmentIndex+1]<target
+  ){
+    segmentIndex++;
+  }
+
+  const startMeters=routeCumulativeMeters[segmentIndex];
+  const endMeters=routeCumulativeMeters[segmentIndex+1];
+  const span=Math.max(0.001,endMeters-startMeters);
+  const t=Math.max(0,Math.min(1,(target-startMeters)/span));
+  const a=currentRouteCoords[segmentIndex];
+  const b=currentRouteCoords[segmentIndex+1];
+
+  return {
+    lat:a[1]+(b[1]-a[1])*t,
+    lng:a[0]+(b[0]-a[0])*t
+  };
+}
+
+function calculateBearingDegrees(from,to){
+  if(!from||!to) return null;
+  const DEG=Math.PI/180;
+  const lat1=from.lat*DEG;
+  const lat2=to.lat*DEG;
+  const deltaLng=(to.lng-from.lng)*DEG;
+  const y=Math.sin(deltaLng)*Math.cos(lat2);
+  const x=Math.cos(lat1)*Math.sin(lat2)-
+    Math.sin(lat1)*Math.cos(lat2)*Math.cos(deltaLng);
+  return normalizeHeadingDegrees(Math.atan2(y,x)*180/Math.PI);
+}
+
+// 현재 분기점을 통과한 직후 따라가야 하는 경로 방향을 구한다.
+// 가까운 다음 회전의 방향이 섞이지 않도록 다음 분기점 직전까지만 사용한다.
+function getExpectedHeadingAfterStep(stepIdx){
+  const stepMeters=osrmStepRouteMeters[stepIdx];
+  if(!Number.isFinite(stepMeters)||routeCumulativeMeters.length<2) return null;
+
+  const total=routeCumulativeMeters[routeCumulativeMeters.length-1];
+  let endLimit=total;
+  const nextMeters=osrmStepRouteMeters[stepIdx+1];
+
+  if(Number.isFinite(nextMeters)&&nextMeters>stepMeters+4){
+    endLimit=Math.min(endLimit,nextMeters-2);
+  }
+
+  let startMeters=Math.min(endLimit,stepMeters+2);
+  let endMeters=Math.min(endLimit,stepMeters+ROUTE_HEADING_LOOKAHEAD_METERS);
+
+  // 분기점 사이가 매우 짧으면 확보 가능한 구간을 최대한 사용한다.
+  if(endMeters-startMeters<3){
+    startMeters=Math.min(total,stepMeters);
+    endMeters=Math.min(total,Math.max(startMeters+3,stepMeters+8));
+  }
+
+  if(endMeters-startMeters<1) return null;
+  return calculateBearingDegrees(
+    getRoutePointAtMeters(startMeters),
+    getRoutePointAtMeters(endMeters)
+  );
+}
+
+function isHeadingMatchedAfterStep(stepIdx,vehicleHeading,headingReliable){
+  if(!headingReliable) return false;
+  const expectedHeading=getExpectedHeadingAfterStep(stepIdx);
+  if(!Number.isFinite(expectedHeading)) return false;
+  return getHeadingDifferenceDegrees(vehicleHeading,expectedHeading)<=HEADING_MATCH_TOLERANCE_DEG;
+}
+
+function getCombinedManeuverText(stepIdx){
+  if(stepIdx<0||stepIdx>=osrmSteps.length-1) return '';
+
+  const currentMeters=osrmStepRouteMeters[stepIdx];
+  const nextMeters=osrmStepRouteMeters[stepIdx+1];
+  if(!Number.isFinite(currentMeters)||!Number.isFinite(nextMeters)) return '';
+
+  const gap=Math.max(0,nextMeters-currentMeters);
+  if(gap<=0||gap>COMBINED_MANEUVER_MAX_GAP_METERS) return '';
+
+  const nextStep=osrmSteps[stepIdx+1];
+  if(!nextStep||nextStep.maneuver.type==='arrive') return '';
+
+  const nextInfo=getManeuverInfo(nextStep.maneuver.type,nextStep.maneuver.modifier);
+  const roundedGap=Math.max(10,Math.round(gap/10)*10);
+  const nextRoad=nextStep.name?` · ${nextStep.name}`:'';
+  return `이후 ${roundedGap}m 앞 ${nextInfo.text}${nextRoad}`;
+}
+
+function getTurnRoadText(stepIdx){
+  const step=osrmSteps[stepIdx];
+  if(!step) return '';
+  const parts=[];
+  if(step.name) parts.push(step.name);
+  const combined=getCombinedManeuverText(stepIdx);
+  if(combined) parts.push(combined);
+  return parts.join(' · ');
 }
 
 function getRouteSplitAtMeters(progressMeters){
@@ -1756,14 +1961,15 @@ function toggleTTS(){
   speak(ttsEnabled?'음성 안내를 켭니다':'음성 안내를 끕니다', true);
 }
 
-function getTurnVoiceText(step, distM){
+function getTurnVoiceText(step, distM, stepIdx=currentStepIdx){
   if(!step) return null;
   const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
-  const road=step.name?` — ${step.name}`:'';
+  const road=step.name?` ${step.name}`:'';
   if(step.maneuver.type==='arrive') return `목적지에 도착했습니다`;
   if(step.maneuver.type==='depart') return null;
-  const distStr=distM>=1000?`${(distM/1000).toFixed(1)}킬로미터`:`${Math.round(distM/10)*10}미터`;
-  return `${distStr} 앞 ${info.text}${road}`;
+  const distStr=distM>=1000?`${(distM/1000).toFixed(1)}킬로미터`:`${Math.max(10,Math.round(distM/10)*10)}미터`;
+  const combined=getCombinedManeuverText(stepIdx);
+  return `${distStr} 앞 ${info.text}${road}${combined?`, ${combined}`:''}`;
 }
 
 function showNextStep(idx,curPos){
@@ -1773,16 +1979,19 @@ function showNextStep(idx,curPos){
 
   const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
   const stepLoc=step.maneuver.location;
-  let dist=step.distance;
-  if(curPos){
-    dist=haversine(curPos[0],curPos[1],stepLoc[1],stepLoc[0]);
+  let dist=getStepRouteDistanceMeters(idx);
+  if(dist==null){
+    dist=step.distance;
+    if(curPos){
+      dist=haversine(curPos[0],curPos[1],stepLoc[1],stepLoc[0]);
+    }
   }
 
   document.getElementById('turn-arrow').textContent=info.icon;
   document.getElementById('turn-dist').textContent=dist>=1000?(dist/1000).toFixed(1)+'km':Math.round(dist)+'m';
   document.getElementById('turn-unit').textContent=getDistUnitLabel(step.maneuver.type);
   document.getElementById('turn-instr').textContent=info.text;
-  document.getElementById('turn-road').textContent=step.name||'';
+  document.getElementById('turn-road').textContent=getTurnRoadText(idx);
 
   // 출발 음성 (경로 로드 완료 시)
   if(isPlaying&&lastSpokenStep<0){
@@ -1792,33 +2001,58 @@ function showNextStep(idx,curPos){
   }
 }
 
-function updateTurnFromPosition(lat,lng){
+function updateTurnFromPosition(lat,lng,vehicleHeading=null,headingReliable=false){
   if(!osrmSteps.length) return;
 
-  // 현재 스텝의 분기점을 이미 지났으면 다음 스텝으로 이동
-  // (분기점 40m 이내 + 이미 가장 가까웠다가 멀어지기 시작하면 통과로 간주)
-  while(currentStepIdx<osrmSteps.length-1){
-    const step=osrmSteps[currentStepIdx];
-    const loc=step.maneuver.location; // [lng, lat]
-    const d=haversine(lat,lng,loc[1],loc[0]);
-    if(d<40){
-      currentStepIdx++;
-      highlightCurrentStep(currentStepIdx);
-    } else { break; }
+  // GPS 위치를 경로 선분에 투영해 현재 진행거리를 구한다.
+  // 단계 전환에는 분기점과의 직선거리를 사용하지 않는다.
+  const projected=findNearestPointOnRoute(lat,lng);
+  let guidanceProgress=routeProgressMeters;
+
+  if(projected&&projected.distanceMeters<=150){
+    guidanceProgress=routeProgressInitialized
+      ? Math.max(routeProgressMeters,projected.alongMeters)
+      : projected.alongMeters;
   }
 
-  // 다음 분기점까지의 거리 표시
+  // 다음 두 조건을 모두 만족할 때만 안내 단계를 넘긴다.
+  // 1) 분기점을 경로상 5m 이상 통과
+  // 2) 차량 진행 방향이 분기점 이후 경로 방향과 45도 이내로 일치
+  // 한 번의 GPS 갱신에서 한 단계만 넘겨 가까운 연속 회전을 건너뛰지 않는다.
+  if(currentStepIdx<osrmSteps.length-1){
+    const stepMeters=osrmStepRouteMeters[currentStepIdx];
+    const passedMeters=Number.isFinite(stepMeters)
+      ? guidanceProgress-stepMeters
+      : -Infinity;
+    const headingMatched=isHeadingMatchedAfterStep(
+      currentStepIdx,
+      vehicleHeading,
+      headingReliable
+    );
+
+    if(passedMeters>=STEP_PASS_MARGIN_METERS&&headingMatched){
+      currentStepIdx++;
+      highlightCurrentStep(currentStepIdx);
+    }
+  }
+
   const step=osrmSteps[currentStepIdx];
   if(!step) return;
-  const loc=step.maneuver.location;
-  const d=haversine(lat,lng,loc[1],loc[0]);
+
   const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
+  let d=getStepRouteDistanceMeters(currentStepIdx,guidanceProgress);
+
+  // 경로 누적거리 매핑이 불가능할 때에만 직선거리를 대체값으로 사용한다.
+  if(d==null){
+    const loc=step.maneuver.location;
+    d=haversine(lat,lng,loc[1],loc[0]);
+  }
 
   document.getElementById('turn-arrow').textContent=info.icon;
   document.getElementById('turn-instr').textContent=info.text;
   document.getElementById('turn-dist').textContent=d>=1000?(d/1000).toFixed(1)+'km':Math.round(d)+'m';
   document.getElementById('turn-unit').textContent=getDistUnitLabel(step.maneuver.type);
-  document.getElementById('turn-road').textContent=step.name||'';
+  document.getElementById('turn-road').textContent=getTurnRoadText(currentStepIdx);
 
   // 거리별 음성 안내 (500m / 200m / 50m)
   const SPEAK_DISTS=[500,200,50];
@@ -1826,7 +2060,7 @@ function updateTurnFromPosition(lat,lng){
     const key=`${currentStepIdx}_${sd}`;
     if(d<=sd+25&&d>=sd-25&&lastSpokenStep!==key){
       lastSpokenStep=key;
-      const txt=getTurnVoiceText(step,d);
+      const txt=getTurnVoiceText(step,d,currentStepIdx);
       if(txt) speak(txt);
       break;
     }
@@ -2224,6 +2458,9 @@ function togglePlay(){
     gpsAutoFollow=false;
     manualMapPauseUntil=Number.POSITIVE_INFINITY;
     lastGpsSample=null;
+    offRouteConsecutiveCount=0;
+    lastWarnSpoken=false;
+    document.getElementById('warn').style.display='none';
     saveManualMapView();
     document.getElementById('btn-play').textContent='▶ 시작';
     document.getElementById('btn-play').className='ctrl-btn';
@@ -2237,6 +2474,8 @@ function togglePlay(){
     legStartTime=new Date();
     legStartPos=getGPSPos()||[...legs[legIdx].sLL];
     lastSpokenStep=-1; lastWarnSpoken=false; timerWarn5Spoken=false;
+    offRouteConsecutiveCount=0;
+    document.getElementById('warn').style.display='none';
     startTimer(getCurrentEtaMin()*60);
     document.getElementById('btn-play').textContent='⏸ 정지';
     document.getElementById('btn-play').className='ctrl-btn running';
@@ -2255,6 +2494,8 @@ function advanceLeg(){
   legStartTime=new Date();
   legStartPos=getGPSPos()||[...legs[legIdx].sLL];
   lastSpokenStep=-1; lastWarnSpoken=false; timerWarn5Spoken=false;
+  offRouteConsecutiveCount=0;
+  document.getElementById('warn').style.display='none';
   const lg=legs[legIdx];
   speak(`${legIdx+1}번 구간, ${lg.s}에서 ${lg.e}로 이동합니다`, true);
   updateLegUI();
@@ -2266,6 +2507,9 @@ function jumpToLeg(i){
   stopTimer();
   finalizeLegSession(legIdx,getGPSPos());
   legIdx=i; phase='drive'; isPlaying=false; legStartTime=null; legStartPos=null;
+  offRouteConsecutiveCount=0;
+  lastWarnSpoken=false;
+  document.getElementById('warn').style.display='none';
   updateLegUI();
 }
 
@@ -2295,14 +2539,10 @@ function startGPS(){
     const {latitude:lat,longitude:lng,heading,speed}=pos.coords;
     document.getElementById('gps-status').textContent=`📡 GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 
-    // 방향 계산
-    let h=heading||0;
-    if(lastCarPos){
-      const dlat=lat-lastCarPos[0], dlng=lng-lastCarPos[1];
-      if(Math.abs(dlat)+Math.abs(dlng)>0.00001){
-        h=Math.atan2(dlng,dlat)*180/Math.PI;
-      }
-    }
+    // 차량 방향은 단말 GPS heading을 우선 사용하고,
+    // 값이 없을 때는 직전 GPS 위치에서 실제로 이동한 방향으로 계산한다.
+    let h=Number.isFinite(heading)?heading:carHeading;
+    let headingReliable=Number.isFinite(heading);
     const now=Date.now();
     const accuracy=Number.isFinite(pos.coords.accuracy)
       ? pos.coords.accuracy
@@ -2329,6 +2569,14 @@ function startGPS(){
       Number.isFinite(speed)&&speed>=0
         ? speed
         : calculatedSpeed;
+
+    if(lastCarPos&&movedMeters>=3){
+      const dlat=lat-lastCarPos[0];
+      const dlng=lng-lastCarPos[1];
+      h=Math.atan2(dlng,dlat)*180/Math.PI;
+      headingReliable=true;
+    }
+    h=normalizeHeadingDegrees(h)??0;
 
     // GPS 정확도가 좋지 않을 때는 이동 거리 판단 기준을 조금 높인다.
     const movementDistanceThreshold=Math.max(
@@ -2378,37 +2626,51 @@ function startGPS(){
     }
 
     // 턴 안내 업데이트
-    updateTurnFromPosition(lat,lng);
+    updateTurnFromPosition(lat,lng,h,headingReliable);
 
     if(legs[legIdx]&&isPlaying){
       const lg=legs[legIdx];
 
-      // ── 도착 자동 감지 (목적지 80m 이내) ──────────────────
+      // ── 도착 자동 감지 (목적지 50m 이내) ──────────────────
       const dE=haversine(lat,lng,...lg.eLL);
-      if(dE<80){
+      if(dE<ARRIVAL_DISTANCE_M){
+        offRouteConsecutiveCount=0;
+        document.getElementById('warn').style.display='none';
         speak(`${lg.e}에 도착했습니다`,true);
         advanceLeg();
         return;
       }
 
-      // ── 경로 이탈 감지 (실제 경로 좌표 기준) ──────────────
-      // currentRouteCoords가 있으면 경로상 최근접점 거리로 판단,
-      // 없으면 단순 출발/도착 직선 기준
-      let offRoute=false;
+      // ── 경로 이탈 감지 (100m 초과가 3회 연속일 때 확정) ─────
+      // currentRouteCoords가 있으면 경로상 최근접 좌표와의 거리로 판단하고,
+      // 경로 좌표가 없으면 기존 출발/도착 직선 기준을 사용한다.
+      let offRouteSample=false;
       if(currentRouteCoords&&currentRouteCoords.length>1){
         let minDist=Infinity;
         for(let i=0;i<currentRouteCoords.length;i++){
           const d=haversine(lat,lng,currentRouteCoords[i][1],currentRouteCoords[i][0]);
           if(d<minDist) minDist=d;
-          if(minDist<80) break; // 충분히 가까우면 일찍 중단
+          if(minDist<=OFF_ROUTE_DISTANCE_M) break;
         }
-        offRoute=minDist>120; // 경로에서 120m 이상 벗어나면 이탈
+        offRouteSample=minDist>OFF_ROUTE_DISTANCE_M;
       } else {
         const dS=haversine(lat,lng,...lg.sLL);
-        offRoute=Math.min(dS,dE)>1000;
+        offRouteSample=Math.min(dS,dE)>1000;
       }
+
+      if(offRouteSample){
+        offRouteConsecutiveCount+=1;
+      } else {
+        offRouteConsecutiveCount=0;
+      }
+
+      const offRoute=offRouteConsecutiveCount>=OFF_ROUTE_REQUIRED_COUNT;
       document.getElementById('warn').style.display=offRoute?'block':'none';
-      if(offRoute&&!lastWarnSpoken){ lastWarnSpoken=true; speak('경로를 이탈했습니다. 파란 선으로 복귀하세요',true); }
+
+      if(offRoute&&!lastWarnSpoken){
+        lastWarnSpoken=true;
+        speak('경로를 이탈했습니다. 파란 선으로 복귀하세요',true);
+      }
       if(!offRoute) lastWarnSpoken=false;
     }
   },err=>{
@@ -2881,10 +3143,12 @@ function loadLastSaved(){
   try{
     const str=localStorage.getItem('nav_last_saved');
     renderLastSaved(str);
-  }catch(e){}
+  }catch(e){
+    renderLastSaved('');
+  }
 }
 
-// 마지막으로 가져온 설정 JSON 파일명 표시 — 최근 수정 시각과 함께 항상 두 줄로 표시
+// 마지막으로 가져온 설정 JSON 파일명을 최근 수정 시각 위에 표시한다.
 function renderImportedFileName(fileName){
   const el=document.getElementById('imported-file-name');
   if(!el) return;
@@ -3177,8 +3441,6 @@ async function handleImportFile(ev){
     }
     if(Array.isArray(data.tripLog)) saveTripLog(data.tripLog);
 
-    // 가져온 JSON에 최근 수정 시각이 있으면 복원한다.
-    // 값이 없고 현재 브라우저에도 기록이 없다면 가져온 현재 시각을 최근 수정으로 기록한다.
     const importedLastSaved=String(data.lastSaved||'').trim();
     if(importedLastSaved){
       try{ localStorage.setItem('nav_last_saved',importedLastSaved); }catch(_){}
