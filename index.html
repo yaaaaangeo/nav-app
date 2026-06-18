@@ -4,6 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
+<meta name="app-version" content="2026-06-18-imported-filename-v3"/>
 
 <!-- PWA -->
 <link rel="manifest" href="./manifest.json"/>
@@ -99,8 +100,8 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #sc-select select{width:100%;background:#141828;border:1px solid #252d50;color:#c0caee;padding:7px 10px;border-radius:7px;font-size:13px;cursor:pointer;}
 #sc-select select option{background:#141828;}
 #config-status{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:2px;margin-left:4px;min-width:0;}
-#imported-file-name{display:none;max-width:300px;font-size:11px;color:#7aa0ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em;}
-#imported-file-name.show{display:block;}
+#imported-file-name{display:block;max-width:300px;font-size:11px;color:#7aa0ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em;}
+#imported-file-name.empty{color:#4a5580;}
 #last-saved{font-size:11px;color:#4a5580;white-space:nowrap;letter-spacing:.02em;}
 #hdr-right-group{display:flex;align-items:center;gap:8px;margin-left:auto;}
 
@@ -551,7 +552,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     <button id="btn-sc-save-hdr" onclick="saveScEdit()" title="시나리오 수정 저장">💾 저장</button>
     <button id="btn-sc-edit" onclick="toggleScEditMode()" title="거리·속도·시간 수정">✎ 시나리오 수정</button>
     <div id="config-status">
-      <span id="imported-file-name" title="마지막으로 가져온 설정 JSON 파일"></span>
+      <span id="imported-file-name" class="empty" title="아직 가져온 설정 JSON 파일이 없습니다.">가져온 설정: 없음</span>
       <span id="last-saved"></span>
     </div>
   </div>
@@ -2861,7 +2862,10 @@ function saveEditedRoute(){
 // ══════════════════════════════════════════════════════════
 function renderLastSaved(str){
   const el=document.getElementById('last-saved');
-  if(el&&str) el.textContent='최근 수정: '+str;
+  if(!el) return;
+  const value=String(str||'').trim();
+  el.textContent='최근 수정: '+(value||'없음');
+  el.title=value ? '최근 수정 시각: '+value : '아직 저장된 수정 시각이 없습니다.';
 }
 
 function updateLastSaved(){
@@ -2880,20 +2884,20 @@ function loadLastSaved(){
   }catch(e){}
 }
 
-// 마지막으로 가져온 설정 JSON 파일명 표시
+// 마지막으로 가져온 설정 JSON 파일명 표시 — 최근 수정 시각과 함께 항상 두 줄로 표시
 function renderImportedFileName(fileName){
   const el=document.getElementById('imported-file-name');
   if(!el) return;
   const name=String(fileName||'').trim();
   if(!name){
-    el.textContent='';
-    el.title='마지막으로 가져온 설정 JSON 파일';
-    el.classList.remove('show');
+    el.textContent='가져온 설정: 없음';
+    el.title='아직 가져온 설정 JSON 파일이 없습니다.';
+    el.classList.add('empty');
     return;
   }
   el.textContent='가져온 설정: '+name;
   el.title='가져온 설정 파일: '+name;
-  el.classList.add('show');
+  el.classList.remove('empty');
 }
 
 function saveImportedFileName(fileName){
@@ -3172,7 +3176,17 @@ async function handleImportFile(ev){
       });
     }
     if(Array.isArray(data.tripLog)) saveTripLog(data.tripLog);
-    if(data.lastSaved){ try{localStorage.setItem('nav_last_saved',data.lastSaved);}catch(_){} }
+
+    // 가져온 JSON에 최근 수정 시각이 있으면 복원한다.
+    // 값이 없고 현재 브라우저에도 기록이 없다면 가져온 현재 시각을 최근 수정으로 기록한다.
+    const importedLastSaved=String(data.lastSaved||'').trim();
+    if(importedLastSaved){
+      try{ localStorage.setItem('nav_last_saved',importedLastSaved); }catch(_){}
+    }else{
+      let existingLastSaved='';
+      try{ existingLastSaved=localStorage.getItem('nav_last_saved')||''; }catch(_){}
+      if(!existingLastSaved) updateLastSaved();
+    }
 
     saveWaypointsToStorage(); // 이번 파일의 localStorage에도 반영(다음 새로고침까지 유지)
     loadLastSaved();

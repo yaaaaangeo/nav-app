@@ -1,60 +1,66 @@
-// ══════════════════════════════════════════════════════════
-//  자율주행 데이터 취득 — 서비스워커
-//  앱 셸(이 앱 자체 파일들)은 캐시해서 오프라인에서도 앱이 켜지도록 하고,
-//  지도 타일·OSRM·역지오코딩·CDN 같은 외부 요청은 그대로 네트워크로 보낸다
-//  (실시간 데이터라 캐시하면 안 됨).
-// ══════════════════════════════════════════════════════════
-const CACHE_NAME = 'nav-app-shell-v1';
-const SHELL_FILES = [
+const CACHE_NAME = 'nav-app-v20260618-imported-filename-v2';
+const APP_SHELL = [
   './',
   './index.html',
-  './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/icon-maskable-192.png',
-  './icons/icon-maskable-512.png',
+  './manifest.json'
 ];
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(SHELL_FILES))
-      .catch((e) => console.warn('SW install cache 실패:', e))
-  );
-  self.skipWaiting();
+self.addEventListener('install', event => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await Promise.allSettled(APP_SHELL.map(url => cache.add(url)));
+    await self.skipWaiting();
+  })());
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const names = await caches.keys();
+    await Promise.all(
+      names
+        .filter(name => name !== CACHE_NAME)
+        .map(name => caches.delete(name))
+    );
+    await self.clients.claim();
+  })());
 });
 
-self.addEventListener('fetch', (event) => {
-  const req = event.request;
-  if (req.method !== 'GET') return;
+self.addEventListener('fetch', event => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
 
-  const url = new URL(req.url);
+  const url = new URL(request.url);
 
-  // 다른 출처(지도 타일, OSRM, Nominatim, CDN 등)는 캐시하지 않고 그대로 네트워크로
-  if (url.origin !== location.origin) return;
+  // Always try the network first for page navigation so a new index.html is visible immediately.
+  if (request.mode === 'navigate') {
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(request, { cache: 'no-store' });
+        const cache = await caches.open(CACHE_NAME);
+        cache.put('./index.html', response.clone());
+        return response;
+      } catch (_) {
+        return (await caches.match(request)) ||
+               (await caches.match('./index.html')) ||
+               Response.error();
+      }
+    })());
+    return;
+  }
 
-  // 같은 출처의 앱 셸 파일 — 캐시 우선, 실패 시 네트워크에서 받아 캐시 갱신
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      const fetchPromise = fetch(req)
-        .then((res) => {
-          if (res && res.status === 200) {
-            const resClone = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone));
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || fetchPromise;
-    })
-  );
+  // Same-origin static files: return cache quickly and refresh it in the background.
+  if (url.origin === self.location.origin) {
+    event.respondWith((async () => {
+      const cached = await caches.match(request);
+      const networkPromise = fetch(request).then(async response => {
+        if (response && response.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(request, response.clone());
+        }
+        return response;
+      }).catch(() => null);
+
+      return cached || (await networkPromise) || Response.error();
+    })());
+  }
 });
