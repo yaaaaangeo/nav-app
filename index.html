@@ -78,7 +78,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   border-radius:10px;padding:7px 11px;font-size:11px;color:#6b7aaa;
   display:none;min-width:130px;
   backdrop-filter:blur(6px);
-  transition:border-color .3s, background .3s;
+  transition:border-color .3s, background .3s, bottom .2s;
 }
 #gps-status.show{display:block;}
 #gps-status.good {border-color:#16a34a;background:rgba(5,20,10,0.88);}
@@ -747,7 +747,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       <span id="imported-file-name" class="empty" title="아직 가져온 설정 JSON 파일이 없습니다.">가져온 설정: 없음</span>
       <div id="config-meta-row">
         <!-- ★버전 -->
-        <span id="app-version" title="애플리케이션 버전">v1.0.6</span>
+        <span id="app-version" title="애플리케이션 버전">v1.0.7</span>
       </div>
     </div>
   </div>
@@ -2872,6 +2872,14 @@ function updateGpsStatus(accuracy, coords, level){
   const coordEl=document.getElementById('gps-coord-line');
   if(!el||!mainEl||!accEl||!coordEl) return;
   el.classList.remove('good','ok','bad','lost');
+
+  // steps-panel 높이만큼 GPS 박스를 위로 올려서 겹침 방지
+  const stepsEl=document.getElementById('steps-panel');
+  if(stepsEl){
+    const stepsH=stepsEl.offsetHeight||0;
+    el.style.bottom=(stepsH+8)+'px';
+  }
+
   if(level==='lost'){
     el.classList.add('lost');
     mainEl.textContent='GPS 신호 없음';
@@ -2901,7 +2909,7 @@ function startGPS(){
   let gpsLostTimer=null;
   function resetGpsLostTimer(){
     if(gpsLostTimer) clearTimeout(gpsLostTimer);
-    gpsLostTimer=setTimeout(()=>updateGpsStatus(999,null,'lost'),8000);
+    gpsLostTimer=setTimeout(()=>updateGpsStatus(999,null,'lost'),25000);
   }
   resetGpsLostTimer();
   watchId=navigator.geolocation.watchPosition(pos=>{
