@@ -534,11 +534,168 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   .traffic-stat b{font-size:12px;}
 }
 
+/* ══════════════════════════════════════════════════════════
+   로그인 화면
+══════════════════════════════════════════════════════════ */
+#login-screen{
+  position:fixed;inset:0;z-index:99999;
+  background:#0a0a0f;
+  display:flex;align-items:center;justify-content:center;
+  flex-direction:column;
+  padding:20px;
+}
+#login-screen.hidden{display:none;}
+
+#login-box{
+  width:min(420px,100%);
+  background:#0f111a;
+  border:1px solid #1e2230;
+  border-radius:18px;
+  padding:32px 28px 28px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.7);
+}
+#login-logo{
+  text-align:center;
+  font-size:28px;
+  margin-bottom:6px;
+}
+#login-title{
+  text-align:center;
+  font-size:17px;
+  font-weight:800;
+  color:#c8d4f8;
+  margin-bottom:4px;
+  letter-spacing:0.3px;
+}
+#login-subtitle{
+  text-align:center;
+  font-size:12px;
+  color:#4a5580;
+  margin-bottom:28px;
+}
+
+.login-label{
+  font-size:12px;
+  font-weight:700;
+  color:#6b7aaa;
+  margin-bottom:7px;
+  letter-spacing:0.4px;
+}
+.login-section{margin-bottom:20px;}
+
+/* 차량 선택 버튼 그리드 */
+#vehicle-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+.vehicle-btn{
+  background:#171b2e;
+  border:1.5px solid #2a3050;
+  color:#a0aac8;
+  padding:12px 8px;
+  border-radius:10px;
+  font-size:13px;
+  font-weight:700;
+  cursor:pointer;
+  transition:.15s;
+  text-align:center;
+}
+.vehicle-btn:hover{background:#1f2d5a;border-color:#3d5abf;color:#fff;}
+.vehicle-btn.selected{
+  background:#1a3080;
+  border-color:#4a7aff;
+  color:#fff;
+  box-shadow:0 0 0 2px rgba(74,122,255,0.3);
+}
+
+/* 이름 입력 */
+#login-name-input{
+  width:100%;
+  background:#0d1020;
+  border:1.5px solid #2a3050;
+  color:#e0e6f0;
+  border-radius:10px;
+  padding:12px 14px;
+  font-size:15px;
+  font-family:inherit;
+  outline:none;
+  transition:.15s;
+}
+#login-name-input:focus{border-color:#4a7aff;background:#0f1428;}
+#login-name-input::placeholder{color:#3a4260;}
+
+/* 오류 메시지 */
+#login-error{
+  font-size:12px;
+  color:#f87171;
+  text-align:center;
+  margin-top:-10px;
+  margin-bottom:14px;
+  min-height:18px;
+  font-weight:600;
+}
+
+/* 입장 버튼 */
+#login-submit{
+  width:100%;
+  background:#1d3caa;
+  border:none;
+  color:#fff;
+  padding:14px;
+  border-radius:11px;
+  font-size:15px;
+  font-weight:800;
+  cursor:pointer;
+  transition:.15s;
+  letter-spacing:0.3px;
+}
+#login-submit:hover{background:#2550dd;}
+#login-submit:active{background:#1830aa;transform:scale(0.98);}
+#login-submit:disabled{background:#1a1e30;color:#4a5580;cursor:not-allowed;}
+
+@media(max-width:480px){
+  #login-box{padding:24px 18px 20px;border-radius:14px;}
+  #login-title{font-size:15px;}
+  .vehicle-btn{padding:10px 6px;font-size:12px;}
+  #login-name-input{font-size:14px;padding:10px 12px;}
+}
 </style>
 </head>
 <body>
 
-<div id="hdr">
+<!-- ══════════════════════════════════════════════════════════
+     로그인 화면
+══════════════════════════════════════════════════════════ -->
+<div id="login-screen">
+  <div id="login-box">
+    <div id="login-logo">🐑</div>
+    <div id="login-title">자율주행 데이터 취득 네비게이션</div>
+    <div id="login-subtitle">차량과 이름을 선택하세요</div>
+
+    <div class="login-section">
+      <div class="login-label">🚗 차량 선택</div>
+      <div id="vehicle-grid">
+        <button class="vehicle-btn" onclick="selectVehicle(this,'토레스 1호차')">토레스 1호차</button>
+        <button class="vehicle-btn" onclick="selectVehicle(this,'토레스 2호차')">토레스 2호차</button>
+        <button class="vehicle-btn" onclick="selectVehicle(this,'토레스 3호차')">토레스 3호차</button>
+        <button class="vehicle-btn" onclick="selectVehicle(this,'토레스 4호차')">토레스 4호차</button>
+      </div>
+    </div>
+
+    <div class="login-section">
+      <div class="login-label">👤 이름 입력</div>
+      <input type="text" id="login-name-input" placeholder="이름을 입력하세요" autocomplete="off"
+        oninput="clearLoginError()" onkeydown="if(event.key==='Enter')submitLogin()"/>
+    </div>
+
+    <div id="login-error"></div>
+
+    <button id="login-submit" onclick="submitLogin()" disabled>입장하기</button>
+  </div>
+</div>
+
+
   <span id="hdr-title">📍 자율주행 데이터 취득</span>
   <button class="sel-btn active" id="btn-loc-gn" onclick="switchLoc('강남')">강남</button>
   <button class="sel-btn" id="btn-loc-pg" onclick="switchLoc('판교')">판교</button>
@@ -550,12 +707,14 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <button id="btn-clear-log" onclick="clearTodayTripLog()" title="오늘 기록 초기화">🗑</button>
   <input type="file" id="import-file-input" accept="application/json" style="display:none" onchange="handleImportFile(event)"/>
   <div id="hdr-right-group">
+    <span id="login-user-badge" style="font-size:11px;color:#6b8ae8;background:#111830;border:1px solid #1e2a50;border-radius:6px;padding:4px 9px;white-space:nowrap;font-weight:700;"></span>
     <button id="btn-edit" onclick="toggleEditMode()" title="경로 수정">✏️ 경로 수정</button>
     <button id="btn-sc-save-hdr" onclick="saveScEdit()" title="시나리오 수정 저장">💾 저장</button>
     <button id="btn-sc-edit" onclick="toggleScEditMode()" title="거리·속도·시간 수정">✎ 시나리오 수정</button>
     <div id="config-status">
       <span id="imported-file-name" class="empty" title="아직 가져온 설정 JSON 파일이 없습니다.">가져온 설정: 없음</span>
       <div id="config-meta-row">
+        <!-- ★ 버전 -->
         <span id="app-version" title="애플리케이션 버전">v1.0.2</span>
       </div>
     </div>
@@ -751,8 +910,80 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 </div>
 
 <script>
-// 화면에 표시할 애플리케이션 버전입니다. 배포할 때 이 값만 변경하면 됩니다.
-const APP_VERSION='v1.0.1';
+// ══════════════════════════════════════════════════════════\\
+//  ★ 로그인 / 접근 제어
+// ══════════════════════════════════════════════════════════
+const ALLOWED_USERS = [
+  '양은규', '최수헌'
+];
+
+const VEHICLES = ['토레스 1호차','토레스 2호차','토레스 3호차','토레스 4호차'];
+
+let selectedVehicle = '';
+
+function selectVehicle(btn, name) {
+  selectedVehicle = name;
+  document.querySelectorAll('.vehicle-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  updateLoginButton();
+}
+
+function clearLoginError() {
+  document.getElementById('login-error').textContent = '';
+  updateLoginButton();
+}
+
+function updateLoginButton() {
+  const name = document.getElementById('login-name-input').value.trim();
+  const btn = document.getElementById('login-submit');
+  btn.disabled = !(selectedVehicle && name.length > 0);
+}
+
+function submitLogin() {
+  const name = document.getElementById('login-name-input').value.trim();
+  const errEl = document.getElementById('login-error');
+
+  if (!selectedVehicle) {
+    errEl.textContent = '차량을 선택해주세요.';
+    return;
+  }
+  if (!name) {
+    errEl.textContent = '이름을 입력해주세요.';
+    return;
+  }
+  if (!ALLOWED_USERS.includes(name)) {
+    errEl.textContent = `"${name}"은(는) 등록된 사용자가 아닙니다.`;
+    document.getElementById('login-name-input').select();
+    return;
+  }
+
+  // 로그인 성공 — 세션에 저장
+  try {
+    sessionStorage.setItem('nav_user', name);
+    sessionStorage.setItem('nav_vehicle', selectedVehicle);
+  } catch(e) {}
+
+  // 헤더에 사용자 정보 표시
+  const badge = document.getElementById('login-user-badge');
+  if (badge) badge.textContent = `${selectedVehicle} · ${name}`;
+
+  document.getElementById('login-screen').classList.add('hidden');
+}
+
+// 이미 로그인된 세션이면 바로 통과
+(function checkSession() {
+  try {
+    const user = sessionStorage.getItem('nav_user');
+    const vehicle = sessionStorage.getItem('nav_vehicle');
+    if (user && vehicle && ALLOWED_USERS.includes(user)) {
+      const badge = document.getElementById('login-user-badge');
+      if (badge) badge.textContent = `${vehicle} · ${user}`;
+      document.getElementById('login-screen').classList.add('hidden');
+    }
+  } catch(e) {}
+})();
+
+
 
 // ══════════════════════════════════════════════════════════
 //  시나리오 데이터
