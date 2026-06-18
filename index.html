@@ -747,7 +747,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       <span id="imported-file-name" class="empty" title="아직 가져온 설정 JSON 파일이 없습니다.">가져온 설정: 없음</span>
       <div id="config-meta-row">
         <!-- ★버전 -->
-        <span id="app-version" title="애플리케이션 버전">v1.0.5</span>
+        <span id="app-version" title="애플리케이션 버전">v1.0.6</span>
       </div>
     </div>
   </div>
@@ -1008,6 +1008,12 @@ function submitLogin() {
   if (badge) badge.textContent = `${selectedVehicle} · ${name}`;
 
   document.getElementById('login-screen').classList.add('hidden');
+  // 로그인 후 지도/구간목록 재초기화
+  setTimeout(()=>{
+    refreshMapSize();
+    loadScenario();
+    renderLegList();
+  }, 50);
 }
 
 // 이미 로그인된 세션이면 바로 통과
