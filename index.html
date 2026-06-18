@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="2026-06-18-heading-matched-v1"/>
+<meta name="app-version" content="v1.0.0"/>
 
 <!-- PWA -->
 <link rel="manifest" href="./manifest.json"/>
@@ -102,6 +102,8 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #config-status{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:2px;margin-left:4px;min-width:0;}
 #imported-file-name{display:block;max-width:300px;font-size:11px;color:#7aa0ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em;}
 #imported-file-name.empty{color:#4a5580;}
+#config-meta-row{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;white-space:nowrap;}
+#app-version{display:inline-flex;align-items:center;height:18px;padding:0 6px;border:1px solid #2a4080;border-radius:5px;background:#10182c;color:#7aa0ff;font-size:10px;font-weight:700;letter-spacing:.03em;}
 #last-saved{font-size:11px;color:#4a5580;white-space:nowrap;letter-spacing:.02em;}
 #hdr-right-group{display:flex;align-items:center;gap:8px;margin-left:auto;}
 
@@ -340,8 +342,10 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #btn-edit{padding:4px 8px;font-size:11px;}
   #btn-sc-edit{padding:4px 8px;font-size:11px;}
   #btn-sc-save-hdr{padding:4px 8px;font-size:11px;}
-  #config-status{align-items:flex-end;max-width:180px;}
-  #imported-file-name{max-width:180px;font-size:9px;}
+  #config-status{align-items:flex-end;max-width:210px;}
+  #imported-file-name{max-width:210px;font-size:9px;}
+  #config-meta-row{gap:4px;}
+  #app-version{height:16px;padding:0 5px;font-size:8px;}
   #last-saved{font-size:9px;}
 
   /* ── 현재구간 카드 헤더 모바일에서 표시 ── */
@@ -553,7 +557,10 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     <button id="btn-sc-edit" onclick="toggleScEditMode()" title="거리·속도·시간 수정">✎ 시나리오 수정</button>
     <div id="config-status">
       <span id="imported-file-name" class="empty" title="아직 가져온 설정 JSON 파일이 없습니다.">가져온 설정: 없음</span>
-      <span id="last-saved"></span>
+      <div id="config-meta-row">
+        <span id="app-version" title="애플리케이션 버전">v1.0.0</span>
+        <span id="last-saved"></span>
+      </div>
     </div>
   </div>
 </div>
@@ -747,6 +754,9 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 </div>
 
 <script>
+// 화면에 표시할 애플리케이션 버전입니다. 배포할 때 이 값만 변경하면 됩니다.
+const APP_VERSION='v1.0.0';
+
 // ══════════════════════════════════════════════════════════
 //  시나리오 데이터
 // ══════════════════════════════════════════════════════════
@@ -3118,6 +3128,14 @@ function saveEditedRoute(){
   renderLegList(); // 목록 갱신
 }
 
+// 화면 상단 버전 표시
+function renderAppVersion(){
+  const el=document.getElementById('app-version');
+  if(!el) return;
+  el.textContent=APP_VERSION;
+  el.title='애플리케이션 버전: '+APP_VERSION;
+}
+
 // ══════════════════════════════════════════════════════════
 //  전체 최근 수정 시각 (경로 수정 / 시나리오 수정 / 구간 추가·삭제 시 기록)
 //  위치·시나리오와 무관하게 항상 가장 최근 값을 저장/표시
@@ -3544,6 +3562,7 @@ function exitEditMode(){
 
 // 초기화 — 저장된 경로 먼저 불러온 뒤 시나리오 로드
 loadWaypointsFromStorage();
+renderAppVersion();
 loadLastSaved();
 loadImportedFileName();
 updateTripLogCount();

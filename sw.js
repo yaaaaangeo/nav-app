@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nav-app-v20260618-heading-match-v2';
+const CACHE_NAME = 'nav-app-v20260618-version-display-v1';
 const APP_SHELL = [
   './',
   './index.html',
