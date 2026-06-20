@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
 <meta name="app-version" content="2026-06-18-version-only-v1"/>
+<script>
+// 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
+(function(){
+  try{
+    if(localStorage.getItem('navAppTheme')==='light'){
+      document.documentElement.setAttribute('data-theme','light');
+    }
+  }catch(e){}
+})();
+</script>
 
 <!-- PWA -->
 <link rel="manifest" href="./manifest.json"/>
@@ -22,26 +32,350 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
+:root{
+  --c0:#fff;
+  --c1:#1a1e30;
+  --c2:#8a98c8;
+  --c3:#2a3050;
+  --c4:#1e2a50;
+  --c5:#252d50;
+  --c6:#1f2d5a;
+  --c7:#3b82f6;
+  --c8:#6b7aaa;
+  --c9:#3d5abf;
+  --c10:#4ade80;
+  --c11:#f87171;
+  --c12:#ef4444;
+  --c13:#e0e6f0;
+  --c14:#facc15;
+  --c15:#fca5a5;
+  --c16:#16a34a;
+  --c17:#7f1d1d;
+  --c18:#a78bfa;
+  --c19:#4a7aff;
+  --c20:#0d0f1a;
+  --c21:#1e2230;
+  --c22:#1e3060;
+  --c23:#141828;
+  --c24:#7aa0ff;
+  --c25:#8a9fd4;
+  --c26:#60a5fa;
+  --c27:#8898cc;
+  --c28:#374151;
+  --c29:#4b5563;
+  --c31:#0a0a0f;
+  --c32:#0f111a;
+  --c33:#171b2e;
+  --c34:#c8d0f0;
+  --c35:#c8d4f8;
+  --c36:#c0caee;
+  --c37:#2a4080;
+  --c38:#0f2a1a;
+  --c39:#3ecf6e;
+  --c40:#2a3555;
+  --c41:#d0dcff;
+  --c42:#2563eb;
+  --c43:#d1d5db;
+  --c44:#15803d;
+  --c45:#3b82f688;
+  --c46:#7aabff;
+  --c47:#8b5cf6;
+  --c48:#1a2040;
+  --c49:#0d1525;
+  --c50:#7180b0;
+  --c51:#2d6b2d;
+  --c52:#0f1428;
+  --c53:#dbe7ff;
+  --c54:#7180b0;
+  --c55:#2b3d68;
+  --c56:#6b8ae8;
+  --c57:#111830;
+  --c58:#111827;
+  --c59:#e0eaff;
+  --c60:#9aacd8;
+  --c61:#ca8a04;
+  --c62:#dc2626;
+  --c63:#4ade8088;
+  --c64:#facc1588;
+  --c65:#f8717188;
+  --c66:#7585b8;
+  --c67:#7090d0;
+  --c68:#10182c;
+  --c69:#1a2a5e;
+  --c70:#131b30;
+  --c71:#0f1420;
+  --c72:#1e2540;
+  --c73:#0b1525;
+  --c74:#1d3060;
+  --c75:#fb923c;
+  --c76:#60a5fa;
+  --c77:#f87171;
+  --c78:#03c75a;
+  --c79:#02a84d;
+  --c80:#fb923c;
+  --c81:#d97706;
+  --c82:#c2c9d8;
+  --c83:#1f2937;
+  --c84:#065f46;
+  --c85:#10b981;
+  --c86:#7c1d13;
+  --c87:#253360;
+  --c88:#1f4a30;
+  --c89:#16401f;
+  --c90:#9aa6d6;
+  --c91:#6d28d9;
+  --c92:#0d1a35;
+  --c93:#1a2f55;
+  --c94:#93c5fd;
+  --c95:#1a0d0d;
+  --c96:#2d1515;
+  --c97:#080c18;
+  --c98:#c0d0f0;
+  --c99:#0a0c14;
+  --c100:#111525;
+  --c101:#0d1e3a;
+  --c102:#1e3a1e;
+  --c103:#5568aa;
+  --c104:#0a1628;
+  --c105:#9aacd8;
+  --c106:#18223a;
+  --c107:#9ec5ff;
+  --c108:#31518c;
+  --c109:#21345a;
+  --c110:#8a6d1d;
+  --c111:#1f6b3a;
+  --c112:#10291c;
+  --c113:#2b1115;
+  --c114:#273a68;
+  --c115:#b8c8ef;
+  --c116:#17223c;
+  --c117:#8fb2f4;
+  --c118:#2b4377;
+  --c119:#9aacd8;
+  --c120:#9aacd8;
+  --c121:#1f2c4a;
+  --c122:#0c1425;
+  --c123:#9aacd8;
+  --c124:#9aacd8;
+  --c125:#55688f;
+  --c126:#0f1424;
+  --c127:#2a3560;
+  --c128:#c0ccf0;
+  --c129:#1a2545;
+  --c130:#1e2840;
+  --c131:#0e1321;
+  --c132:#9aacd8;
+  --c133:#080d18;
+  --c134:#dce8ff;
+  --c135:#4c79d8;
+  --c136:#1a2235;
+  --c137:#9aabd0;
+  --c138:#2b3d58;
+  --c139:#3a1518;
+  --c140:#a0aac8;
+  --c141:#1a3080;
+  --c142:#0d1020;
+  --c143:#7585b8;
+  --c144:#7aabff;
+  --c145:#2550dd;
+  --c146:#1830aa;
+  /* 오버레이/패널 반투명 배경 */
+  --ov-bg:rgba(5,8,20,0.93);
+  --ov-bg2:rgba(7,9,20,0.95);
+  --ov-bg3:rgba(10,10,20,0.92);
+  --ov-bg4:rgba(7,10,22,0.93);
+  --gps-good-bg:rgba(5,20,10,0.88);
+  --gps-ok-bg:rgba(20,15,5,0.88);
+  --gps-bad-bg:rgba(20,5,5,0.88);
+  --btn-text:#fff;
+  --naver-outline:#03c75a;
+  --accent-outline:#7aabff;
+}
+
+[data-theme="light"]{
+  --c0:#11141f;
+  --c1:#e7ebf5;
+  --c2:#4a5580;
+  --c3:#b9c2dc;
+  --c4:#d7deef;
+  --c5:#dfe5f5;
+  --c6:#dbe6fb;
+  --c7:#1d6fe0;
+  --c8:#46577d;
+  --c9:#2f4ea3;
+  --c10:#16a34a;
+  --c11:#dc2626;
+  --c12:#dc2626;
+  --c13:#171a2c;
+  --c14:#a16207;
+  --c15:#dc2626;
+  --c16:#156530;
+  --c17:#fca5a5;
+  --c18:#6d28d9;
+  --c19:#2f6df5;
+  --c20:#eef1f8;
+  --c21:#e7ebf5;
+  --c22:#d2dcf5;
+  --c23:#eef1f8;
+  --c24:#2f5fd6;
+  --c25:#3b4f78;
+  --c26:#1d6fe0;
+  --c27:#4a5d97;
+  --c28:#cdd3e2;
+  --c29:#aab2c9;
+  --c31:#f4f6fb;
+  --c32:#ffffff;
+  --c33:#eef1f8;
+  --c34:#2a3a66;
+  --c35:#1f2d57;
+  --c36:#2a3a66;
+  --c37:#c7d6fb;
+  --c38:#dcf6e3;
+  --c39:#1f9e4f;
+  --c40:#d7deef;
+  --c41:#1f2d57;
+  --c42:#2563eb;
+  --c43:#3a4256;
+  --c44:#15803d;
+  --c45:#1d6fe066;
+  --c46:#2f6df5;
+  --c47:#7c3aed;
+  --c48:#e7ebf5;
+  --c49:#eef1f8;
+  --c50:#5b6a99;
+  --c51:#1f7a2e;
+  --c52:#eef1f8;
+  --c53:#1f2d57;
+  --c54:#5b6a99;
+  --c55:#c7d6fb;
+  --c56:#2f5fd6;
+  --c57:#e3ecff;
+  --c58:#eef1f8;
+  --c59:#1f2d57;
+  --c60:#46577d;
+  --c61:#a16207;
+  --c62:#dc2626;
+  --c63:#16a34a66;
+  --c64:#a1620766;
+  --c65:#dc262666;
+  --c66:#5b6a99;
+  --c67:#3a5fc4;
+  --c68:#e3ecff;
+  --c69:#dbe6fb;
+  --c70:#eef1f8;
+  --c71:#eef1f8;
+  --c72:#e7ebf5;
+  --c73:#eef1f8;
+  --c74:#c7d6fb;
+  --c75:#c2660f;
+  --c76:#2952d9;
+  --c77:#b3362a;
+  --c78:#03c75a;
+  --c79:#02a84d;
+  --c80:#9a4a0a;
+  --c81:#b45309;
+  --c82:#5b6478;
+  --c83:#e3e7f0;
+  --c84:#065f46;
+  --c85:#0f9e72;
+  --c86:#fecaca;
+  --c87:#dbe6fb;
+  --c88:#bdebc9;
+  --c89:#bdebc9;
+  --c90:#4a5d97;
+  --c91:#6d28d9;
+  --c92:#dfeaff;
+  --c93:#dbe6fb;
+  --c94:#1d6fe0;
+  --c95:#fde2e1;
+  --c96:#fbdada;
+  --c97:#eef1f8;
+  --c98:#2a3a66;
+  --c99:#eef1f8;
+  --c100:#f1f3fa;
+  --c101:#dbe6fb;
+  --c102:#dcf6e3;
+  --c103:#3d4f86;
+  --c104:#dbe6fb;
+  --c105:#46577d;
+  --c106:#e3ecff;
+  --c107:#2f6df5;
+  --c108:#9fbdef;
+  --c109:#d3e2ff;
+  --c110:#a16207;
+  --c111:#9fe3b3;
+  --c112:#dcf6e3;
+  --c113:#fde2e1;
+  --c114:#c7d6fb;
+  --c115:#2f4ea3;
+  --c116:#e3ecff;
+  --c117:#2f5fd6;
+  --c118:#c1d3fb;
+  --c119:#46577d;
+  --c120:#46577d;
+  --c121:#d7deef;
+  --c122:#eef1f8;
+  --c123:#46577d;
+  --c124:#46577d;
+  --c125:#3e5176;
+  --c126:#ffffff;
+  --c127:#d7deef;
+  --c128:#2a3a66;
+  --c129:#e3ecff;
+  --c130:#e7ebf5;
+  --c131:#ffffff;
+  --c132:#46577d;
+  --c133:#eef1f8;
+  --c134:#1f2d57;
+  --c135:#2f6df5;
+  --c136:#eef1f8;
+  --c137:#46577d;
+  --c138:#cfd9f0;
+  --c139:#fbdada;
+  --c140:#4a5d97;
+  --c141:#1d4ed8;
+  --c142:#ffffff;
+  --c143:#5b6a99;
+  --c144:#1d3caa;
+  --c145:#2550dd;
+  --c146:#1830aa;
+  /* 오버레이/패널 반투명 배경 — 라이트(햇빛) 모드: 밝은 반투명 + 진한 텍스트 */
+  --ov-bg:rgba(255,255,255,0.96);
+  --ov-bg2:rgba(255,255,255,0.97);
+  --ov-bg3:rgba(255,255,255,0.96);
+  --ov-bg4:rgba(255,255,255,0.96);
+  --gps-good-bg:rgba(220,246,227,0.95);
+  --gps-ok-bg:rgba(255,243,205,0.95);
+  --gps-bad-bg:rgba(253,226,225,0.95);
+  --btn-text:#fff;
+  --naver-outline:#027a39;
+  --accent-outline:#1d4ed8;
+}
+
+/* 테마 전환 시 부드러운 전환 */
+body,#hdr,#panel,#cur-card,.stat,.leg-item,#timer-box,#settings-menu,#login-box{transition:background-color .25s,border-color .25s,color .25s;}
+
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;background:#0a0a0f;color:#e0e6f0;height:100dvh;display:flex;flex-direction:column;overflow:hidden;}
+body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;background:var(--c31);color:var(--c13);height:100dvh;display:flex;flex-direction:column;overflow:hidden;}
 
 /* 현재구간 카드 접기/펼치기 헤더 */
 #panel-card-wrap{flex-shrink:0;}
-#panel-card-hdr{display:none;align-items:center;justify-content:space-between;height:30px;min-height:30px;padding:0 12px;background:#0d0f1a;border-bottom:1px solid #1a1e30;cursor:pointer;user-select:none;}
-#panel-card-hdr-title{font-size:12px;font-weight:700;color:#4a5580;letter-spacing:.5px;}
-#btn-panel-card-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
+#panel-card-hdr{display:none;align-items:center;justify-content:space-between;height:30px;min-height:30px;padding:0 12px;background:var(--c20);border-bottom:1px solid var(--c1);cursor:pointer;user-select:none;}
+#panel-card-hdr-title{font-size:12px;font-weight:700;color:var(--c2);letter-spacing:.5px;}
+#btn-panel-card-toggle{background:none;border:none;color:var(--c2);font-size:11px;cursor:pointer;padding:0;}
 #panel-card-wrap.collapsed{height:30px;min-height:30px;max-height:30px;overflow:hidden;}
 #panel-card-wrap.collapsed #panel-card-body{display:none!important;}
 
 /* ── 헤더 ── */
-#hdr{display:flex;flex-direction:column;padding:6px 10px;background:#0f111a;border-bottom:1px solid #1e2230;flex-shrink:0;z-index:100;gap:5px;}
+#hdr{display:flex;flex-direction:column;padding:6px 10px;background:var(--c32);border-bottom:1px solid var(--c21);flex-shrink:0;z-index:100;gap:5px;}
 #hdr-row1{display:flex;align-items:center;gap:6px;width:100%;}
 #hdr-row2{display:flex;align-items:center;gap:6px;width:100%;}
 #hdr-icon-group{margin-left:auto;}
-#hdr-title{font-size:14px;font-weight:700;color:#6b7aaa;white-space:nowrap;}
-#login-user-badge{font-size:11px;color:#6b8ae8;background:#111830;border:1px solid #1e2a50;border-radius:6px;padding:4px 9px;white-space:nowrap;font-weight:700;margin-left:auto;}
-.sel-btn{background:#171b2e;border:1px solid #2a3050;color:#c8d0f0;padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;transition:.15s;}
-.sel-btn:hover,.sel-btn.active{background:#1f2d5a;border-color:#3d5abf;color:#fff;}
+#hdr-title{font-size:14px;font-weight:700;color:var(--c8);white-space:nowrap;}
+#login-user-badge{font-size:11px;color:var(--c56);background:var(--c57);border:1px solid var(--c4);border-radius:6px;padding:4px 9px;white-space:nowrap;font-weight:700;margin-left:auto;}
+.sel-btn{background:var(--c33);border:1px solid var(--c3);color:var(--c34);padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;transition:.15s;}
+.sel-btn:hover{background:var(--c6);border-color:var(--c9);}
+.sel-btn.active{background:var(--c6);border:2px solid var(--accent-outline);color:var(--accent-outline);font-weight:700;}
 
 /* ── 메인 ── */
 #main{flex:1;display:grid;grid-template-columns:1fr 440px;overflow:hidden;}
@@ -54,8 +388,8 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #turn-overlay{
   position:absolute;top:12px;left:12px;right:12px;z-index:1000;
   display:none;
-  background:rgba(5,8,20,0.93);
-  border:1.5px solid #1e2a50;
+  background:var(--ov-bg);
+  border:1.5px solid var(--c4);
   border-radius:14px;
   padding:14px 16px;
   backdrop-filter:blur(8px);
@@ -65,172 +399,172 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #turn-overlay.show{display:flex;align-items:center;gap:14px;}
 #turn-arrow-box{
   width:60px;height:60px;flex-shrink:0;
-  background:#111827;border:2px solid #1e3060;border-radius:12px;
+  background:var(--c58);border:2px solid var(--c22);border-radius:12px;
   display:flex;align-items:center;justify-content:center;
   font-size:32px;
 }
 #turn-text-wrap{flex:1;min-width:0;}
-#turn-dist{font-size:26px;font-weight:800;color:#facc15;line-height:1;}
-#turn-unit{font-size:13px;color:#6b7aaa;margin-left:3px;}
-#turn-instr{font-size:16px;font-weight:700;color:#e0eaff;margin-top:4px;}
-#turn-road{font-size:11px;color:#6f82b0;margin-top:3px;white-space:normal;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+#turn-dist{font-size:26px;font-weight:800;color:var(--c14);line-height:1;}
+#turn-unit{font-size:13px;color:var(--c8);margin-left:3px;}
+#turn-instr{font-size:16px;font-weight:700;color:var(--c59);margin-top:4px;}
+#turn-road{font-size:11px;color:var(--c60);margin-top:3px;white-space:normal;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 
 /* GPS 상태 표시 */
 #gps-status{
   position:absolute;bottom:12px;left:12px;z-index:1000;
-  background:rgba(5,8,20,0.88);border:1px solid #1e2a50;
-  border-radius:10px;padding:7px 11px;font-size:11px;color:#6b7aaa;
+  background:var(--ov-bg);border:1px solid var(--c4);
+  border-radius:10px;padding:7px 11px;font-size:11px;color:var(--c8);
   display:none;min-width:130px;
   backdrop-filter:blur(6px);
   transition:border-color .3s, background .3s, bottom .2s;
 }
 #gps-status.show{display:block;}
-#gps-status.good {border-color:#16a34a;background:rgba(5,20,10,0.88);}
-#gps-status.ok   {border-color:#ca8a04;background:rgba(20,15,5,0.88);}
-#gps-status.bad  {border-color:#dc2626;background:rgba(20,5,5,0.88);}
-#gps-status.lost {border-color:#7f1d1d;background:rgba(20,5,5,0.88);animation:gps-blink 1.2s infinite;}
+#gps-status.good {border-color:var(--c16);background:var(--gps-good-bg);}
+#gps-status.ok   {border-color:var(--c61);background:var(--gps-ok-bg);}
+#gps-status.bad  {border-color:var(--c62);background:var(--gps-bad-bg);}
+#gps-status.lost {border-color:var(--c17);background:var(--gps-bad-bg);animation:gps-blink 1.2s infinite;}
 @keyframes gps-blink{0%,100%{opacity:1;}50%{opacity:0.4;}}
 
 #gps-dot{
   display:inline-block;width:8px;height:8px;border-radius:50%;
-  margin-right:5px;vertical-align:middle;background:#4a5580;
+  margin-right:5px;vertical-align:middle;background:var(--c2);
   transition:background .3s;
 }
-#gps-status.good #gps-dot{background:#4ade80;box-shadow:0 0 5px #4ade8088;}
-#gps-status.ok   #gps-dot{background:#facc15;box-shadow:0 0 5px #facc1588;}
-#gps-status.bad  #gps-dot{background:#f87171;box-shadow:0 0 5px #f8717188;}
-#gps-status.lost #gps-dot{background:#f87171;}
+#gps-status.good #gps-dot{background:var(--c10);box-shadow:0 0 5px var(--c63);}
+#gps-status.ok   #gps-dot{background:var(--c14);box-shadow:0 0 5px var(--c64);}
+#gps-status.bad  #gps-dot{background:var(--c11);box-shadow:0 0 5px var(--c65);}
+#gps-status.lost #gps-dot{background:var(--c11);}
 
-#gps-main-line{font-size:11px;font-weight:700;color:#c8d4f8;}
-#gps-status.good #gps-main-line{color:#4ade80;}
-#gps-status.ok   #gps-main-line{color:#facc15;}
-#gps-status.bad  #gps-main-line{color:#f87171;}
-#gps-status.lost #gps-main-line{color:#f87171;}
+#gps-main-line{font-size:11px;font-weight:700;color:var(--c35);}
+#gps-status.good #gps-main-line{color:var(--c10);}
+#gps-status.ok   #gps-main-line{color:var(--c14);}
+#gps-status.bad  #gps-main-line{color:var(--c11);}
+#gps-status.lost #gps-main-line{color:var(--c11);}
 
-#gps-acc-line{font-size:10px;color:#4a5580;margin-top:2px;}
-#gps-coord-line{font-size:9px;color:#3a4560;margin-top:1px;font-variant-numeric:tabular-nums;}
+#gps-acc-line{font-size:10px;color:var(--c2);margin-top:2px;}
+#gps-coord-line{font-size:9px;color:var(--c66);margin-top:1px;font-variant-numeric:tabular-nums;}
 
 /* OSRM 로딩 스피너 */
 #route-loading{
   position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-  z-index:1001;background:rgba(5,8,20,0.9);border:1px solid #1e3060;
-  border-radius:12px;padding:16px 24px;font-size:13px;color:#7090d0;
+  z-index:1001;background:var(--ov-bg);border:1px solid var(--c22);
+  border-radius:12px;padding:16px 24px;font-size:13px;color:var(--c67);
   display:none;align-items:center;gap:10px;
 }
 #route-loading.show{display:flex;}
-.spinner{width:18px;height:18px;border:2px solid #1e3060;border-top-color:#3b82f6;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;}
+.spinner{width:18px;height:18px;border:2px solid var(--c22);border-top-color:var(--c7);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* ── 우측 패널 ── */
-#panel{display:flex;flex-direction:column;background:#0d0f1a;border-left:1px solid #1a1e30;overflow:hidden;position:relative;}
+#panel{display:flex;flex-direction:column;background:var(--c20);border-left:1px solid var(--c1);overflow:hidden;position:relative;}
 /* 에딧 모드 시 우측 패널 전체 차단 오버레이 */
 #panel-edit-block{display:none;position:absolute;inset:0;z-index:500;background:rgba(0,0,0,0.45);cursor:not-allowed;}
 #panel.edit-locked #panel-edit-block{display:block;}
-#sc-select{flex-shrink:0;padding:10px;border-bottom:1px solid #1a1e30;}
-#sc-select select{width:100%;background:#141828;border:1px solid #252d50;color:#c0caee;padding:7px 10px;border-radius:7px;font-size:13px;cursor:pointer;}
-#sc-select select option{background:#141828;}
+#sc-select{flex-shrink:0;padding:10px;border-bottom:1px solid var(--c1);}
+#sc-select select{width:100%;background:var(--c23);border:1px solid var(--c5);color:var(--c36);padding:7px 10px;border-radius:7px;font-size:13px;cursor:pointer;}
+#sc-select select option{background:var(--c23);}
 #config-status{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:2px;margin-left:4px;min-width:0;}
-#imported-file-name{display:block;max-width:300px;font-size:11px;color:#7aa0ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em;}
-#imported-file-name.empty{color:#4a5580;}
+#imported-file-name{display:block;max-width:300px;font-size:11px;color:var(--c24);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.02em;}
+#imported-file-name.empty{color:var(--c2);}
 #config-meta-row{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;white-space:nowrap;}
-#app-version{display:inline-flex;align-items:center;height:18px;padding:0 6px;border:1px solid #2a4080;border-radius:5px;background:#10182c;color:#7aa0ff;font-size:10px;font-weight:700;letter-spacing:.03em;}
+#app-version{display:inline-flex;align-items:center;height:18px;padding:0 6px;border:1px solid var(--c37);border-radius:5px;background:var(--c68);color:var(--c24);font-size:10px;font-weight:700;letter-spacing:.03em;}
 #hdr-right-group{display:flex;align-items:center;gap:8px;margin-left:auto;}
 
 /* 현재 구간 카드 */
-#cur-card{flex-shrink:0;padding:12px;border-bottom:1px solid #1a1e30;}
+#cur-card{flex-shrink:0;padding:12px;border-bottom:1px solid var(--c1);}
 #cur-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
-#cur-id{background:#1a2a5e;color:#7aa0ff;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;}
-#cur-badge{background:#0f2a1a;color:#3ecf6e;padding:3px 8px;border-radius:4px;font-size:11px;}
+#cur-id{background:var(--c69);color:var(--c24);padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;}
+#cur-badge{background:var(--c38);color:var(--c39);padding:3px 8px;border-radius:4px;font-size:11px;}
 #cur-arrow{display:flex;align-items:center;gap:6px;margin-bottom:10px;}
-.place-tag{background:#131b30;border:1px solid #2a3555;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;color:#d0dcff;flex:1;text-align:center;}
-.arrow-icon{color:#3d5abf;font-size:18px;flex-shrink:0;}
+.place-tag{background:var(--c70);border:1px solid var(--c40);border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;color:var(--c41);flex:1;text-align:center;}
+.arrow-icon{color:var(--c9);font-size:18px;flex-shrink:0;}
 #cur-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;}
-.stat{background:#0f1420;border:1px solid #1e2540;border-radius:7px;padding:8px 6px;text-align:center;}
-.stat-v{font-size:17px;font-weight:700;color:#fff;}
-.stat-u{font-size:10px;color:#4a5580;margin-top:1px;}
+.stat{background:var(--c71);border:1px solid var(--c72);border-radius:7px;padding:8px 6px;text-align:center;}
+.stat-v{font-size:17px;font-weight:700;color:var(--c0);}
+.stat-u{font-size:10px;color:var(--c2);margin-top:1px;}
 
 /* 타이머 */
-#timer-box{background:#0b1525;border:1px solid #1d3060;border-radius:9px;padding:10px;text-align:center;margin-bottom:10px;}
-#timer-label{font-size:10px;color:#4a6090;margin-bottom:3px;letter-spacing:.05em;}
-#timer-val{font-size:32px;font-weight:700;color:#60a5fa;font-variant-numeric:tabular-nums;}
+#timer-box{background:var(--c73);border:1px solid var(--c74);border-radius:9px;padding:10px;text-align:center;margin-bottom:10px;}
+#timer-label{font-size:10px;color:var(--c25);margin-bottom:3px;letter-spacing:.05em;}
+#timer-val{font-size:32px;font-weight:700;color:var(--c26);font-variant-numeric:tabular-nums;}
 #timer-phase{font-size:10px;margin-top:2px;}
-.phase-drive{color:#4ade80;}
-.phase-rest{color:#fb923c;}
+.phase-drive{color:var(--c10);}
+.phase-rest{color:var(--c75);}
 /* 주행 타이머 5분 이하 — 정차 위치 탐색 경고 */
-#timer-val.timer-low{color:#ef4444!important;animation:blink .8s infinite alternate;}
-#timer-phase.show-warn{color:#ef4444;}
+#timer-val.timer-low{color:var(--c12)!important;animation:blink .8s infinite alternate;}
+#timer-phase.show-warn{color:var(--c12);}
 
 /* 컨트롤 */
 #ctrl{display:flex;gap:6px;margin-bottom:8px;}
 .ctrl-btn{flex:1;padding:9px;border:none;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s;}
-#btn-prev{background:#1a1e30;color:#8898cc;border:1px solid #2a3050;flex:0 0 44px;font-size:16px;}
-#btn-prev:hover{background:#252d50;}
-#btn-play{background:#1d4ed8;color:#fff;}
-#btn-play:hover{background:#2563eb;}
-#btn-play.running{background:#c0392b;}
-#btn-next{background:#1a1e30;color:#8898cc;border:1px solid #2a3050;flex:0 0 44px;font-size:16px;}
-#btn-next:hover{background:#252d50;}
+#btn-prev{background:var(--c1);color:var(--c27);border:1px solid var(--c3);flex:0 0 44px;font-size:16px;}
+#btn-prev:hover{background:var(--c5);}
+#btn-play{background:var(--c1);color:var(--c76);border:2px solid var(--c76);}
+#btn-play:hover{background:var(--c6);}
+#btn-play.running{background:var(--c1);color:var(--c77);border-color:var(--c77);}
+#btn-next{background:var(--c1);color:var(--c27);border:1px solid var(--c3);flex:0 0 44px;font-size:16px;}
+#btn-next:hover{background:var(--c5);}
 /* 경로 수정 모드 */
-#btn-naver-map{background:#03c75a;color:#fff;border:none;border-radius:7px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;white-space:nowrap;}
-#btn-naver-map:hover{background:#02a84d;}
-#btn-edit{margin-left:auto;background:#374151;color:#d1d5db;border:1px solid #4b5563;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
-#btn-edit:hover{background:#4b5563;}
-#btn-edit.active{background:#b45309;color:#fff;border-color:#d97706;}
+#btn-naver-map{background:var(--c1);color:var(--naver-outline);border:2px solid var(--naver-outline);border-radius:7px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;white-space:nowrap;}
+#btn-naver-map:hover{background:var(--c6);}
+#btn-edit{margin-left:auto;background:var(--c28);color:var(--c43);border:1px solid var(--c29);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+#btn-edit:hover{background:var(--c29);}
+#btn-edit.active{background:var(--c1);color:var(--c80);border:2px solid var(--c80);}
 
 /* 지도 하단 스택 (에딧바 + 경로안내) */
 #bottom-stack{position:absolute;bottom:0;left:0;right:0;z-index:1002;display:flex;flex-direction:column;}
 #edit-bar{
   display:none;align-self:center;margin:0 auto 8px;
   align-items:center;gap:10px;padding:10px 16px;
-  background:rgba(10,10,20,0.92);border:1px solid #374151;border-radius:10px;
+  background:var(--ov-bg3);border:1px solid var(--c28);border-radius:10px;
   backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,.6);
   white-space:nowrap;
 }
 #edit-bar.show{display:flex;}
-#edit-hint{font-size:11px;color:#9ca3af;flex:1;text-align:center;}
-#btn-wp-add,#btn-wp-del{background:#1f2937;color:#d1d5db;border:1px solid #4b5563;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}
-#btn-wp-add:hover{background:#065f46;border-color:#10b981;color:#fff;}
-#btn-wp-del:hover{background:#7f1d1d;border-color:#ef4444;color:#fff;}
-#btn-save-route{background:#16a34a;color:#fff;border:none;border-radius:7px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}
-#btn-save-route:hover{background:#15803d;}
+#edit-hint{font-size:11px;color:var(--c82);flex:1;text-align:center;}
+#btn-wp-add,#btn-wp-del{background:var(--c83);color:var(--c43);border:1px solid var(--c29);border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}
+#btn-wp-add:hover{background:var(--c1);border-color:var(--c85);color:var(--c85);}
+#btn-wp-del:hover{background:var(--c1);border-color:var(--c12);color:var(--c12);}
+#btn-save-route{background:var(--c1);color:var(--c16);border:2px solid var(--c16);border-radius:7px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}
+#btn-save-route:hover{background:var(--c6);}
 
 /* 패널 리사이즈 핸들 */
 #panel-resize-handle{
   position:absolute;left:0;top:0;bottom:0;width:5px;cursor:ew-resize;
   background:transparent;z-index:10;
 }
-#panel-resize-handle:hover,#panel-resize-handle.dragging{background:#3b82f688;}
+#panel-resize-handle:hover,#panel-resize-handle.dragging{background:var(--c45);}
 #steps-resize-handle{
-  height:6px;cursor:ns-resize;background:#1e2a50;
+  height:6px;cursor:ns-resize;background:var(--c4);
   display:flex;align-items:center;justify-content:center;flex-shrink:0;
 }
-#steps-resize-handle::after{content:'';width:32px;height:3px;background:#374151;border-radius:2px;}
+#steps-resize-handle::after{content:'';width:32px;height:3px;background:var(--c28);border-radius:2px;}
 
 /* 경고 */
-#warn{display:none;background:#7c1d13;border:1px solid #ef4444;border-radius:7px;padding:8px 12px;font-size:12px;color:#fca5a5;font-weight:600;text-align:center;margin-top:8px;animation:blink .7s infinite alternate;}
+#warn{display:none;background:var(--c86);border:1px solid var(--c12);border-radius:7px;padding:8px 12px;font-size:12px;color:var(--c15);font-weight:600;text-align:center;margin-top:8px;animation:blink .7s infinite alternate;}
 @keyframes blink{from{opacity:1}to{opacity:.5}}
 
 /* 시나리오 수정 버튼 */
-#btn-sc-edit{background:#1e2a50;color:#7aabff;border:1px solid #2a4080;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
-#btn-sc-edit:hover:not(:disabled){background:#253360;}
-#btn-sc-edit.active{background:#7c3aed;color:#fff;border-color:#8b5cf6;}
+#btn-sc-edit{background:var(--c4);color:var(--c46);border:1px solid var(--c37);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+#btn-sc-edit:hover:not(:disabled){background:var(--c87);}
+#btn-sc-edit.active{background:var(--c1);color:var(--c18);border:2px solid var(--c18);}
 #btn-sc-edit:disabled,#btn-edit:disabled{opacity:0.35;cursor:not-allowed;}
 /* 주행 기록 다운로드 */
-#btn-export-log{background:#0f2a1a;color:#3ecf6e;border:1px solid #1f4a30;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
-#btn-export-log:hover{background:#16401f;}
-#export-log-count{margin-left:4px;font-size:10px;color:#7aabff;font-weight:700;}
-#btn-clear-log{background:#1a1e30;color:#6b7aaa;border:1px solid #2a3050;border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer;}
-#btn-clear-log:hover{background:#252d50;color:#fca5a5;}
-.set-io-btn{background:#1a1e30;color:#9aa6d6;border:1px solid #2a3050;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
-.set-io-btn:hover{background:#252d50;color:#c0caee;}
+#btn-export-log{background:var(--c38);color:var(--c39);border:1px solid var(--c88);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+#btn-export-log:hover{background:var(--c89);}
+#export-log-count{margin-left:4px;font-size:10px;color:var(--c46);font-weight:700;}
+#btn-clear-log{background:var(--c1);color:var(--c8);border:1px solid var(--c3);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer;}
+#btn-clear-log:hover{background:var(--c5);color:var(--c15);}
+.set-io-btn{background:var(--c1);color:var(--c90);border:1px solid var(--c3);border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.set-io-btn:hover{background:var(--c5);color:var(--c36);}
 /* 시나리오 수정 모드 — 헤더 저장 버튼(시나리오 수정 버튼과 동일 크기) + 일부 버튼 숨김 */
-#btn-sc-save-hdr{display:none;background:#7c3aed;color:#fff;border:1px solid #8b5cf6;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
-#btn-sc-save-hdr:hover{background:#6d28d9;}
+#btn-sc-save-hdr{display:none;background:var(--c1);color:var(--c18);border:2px solid var(--c18);border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+#btn-sc-save-hdr:hover{background:var(--c6);}
 #hdr.sc-editing #btn-sc-save-hdr{display:block;}
 #hdr.sc-editing #btn-clear-log,
 #hdr.sc-editing #btn-edit{display:none;}
 /* 시나리오 수정 — 출발/도착 이름 편집 토글 (CSS 클래스 방식, innerHTML 교체 없음) */
-.place-input{width:100%;background:transparent;border:none;border-bottom:1.5px solid #3b82f6;color:#d0dcff;font-size:12px;font-weight:600;text-align:center;outline:none;padding:2px 0;}
+.place-input{width:100%;background:transparent;border:none;border-bottom:1.5px solid var(--c7);color:var(--c41);font-size:12px;font-weight:600;text-align:center;outline:none;padding:2px 0;}
 .sv-edit{display:none;}
 #cur-card.sc-editing .sv-view{display:none;}
 #cur-card.sc-editing .sv-edit{display:block;}
@@ -243,28 +577,28 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #leg-mgmt-btns.show{display:flex;}
 
 /* 구간 추가/삭제 버튼 */
-.leg-mgmt-btn{flex:1;display:flex;align-items:center;justify-content:center;padding:10px 6px;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;transition:.15s;border:1.5px solid #3b82f6;background:#0d1a35;color:#60a5fa;}
-.leg-mgmt-btn:hover:not(:disabled){background:#1a2f55;color:#93c5fd;}
-.leg-del-btn{border-color:#ef4444;background:#1a0d0d;color:#f87171;}
-.leg-del-btn:hover:not(:disabled){background:#2d1515;color:#fca5a5;}
+.leg-mgmt-btn{flex:1;display:flex;align-items:center;justify-content:center;padding:10px 6px;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;transition:.15s;border:1.5px solid var(--c7);background:var(--c92);color:var(--c26);}
+.leg-mgmt-btn:hover:not(:disabled){background:var(--c93);color:var(--c94);}
+.leg-del-btn{border-color:var(--c12);background:var(--c95);color:var(--c11);}
+.leg-del-btn:hover:not(:disabled){background:var(--c96);color:var(--c15);}
 .leg-mgmt-btn:disabled{opacity:0.28;cursor:not-allowed;border-style:dashed;}
-#add-leg-form{display:none;padding:12px;border-top:1px solid #1a2040;background:#080c18;}
+#add-leg-form{display:none;padding:12px;border-top:1px solid var(--c48);background:var(--c97);}
 #add-leg-form.show{display:block;}
 .alf-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
-.alf-field label{font-size:10px;color:#4a6090;display:block;margin-bottom:3px;}
-.alf-field input{width:100%;background:#0d1525;border:1px solid #1e2a50;color:#c0d0f0;padding:5px 8px;border-radius:5px;font-size:12px;outline:none;}
-.alf-field input:focus{border-color:#3b82f6;}
-.alf-auto{background:#0d1525;border:1px solid #1e2a50;color:#facc15;padding:5px 8px;border-radius:5px;font-size:13px;font-weight:700;min-height:28px;}
-#btn-alf-ok{width:100%;background:#16a34a;color:#fff;border:none;border-radius:7px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;margin-top:4px;}
-#btn-alf-ok:hover{background:#15803d;}
-#btn-alf-cancel{width:100%;background:#1a1e30;color:#6b7aaa;border:1px solid #2a3050;border-radius:7px;padding:6px;font-size:11px;cursor:pointer;margin-top:4px;}
-#btn-alf-cancel:hover{background:#252d50;}
+.alf-field label{font-size:10px;color:var(--c25);display:block;margin-bottom:3px;}
+.alf-field input{width:100%;background:var(--c49);border:1px solid var(--c4);color:var(--c98);padding:5px 8px;border-radius:5px;font-size:12px;outline:none;}
+.alf-field input:focus{border-color:var(--c7);}
+.alf-auto{background:var(--c49);border:1px solid var(--c4);color:var(--c14);padding:5px 8px;border-radius:5px;font-size:13px;font-weight:700;min-height:28px;}
+#btn-alf-ok{width:100%;background:var(--c1);color:var(--c16);border:2px solid var(--c16);border-radius:7px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;margin-top:4px;}
+#btn-alf-ok:hover{background:var(--c6);}
+#btn-alf-cancel{width:100%;background:var(--c1);color:var(--c27);border:2px solid var(--c29);border-radius:7px;padding:6px;font-size:11px;cursor:pointer;margin-top:4px;}
+#btn-alf-cancel:hover{background:var(--c5);}
 
 /* 구간 목록 헤더 (접기/펼치기) */
 #leg-list-wrap{display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0;}
-#leg-list-hdr{display:flex;align-items:center;justify-content:space-between;height:30px;min-height:30px;padding:0 12px;background:#0d0f1a;border-bottom:1px solid #1a1e30;border-top:1px solid #1a1e30;cursor:pointer;flex-shrink:0;user-select:none;}
-#leg-list-hdr-title{font-size:12px;font-weight:700;color:#4a5580;letter-spacing:.5px;}
-#btn-leg-list-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
+#leg-list-hdr{display:flex;align-items:center;justify-content:space-between;height:30px;min-height:30px;padding:0 12px;background:var(--c20);border-bottom:1px solid var(--c1);border-top:1px solid var(--c1);cursor:pointer;flex-shrink:0;user-select:none;}
+#leg-list-hdr-title{font-size:12px;font-weight:700;color:var(--c2);letter-spacing:.5px;}
+#btn-leg-list-toggle{background:none;border:none;color:var(--c2);font-size:11px;cursor:pointer;padding:0;}
 #leg-list-wrap.collapsed{flex:0 0 30px!important;height:30px!important;min-height:30px!important;max-height:30px!important;overflow:hidden;}
 #leg-list-wrap.collapsed #leg-list{display:none!important;}
 #leg-list-wrap.collapsed + #leg-mgmt-btns,
@@ -273,32 +607,32 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 /* 구간 목록 */
 #leg-list{flex:1;overflow-y:auto;padding:0;}
 #leg-list::-webkit-scrollbar{width:4px;}
-#leg-list::-webkit-scrollbar-track{background:#0a0c14;}
-#leg-list::-webkit-scrollbar-thumb{background:#252d50;border-radius:2px;}
-.leg-item{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #141828;cursor:pointer;transition:.1s;}
-.leg-item:hover{background:#111525;}
+#leg-list::-webkit-scrollbar-track{background:var(--c99);}
+#leg-list::-webkit-scrollbar-thumb{background:var(--c5);border-radius:2px;}
+.leg-item{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--c23);cursor:pointer;transition:.1s;}
+.leg-item:hover{background:var(--c100);}
 .leg-item.done{opacity:.38;}
-.leg-item.active{background:#0d1e3a;border-left:4px solid #3b82f6;opacity:1!important;}
-.leg-item.active .leg-id{color:#60a5fa;}
-.leg-drag-handle{display:none;color:#3a4570;font-size:15px;cursor:grab;flex-shrink:0;padding:0 1px;}
+.leg-item.active{background:var(--c101);border-left:4px solid var(--c7);opacity:1!important;}
+.leg-item.active .leg-id{color:var(--c26);}
+.leg-drag-handle{display:none;color:var(--c50);font-size:15px;cursor:grab;flex-shrink:0;padding:0 1px;}
 .leg-item[draggable="true"] .leg-drag-handle{display:block;}
 .leg-item[draggable="true"]:active{cursor:grabbing;}
 .leg-item.dragging{opacity:.35;}
-.leg-item.drag-over{box-shadow:inset 0 2px 0 #7c3aed,inset 0 -2px 0 #7c3aed;}
+.leg-item.drag-over{box-shadow:inset 0 2px 0 var(--c18),inset 0 -2px 0 var(--c18);}
 .leg-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
-.dot-done{background:#1e3a1e;border:1.5px solid #2d6b2d;}
-.dot-active{background:#3b82f6;box-shadow:0 0 6px #3b82f688;}
-.dot-pending{background:#1a2040;border:1.5px solid #2a3555;}
-.leg-id{font-size:13px;font-weight:700;color:#5568aa;width:58px;flex-shrink:0;}
+.dot-done{background:var(--c102);border:1.5px solid var(--c51);}
+.dot-active{background:var(--c7);box-shadow:0 0 6px var(--c45);}
+.dot-pending{background:var(--c48);border:1.5px solid var(--c40);}
+.leg-id{font-size:13px;font-weight:700;color:var(--c103);width:58px;flex-shrink:0;}
 .leg-info{flex:1;min-width:0;}
-.leg-se{font-size:13px;color:#8898cc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.leg-meta{font-size:11px;color:#3a4570;margin-top:2px;}
-.leg-check{color:#2d6b2d;font-size:16px;flex-shrink:0;}
+.leg-se{font-size:13px;color:var(--c27);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.leg-meta{font-size:11px;color:var(--c50);margin-top:2px;}
+.leg-check{color:var(--c51);font-size:16px;flex-shrink:0;}
 
 /* 전체 경로 안내 — bottom-stack 안에서 flex 아이템 */
 #steps-panel{
-  background:rgba(7,9,20,0.95);backdrop-filter:blur(8px);
-  border-top:1px solid #1e2a50;
+  background:var(--ov-bg2);backdrop-filter:blur(8px);
+  border-top:1px solid var(--c4);
   height:200px;min-height:60px;max-height:60vh;
   display:flex;flex-direction:column;overflow:hidden;
 }
@@ -307,26 +641,27 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #steps-panel.collapsed #steps-list{display:none!important;}
 #steps-hdr{
   display:flex;align-items:center;justify-content:space-between;
-  height:30px;min-height:30px;padding:0 12px;font-size:12px;font-weight:700;color:#4a5580;
+  height:30px;min-height:30px;padding:0 12px;font-size:12px;font-weight:700;color:var(--c2);
   letter-spacing:.5px;flex-shrink:0;
 }
-#btn-steps-toggle{background:none;border:none;color:#4a5580;font-size:11px;cursor:pointer;padding:0;}
+#btn-steps-toggle{background:none;border:none;color:var(--c2);font-size:11px;cursor:pointer;padding:0;}
 #steps-list{overflow-y:auto;flex:1;}
 #steps-list::-webkit-scrollbar{width:4px;}
-#steps-list::-webkit-scrollbar-thumb{background:#252d50;border-radius:2px;}
-.step-item{display:flex;align-items:center;gap:10px;padding:7px 14px;border-bottom:1px solid #0f1428;}
-.step-item.step-current{background:#0a1628;border-left:3px solid #3b82f6;}
+#steps-list::-webkit-scrollbar-thumb{background:var(--c5);border-radius:2px;}
+.step-item{display:flex;align-items:center;gap:10px;padding:7px 14px;border-bottom:1px solid var(--c52);}
+.step-item.step-current{background:var(--c104);border-left:3px solid var(--c7);}
 .step-icon{font-size:16px;width:22px;text-align:center;flex-shrink:0;}
 .step-body{flex:1;min-width:0;}
-.step-instr{font-size:12px;color:#c8d0f0;font-weight:600;}
-.step-item.step-arrive .step-instr{color:#4ade80;}
+.step-instr{font-size:12px;color:var(--c34);font-weight:600;}
+.step-item.step-arrive .step-instr{color:var(--c10);}
 
 /* 완료 오버레이 */
 #done-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center;padding:40px;}
 #done-overlay.show{display:flex;}
-#done-overlay h2{font-size:26px;color:#4ade80;}
-#done-overlay p{font-size:13px;color:#6880aa;}
-#btn-done{background:#16a34a;color:#fff;padding:12px 32px;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;}
+#done-overlay h2{font-size:26px;color:var(--c10);}
+#done-overlay p{font-size:13px;color:var(--c105);}
+#btn-done{background:var(--c1);color:var(--c16);padding:12px 32px;border:2px solid var(--c16);border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;}
+#btn-done:hover{background:var(--c6);}
 
 @media(max-width:700px){
   /* ── 레이아웃 ── */
@@ -346,7 +681,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #panel{
     flex:none;           /* ← 핵심: 남은 공간 채우지 않음 */
     border-left:none;
-    border-top:2px solid #1e2230;
+    border-top:2px solid var(--c21);
     overflow:visible;
     display:block;
     height:auto;
@@ -478,7 +813,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 /* ── 가로 모드 (landscape) ── */
 @media(max-width:1024px) and (orientation:landscape){
   #main{grid-template-columns:1fr 300px;grid-template-rows:1fr;}
-  #panel{border-left:1px solid #1a1e30;border-top:none;overflow-y:auto;}
+  #panel{border-left:1px solid var(--c1);border-top:none;overflow-y:auto;}
   #panel-card-hdr{display:none;}
   #panel-card-body{display:block!important;}
   #hdr{flex-wrap:nowrap;padding:4px 8px;}
@@ -503,54 +838,54 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 /* ── 공공 교통정보 오버레이 ── */
 #btn-traffic{
-  background:#18223a;color:#9ec5ff;border:1px solid #31518c;border-radius:7px;
+  background:var(--c106);color:var(--c107);border:1px solid var(--c108);border-radius:7px;
   padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;
 }
-#btn-traffic:hover{background:#21345a;color:#fff;}
-#btn-traffic.loading{color:#facc15;border-color:#8a6d1d;}
-#btn-traffic.live{color:#4ade80;border-color:#1f6b3a;background:#10291c;}
-#btn-traffic.error{color:#fca5a5;border-color:#7f1d1d;background:#2b1115;}
+#btn-traffic:hover{background:var(--c109);}
+#btn-traffic.loading{color:var(--c14);border-color:var(--c110);}
+#btn-traffic.live{color:var(--c10);border-color:var(--c111);background:var(--c112);}
+#btn-traffic.error{color:var(--c15);border-color:var(--c17);background:var(--c113);}
 #traffic-card{
   position:absolute;top:12px;right:12px;z-index:1001;width:min(320px,calc(100% - 24px));
-  background:rgba(7,10,22,.93);border:1px solid #273a68;border-radius:11px;
+  background:var(--ov-bg4);border:1px solid var(--c114);border-radius:11px;
   box-shadow:0 5px 20px rgba(0,0,0,.45);backdrop-filter:blur(8px);padding:10px 12px;
   display:none;
 }
 #traffic-card.show{display:block;}
 #traffic-card-head{display:flex;align-items:center;gap:7px;}
-#traffic-source{font-size:12px;font-weight:800;color:#b8c8ef;flex:1;}
-#traffic-refresh-btn{background:#17223c;color:#8fb2f4;border:1px solid #2b4377;border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;}
-#traffic-close-btn{background:none;border:none;color:#6375a3;font-size:13px;cursor:pointer;padding:2px;}
-#traffic-status-line{font-size:10px;color:#6d82b5;margin-top:4px;}
+#traffic-source{font-size:12px;font-weight:800;color:var(--c115);flex:1;}
+#traffic-refresh-btn{background:var(--c116);color:var(--c117);border:1px solid var(--c118);border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;}
+#traffic-close-btn{background:none;border:none;color:var(--c119);font-size:13px;cursor:pointer;padding:2px;}
+#traffic-status-line{font-size:10px;color:var(--c120);margin-top:4px;}
 #traffic-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;}
-.traffic-stat{border:1px solid #1f2c4a;background:#0c1425;border-radius:6px;padding:5px 3px;text-align:center;}
-.traffic-stat b{display:block;font-size:13px;color:#dbe7ff;}
-.traffic-stat span{font-size:9px;color:#62739d;}
-#traffic-legend{display:flex;flex-wrap:wrap;gap:7px;margin-top:7px;font-size:9px;color:#7183ae;}
+.traffic-stat{border:1px solid var(--c121);background:var(--c122);border-radius:6px;padding:5px 3px;text-align:center;}
+.traffic-stat b{display:block;font-size:13px;color:var(--c53);}
+.traffic-stat span{font-size:9px;color:var(--c123);}
+#traffic-legend{display:flex;flex-wrap:wrap;gap:7px;margin-top:7px;font-size:9px;color:var(--c124);}
 .traffic-key{display:inline-flex;align-items:center;gap:3px;}
 .traffic-swatch{width:13px;height:4px;border-radius:4px;display:inline-block;}
-#traffic-note{font-size:9px;color:#55688f;line-height:1.35;margin-top:6px;}
+#traffic-note{font-size:9px;color:var(--c125);line-height:1.35;margin-top:6px;}
 .traffic-event-icon{background:transparent;border:none;}
-.traffic-event-pin{width:25px;height:25px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#ef4444;border:2px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;}
+.traffic-event-pin{width:25px;height:25px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--c12);border:2px solid var(--btn-text);box-shadow:0 2px 7px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;}
 .traffic-event-pin span{transform:rotate(45deg);font-size:12px;}
 
 
 /* ── 설정 버튼 & 드롭다운 ── */
 #btn-settings{
-  background:#1a1e30;color:#e0e6f0;border:1px solid #2a3050;
+  background:var(--c1);color:var(--c13);border:1px solid var(--c3);
   border-radius:7px;padding:5px 11px;font-size:16px;cursor:pointer;
   position:relative;flex-shrink:0;
   transition:.15s;
 }
-#btn-settings:hover{background:#1f2d5a;border-color:#3d5abf;}
-#btn-settings.open{background:#1f2d5a;border-color:#4a7aff;}
+#btn-settings:hover{background:var(--c6);border-color:var(--c9);}
+#btn-settings.open{background:var(--c6);border-color:var(--c19);}
 
 #btn-focus-start{
-  background:#1a1e30;color:#e0e6f0;border:1px solid #2a3050;
+  background:var(--c1);color:var(--c13);border:1px solid var(--c3);
   border-radius:7px;padding:5px 11px;font-size:14px;cursor:pointer;
   flex-shrink:0;transition:.15s;
 }
-#btn-focus-start:hover{background:#1f2d5a;border-color:#3d5abf;}
+#btn-focus-start:hover{background:var(--c6);border-color:var(--c9);}
 #btn-focus-start:active{transform:scale(0.93);}
 
 /* 🔊 🔍 ⚙️ 묶음 — 항상 한 줄 유지 */
@@ -558,19 +893,19 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   display:flex;align-items:center;gap:5px;flex-shrink:0;
 }
 #hdr-icon-group button{
-  background:#1a1e30;color:#e0e6f0;border:1px solid #2a3050;
+  background:var(--c1);color:var(--c13);border:1px solid var(--c3);
   border-radius:7px;padding:5px 10px;font-size:14px;cursor:pointer;
   transition:.15s;white-space:nowrap;
 }
-#hdr-icon-group button:hover{background:#1f2d5a;border-color:#3d5abf;}
-#hdr-icon-group #btn-settings.open{background:#1f2d5a;border-color:#4a7aff;}
+#hdr-icon-group button:hover{background:var(--c6);border-color:var(--c9);}
+#hdr-icon-group #btn-settings.open{background:var(--c6);border-color:var(--c19);}
 
 #settings-menu{
   display:none;
   position:fixed;top:0;right:0;
   min-width:210px;
-  background:#0f1424;
-  border:1px solid #2a3560;
+  background:var(--c126);
+  border:1px solid var(--c127);
   border-radius:12px;
   box-shadow:0 8px 32px rgba(0,0,0,.7);
   z-index:20000;
@@ -582,20 +917,20 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 .settings-item{
   padding:10px 16px;
   font-size:13px;
-  color:#c0ccf0;
+  color:var(--c128);
   cursor:pointer;
   transition:.12s;
   white-space:nowrap;
 }
-.settings-item:hover{background:#1a2545;color:#fff;}
-.settings-divider{height:1px;background:#1e2840;margin:4px 0;}
+.settings-item:hover{background:var(--c129);}
+.settings-divider{height:1px;background:var(--c130);margin:4px 0;}
 .settings-meta{
   padding:8px 16px 6px;
   display:flex;flex-direction:column;gap:3px;
 }
-.settings-meta #imported-file-name{font-size:10px;color:#4a6090;}
-.settings-meta #imported-file-name.empty{color:#344060;}
-.settings-meta #app-version{font-size:10px;color:#344060;}
+.settings-meta #imported-file-name{font-size:10px;color:var(--c25);}
+.settings-meta #imported-file-name.empty{color:var(--c54);}
+.settings-meta #app-version{font-size:10px;color:var(--c54);}
 
 /* settings-menu 의 부모 위치 기준 */
 #hdr{position:relative;}
@@ -607,16 +942,16 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 #traffic-modal{display:none;position:fixed;inset:0;z-index:12000;background:rgba(0,0,0,.78);align-items:center;justify-content:center;padding:18px;}
 #traffic-modal.show{display:flex;}
-#traffic-modal-box{width:min(520px,100%);background:#0e1321;border:1px solid #2b3d68;border-radius:13px;padding:17px;box-shadow:0 12px 45px rgba(0,0,0,.6);}
-#traffic-modal-title{font-size:16px;font-weight:800;color:#dbe7ff;margin-bottom:7px;}
-#traffic-modal-desc{font-size:11px;color:#7f91ba;line-height:1.55;margin-bottom:12px;}
-#traffic-worker-url{width:100%;background:#080d18;border:1px solid #2b3d68;color:#dce8ff;border-radius:7px;padding:9px 10px;font-size:12px;outline:none;}
-#traffic-worker-url:focus{border-color:#4c79d8;}
+#traffic-modal-box{width:min(520px,100%);background:var(--c131);border:1px solid var(--c55);border-radius:13px;padding:17px;box-shadow:0 12px 45px rgba(0,0,0,.6);}
+#traffic-modal-title{font-size:16px;font-weight:800;color:var(--c53);margin-bottom:7px;}
+#traffic-modal-desc{font-size:11px;color:var(--c132);line-height:1.55;margin-bottom:12px;}
+#traffic-worker-url{width:100%;background:var(--c133);border:1px solid var(--c55);color:var(--c134);border-radius:7px;padding:9px 10px;font-size:12px;outline:none;}
+#traffic-worker-url:focus{border-color:var(--c135);}
 #traffic-modal-actions{display:flex;gap:7px;margin-top:11px;}
 .traffic-modal-btn{flex:1;border:none;border-radius:7px;padding:9px;font-size:12px;font-weight:700;cursor:pointer;}
-#traffic-save-btn{background:#2563eb;color:white;}
-#traffic-cancel-btn{background:#1a2235;color:#9aabd0;border:1px solid #2b3d58;}
-#traffic-clear-btn{background:#3a1518;color:#fca5a5;border:1px solid #7f1d1d;}
+#traffic-save-btn{background:var(--c42);color:white;}
+#traffic-cancel-btn{background:var(--c136);color:var(--c137);border:1px solid var(--c138);}
+#traffic-clear-btn{background:var(--c139);color:var(--c15);border:1px solid var(--c17);}
 
 @media(max-width:700px){
   #btn-traffic{font-size:10px;padding:4px 7px;}
@@ -630,7 +965,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 ══════════════════════════════════════════════════════════ */
 #login-screen{
   position:fixed;inset:0;z-index:99999;
-  background:#0a0a0f;
+  background:var(--c31);
   display:flex;align-items:center;justify-content:center;
   flex-direction:column;
   padding:20px;
@@ -639,12 +974,20 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 #login-box{
   width:min(420px,100%);
-  background:#0f111a;
-  border:1px solid #1e2230;
+  background:var(--c32);
+  border:1px solid var(--c21);
   border-radius:18px;
   padding:32px 28px 28px;
   box-shadow:0 20px 60px rgba(0,0,0,0.7);
+  position:relative;
 }
+#btn-theme-login{
+  position:absolute;top:16px;right:16px;
+  background:var(--c1);color:var(--c13);border:1px solid var(--c3);
+  border-radius:7px;padding:5px 10px;font-size:14px;cursor:pointer;
+  transition:.15s;
+}
+#btn-theme-login:hover{background:var(--c6);border-color:var(--c9);}
 #login-logo{
   text-align:center;
   font-size:28px;
@@ -654,21 +997,21 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   text-align:center;
   font-size:17px;
   font-weight:800;
-  color:#c8d4f8;
+  color:var(--c35);
   margin-bottom:4px;
   letter-spacing:0.3px;
 }
 #login-subtitle{
   text-align:center;
   font-size:12px;
-  color:#4a5580;
+  color:var(--c2);
   margin-bottom:28px;
 }
 
 .login-label{
   font-size:12px;
   font-weight:700;
-  color:#6b7aaa;
+  color:var(--c8);
   margin-bottom:7px;
   letter-spacing:0.4px;
 }
@@ -681,9 +1024,9 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   gap:8px;
 }
 .vehicle-btn{
-  background:#171b2e;
-  border:1.5px solid #2a3050;
-  color:#a0aac8;
+  background:var(--c33);
+  border:1.5px solid var(--c3);
+  color:var(--c140);
   padding:12px 8px;
   border-radius:10px;
   font-size:13px;
@@ -692,20 +1035,20 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   transition:.15s;
   text-align:center;
 }
-.vehicle-btn:hover{background:#1f2d5a;border-color:#3d5abf;color:#fff;}
+.vehicle-btn:hover{background:var(--c6);border-color:var(--c9);}
 .vehicle-btn.selected{
-  background:#1a3080;
-  border-color:#4a7aff;
-  color:#fff;
+  background:var(--c6);
+  border:2px solid var(--accent-outline);
+  color:var(--accent-outline);
   box-shadow:0 0 0 2px rgba(74,122,255,0.3);
 }
 
 /* 이름 입력 */
 #login-name-input{
   width:100%;
-  background:#0d1020;
-  border:1.5px solid #2a3050;
-  color:#e0e6f0;
+  background:var(--c142);
+  border:1.5px solid var(--c3);
+  color:var(--c13);
   border-radius:10px;
   padding:12px 14px;
   font-size:15px;
@@ -713,13 +1056,13 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   outline:none;
   transition:.15s;
 }
-#login-name-input:focus{border-color:#4a7aff;background:#0f1428;}
-#login-name-input::placeholder{color:#3a4260;}
+#login-name-input:focus{border-color:var(--c19);background:var(--c52);}
+#login-name-input::placeholder{color:var(--c143);}
 
 /* 오류 메시지 */
 #login-error{
   font-size:12px;
-  color:#f87171;
+  color:var(--c11);
   text-align:center;
   margin-top:-10px;
   margin-bottom:14px;
@@ -730,9 +1073,9 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 /* 입장 버튼 */
 #login-submit{
   width:100%;
-  background:#1d3caa;
-  border:none;
-  color:#fff;
+  background:var(--c1);
+  border:2px solid var(--c144);
+  color:var(--c144);
   padding:14px;
   border-radius:11px;
   font-size:15px;
@@ -741,9 +1084,9 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   transition:.15s;
   letter-spacing:0.3px;
 }
-#login-submit:hover{background:#2550dd;}
-#login-submit:active{background:#1830aa;transform:scale(0.98);}
-#login-submit:disabled{background:#1a1e30;color:#4a5580;cursor:not-allowed;}
+#login-submit:hover{background:var(--c6);}
+#login-submit:active{background:var(--c6);transform:scale(0.98);}
+#login-submit:disabled{background:var(--c1);color:var(--c2);border-color:var(--c3);cursor:not-allowed;}
 
 @media(max-width:480px){
   #login-box{padding:24px 18px 20px;border-radius:14px;}
@@ -760,7 +1103,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-item" onclick="window.open('https://map.naver.com/p/?c=127.032,37.498,14,0,0,0,dh','_blank');closeSettingsMenu()">🗺️ 네이버 지도</div>
   <div class="settings-item" onclick="openTrafficConfig();closeSettingsMenu()">🚦 교통 설정</div>
   <div class="settings-divider"></div>
-  <div class="settings-item" onclick="downloadTodayLogExcel();closeSettingsMenu()">📥 오늘 기록 다운로드<span id="export-log-count" style="margin-left:4px;color:#facc15;"></span></div>
+  <div class="settings-item" onclick="downloadTodayLogExcel();closeSettingsMenu()">📥 오늘 기록 다운로드<span id="export-log-count"></span></div>
   <div class="settings-item" onclick="clearTodayTripLog();closeSettingsMenu()">🗑️ 오늘 기록 초기화</div>
   <div class="settings-divider"></div>
   <div class="settings-item" onclick="toggleEditMode();closeSettingsMenu()" id="menu-btn-edit">✏️ 경로 수정</div>
@@ -770,10 +1113,14 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-item" onclick="document.getElementById('import-file-input').click();closeSettingsMenu()">📂 설정 가져오기</div>
   <div class="settings-item" onclick="exportSettings();closeSettingsMenu()">📤 설정 내보내기</div>
   <div class="settings-divider"></div>
+  <div class="settings-item" onclick="toggleTheme();closeSettingsMenu()" id="menu-btn-theme">☀️ 밝은 화면 모드</div>
+  <div class="settings-divider"></div>
+  <div class="settings-item" onclick="logoutUser();closeSettingsMenu()" id="menu-btn-logout" style="color:var(--c12);">🚪 로그아웃</div>
+  <div class="settings-divider"></div>
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v1.1.3</span>
+    <span id="app-version" title="애플리케이션 버전">v2.0.0</span>
   </div>
 </div>
 
@@ -782,6 +1129,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 ══════════════════════════════════════════════════════════ -->
 <div id="login-screen">
   <div id="login-box">
+    <button id="btn-theme-login" onclick="toggleTheme()" title="밝은 화면 모드 전환">🌙</button>
     <div id="login-logo">🐑</div>
     <div id="login-title">자율주행 데이터 취득 네비게이션</div>
     <div id="login-subtitle">차량과 이름을 선택하세요</div>
@@ -948,15 +1296,15 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
           <div id="cur-stats">
             <div class="stat">
               <div class="stat-v" id="sv-dist-v">—</div>
-              <div class="stat-u">km</div><div class="stat-u" style="color:#3a4570">거리(실제경로)</div>
+              <div class="stat-u">km</div><div class="stat-u" style="color:var(--c50)">거리(실제경로)</div>
             </div>
             <div class="stat">
               <div class="stat-v" id="sv-spd-v">—</div>
-              <div class="stat-u">km/h</div><div class="stat-u" style="color:#3a4570">목표속도</div>
+              <div class="stat-u">km/h</div><div class="stat-u" style="color:var(--c50)">목표속도</div>
             </div>
             <div class="stat">
               <div class="stat-v" id="sv-time-v">—</div>
-              <div class="stat-u">분</div><div class="stat-u" style="color:#3a4570">예상시간</div>
+              <div class="stat-u">분</div><div class="stat-u" style="color:var(--c50)">예상시간</div>
             </div>
           </div>
           <div id="timer-box">
@@ -988,7 +1336,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       <button id="btn-del-leg" class="leg-mgmt-btn leg-del-btn" onclick="deleteCurrentLeg()">－ 구간 삭제</button>
     </div>
     <div id="add-leg-form">
-      <div style="font-size:10px;color:#4a6090;margin-bottom:8px;">지도에서 <b style="color:#60a5fa">출발</b>·<b style="color:#f87171">도착</b> 마커를 드래그해 위치를 설정하세요</div>
+      <div style="font-size:10px;color:var(--c25);margin-bottom:8px;">지도에서 <b style="color:var(--c26)">출발</b>·<b style="color:var(--c11)">도착</b> 마커를 드래그해 위치를 설정하세요</div>
       <div class="alf-row">
         <div class="alf-field"><label>출발지 이름</label><input id="alf-s" placeholder="위치 확인 중..."/></div>
         <div class="alf-field"><label>도착지 이름</label><input id="alf-e" placeholder="도착 마커를 이동하세요"/></div>
@@ -997,10 +1345,10 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
         <div class="alf-field"><label>거리 (자동)</label><div class="alf-auto" id="alf-dist">—</div></div>
         <div class="alf-field"><label>예상시간 (자동)</label><div class="alf-auto" id="alf-time">—</div></div>
       </div>
-      <div style="font-size:10px;color:#4a6090;margin-bottom:8px;text-align:center">목표속도: <b id="alf-spd-val" style="color:#facc15">—</b> km/h (자동계산)</div>
+      <div style="font-size:10px;color:var(--c25);margin-bottom:8px;text-align:center">목표속도: <b id="alf-spd-val" style="color:var(--c14)">—</b> km/h (자동계산)</div>
       <div style="display:flex;gap:6px;">
-        <button id="btn-alf-cancel" onclick="cancelAddLeg()" style="flex:1;background:#1a1e30;color:#8898cc;border:1px solid #2a3050;border-radius:7px;padding:10px;font-size:12px;font-weight:700;cursor:pointer;">← 뒤로가기</button>
-        <button id="btn-alf-ok" onclick="addNewLeg()" style="flex:2;background:#16a34a;color:#fff;border:none;border-radius:7px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;">구간 추가</button>
+        <button id="btn-alf-cancel" onclick="cancelAddLeg()" style="flex:1;background:var(--c1);color:var(--c27);border:2px solid var(--c29);border-radius:7px;padding:10px;font-size:12px;font-weight:700;cursor:pointer;">← 뒤로가기</button>
+        <button id="btn-alf-ok" onclick="addNewLeg()" style="flex:2;background:var(--c1);color:var(--c16);border:2px solid var(--c16);border-radius:7px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;">구간 추가</button>
       </div>
     </div>
   </div>
@@ -1030,6 +1378,55 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 </div>
 
 <script>
+// ══════════════════════════════════════════════════════════
+//  ★ 화면 모드 (다크 / 밝은 화면 — 강한 햇빛용)
+// ══════════════════════════════════════════════════════════
+function applyTheme(theme) {
+  if (theme === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+    const hdrBtn = document.getElementById('btn-theme');
+    if (hdrBtn) { hdrBtn.textContent = '☀️'; hdrBtn.title = '어두운 화면 모드로 전환'; }
+    const loginBtn = document.getElementById('btn-theme-login');
+    if (loginBtn) { loginBtn.textContent = '☀️'; loginBtn.title = '어두운 화면 모드로 전환'; }
+    const menuBtn = document.getElementById('menu-btn-theme');
+    if (menuBtn) menuBtn.textContent = '🌙 어두운 화면 모드';
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) metaTheme.setAttribute('content', '#ffffff');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+    const hdrBtn = document.getElementById('btn-theme');
+    if (hdrBtn) { hdrBtn.textContent = '🌙'; hdrBtn.title = '밝은 화면 모드로 전환'; }
+    const loginBtn = document.getElementById('btn-theme-login');
+    if (loginBtn) { loginBtn.textContent = '🌙'; loginBtn.title = '밝은 화면 모드로 전환'; }
+    const menuBtn = document.getElementById('menu-btn-theme');
+    if (menuBtn) menuBtn.textContent = '☀️ 밝은 화면 모드';
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) metaTheme.setAttribute('content', '#0f111a');
+  }
+}
+
+function toggleTheme() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const next = isLight ? 'dark' : 'light';
+  applyTheme(next);
+  try { localStorage.setItem('navAppTheme', next); } catch (e) {}
+  // 인라인 style.color로 직접 지정된 동적 요소(타이머 등) 재적용
+  try {
+    const ph = document.getElementById('timer-phase');
+    if (ph) setPhaseUI(ph.classList.contains('phase-rest') ? 'rest' : 'drive');
+  } catch (e) {}
+}
+
+(function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem('navAppTheme'); } catch (e) {}
+  if (!saved) {
+    // 저장된 값이 없으면 시스템/시간대 기반 추정: 낮 시간이면 밝은 화면 기본 추천 안 함(다크 유지), 사용자가 직접 선택
+    saved = 'dark';
+  }
+  applyTheme(saved);
+})();
+
 // ══════════════════════════════════════════════════════════
 //  ★ 로그인 / 접근 제어
 // ══════════════════════════════════════════════════════════
@@ -1098,6 +1495,69 @@ function submitLogin() {
     loadScenario();
     renderLegList();
   }, 50);
+}
+
+// ══════════════════════════════════════════════════════════
+//  로그아웃 (시간/장소 기록 후 로그인 화면으로 복귀)
+//  기록(nav_trip_log)은 localStorage에 영구 저장되어
+//  로그아웃/재로그인을 해도 삭제되지 않음.
+// ══════════════════════════════════════════════════════════
+function logoutUser(){
+  if(!confirm('로그아웃 하시겠습니까?')) return;
+
+  let loginUser='', loginVehicle='';
+  try{
+    loginUser=sessionStorage.getItem('nav_user')||'';
+    loginVehicle=sessionStorage.getItem('nav_vehicle')||'';
+  }catch(e){}
+
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,'0');
+  const logoutTime=`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const entryId='logout_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+
+  // 1) 우선 좌표(또는 위치 확인 불가)로 즉시 기록 — localStorage라 영구 보존됨
+  const gpsPos=getGPSPos();
+  const placeFallback=gpsPos?`${gpsPos[0].toFixed(5)}, ${gpsPos[1].toFixed(5)}`:'위치 확인 불가';
+  const entry={
+    _id:entryId,
+    type:'logout',
+    date:todayStr(),
+    time:`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+    user:loginUser, vehicle:loginVehicle,
+    place:placeFallback,
+  };
+  const log=loadTripLog();
+  log.push(entry);
+  saveTripLog(log);
+  updateTripLogCount();
+
+  // 2) 가능하면 좌표를 장소명으로 비동기 변환해 기록 갱신 (실패해도 위 좌표 기록은 유지됨)
+  if(gpsPos){
+    reverseGeocodePlace(gpsPos[0],gpsPos[1]).then(name=>{
+      if(!name) return;
+      const log2=loadTripLog();
+      const e=log2.find(x=>x._id===entryId);
+      if(e){ e.place=name; saveTripLog(log2); }
+    });
+  }
+
+  // 세션 정보 제거 → 다음 접속 시 로그인 화면부터 시작
+  try{
+    sessionStorage.removeItem('nav_user');
+    sessionStorage.removeItem('nav_vehicle');
+    sessionStorage.removeItem('nav_login_time');
+  }catch(e){}
+
+  // 로그인 화면 표시 + 입력값 초기화
+  const badge=document.getElementById('login-user-badge');
+  if(badge) badge.textContent='';
+  document.getElementById('login-name-input').value='';
+  document.querySelectorAll('.vehicle-btn').forEach(b=>b.classList.remove('selected'));
+  selectedVehicle='';
+  document.getElementById('login-error').textContent='';
+  updateLoginButton();
+  document.getElementById('login-screen').classList.remove('hidden');
 }
 
 
@@ -2630,7 +3090,7 @@ function renderStepsList(){
   const el=document.getElementById('steps-list');
   el.innerHTML='';
   if(!osrmSteps.length){
-    el.innerHTML='<div style="padding:10px 14px;font-size:11px;color:#3a4570">경로 계산 후 표시됩니다</div>';
+    el.innerHTML='<div style="padding:10px 14px;font-size:11px;color:var(--c50)">경로 계산 후 표시됩니다</div>';
     return;
   }
   osrmSteps.forEach((step,i)=>{
@@ -2645,7 +3105,7 @@ function renderStepsList(){
     div.innerHTML=`
       <div class="step-icon">${info.icon}</div>
       <div class="step-body">
-        <div class="step-instr">${distStr}${info.text}${step.name?' <span style="color:#4a5580;font-weight:400">— '+step.name+'</span>':''}</div>
+        <div class="step-instr">${distStr}${info.text}${step.name?' <span style="color:var(--c2);font-weight:400">— '+step.name+'</span>':''}</div>
       </div>`;
     el.appendChild(div);
   });
@@ -2889,12 +3349,13 @@ function startRestPhase(){
 function setPhaseUI(p){
   const lbl=document.getElementById('timer-label');
   const ph=document.getElementById('timer-phase');
+  const rootStyle=getComputedStyle(document.documentElement);
   if(p==='drive'){
     lbl.textContent='주행 타이머'; ph.textContent=''; ph.className='timer-phase phase-drive';
-    document.getElementById('timer-val').style.color='#60a5fa';
+    document.getElementById('timer-val').style.color=rootStyle.getPropertyValue('--c26').trim();
   } else {
     lbl.textContent='휴식 타이머'; ph.textContent='🔴 휴식 중'; ph.className='timer-phase phase-rest';
-    document.getElementById('timer-val').style.color='#fb923c';
+    document.getElementById('timer-val').style.color=rootStyle.getPropertyValue('--c75').trim();
   }
 }
 
@@ -3200,7 +3661,8 @@ function applyLocUI(l){
   ['gn','pg','sh'].forEach(k=>document.getElementById('btn-loc-'+k).classList.remove('active'));
   const btn=document.getElementById('btn-loc-'+LOC_BTN_MAP[l]);
   if(btn) btn.classList.add('active');
-  document.getElementById('btn-naver-map').href=NAVER_MAP_URLS[l]||'';
+  const naverBtn=document.getElementById('btn-naver-map');
+  if(naverBtn) naverBtn.href=NAVER_MAP_URLS[l]||'';
 }
 function switchLoc(l){
   stopTimer(); isPlaying=false; loc=l;
@@ -3634,8 +4096,13 @@ function saveEditedRoute(){
 function renderAppVersion(){
   const el=document.getElementById('app-version');
   if(!el) return;
-  el.textContent=APP_VERSION;
-  el.title='애플리케이션 버전: '+APP_VERSION;
+  let ver='v1.1.3';
+  try{
+    const meta=document.querySelector('meta[name="app-version"]');
+    if(meta&&meta.content) ver=meta.content;
+  }catch(e){}
+  el.textContent=ver;
+  el.title='애플리케이션 버전: '+ver;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -3809,9 +4276,12 @@ function downloadTodayLogExcel(){
   const infoRow=['차량',loginVehicle,'이름',loginUser,'입장시각',loginTime];
   const blankRow=[];
   const headers=['번호','날짜','시작시각','완료시각','구간ID','출발','도착'];
-  const rows=todayLogs.map((e,i)=>[
-    i+1,e.date,e.startTime||'',e.time,e.legId,e.start,e.end,
-  ]);
+  const rows=todayLogs.map((e,i)=>{
+    if(e.type==='logout'){
+      return [i+1,e.date,'',e.time,'로그아웃',`${e.vehicle||''} ${e.user||''}`.trim(),e.place||''];
+    }
+    return [i+1,e.date,e.startTime||'',e.time,e.legId,e.start,e.end];
+  });
 
   // 1) SheetJS(xlsx) 라이브러리가 정상 로드된 경우 → 진짜 .xlsx로 다운로드
   if(typeof XLSX!=='undefined'){
