@@ -12,13 +12,12 @@
 
 ### 2. 화면 한눈에 보기
 
-```
 <p align="center">
   <img src="./docs/images/그림1.jpg" width="260" alt="로그인 화면"/>
   &nbsp;&nbsp;&nbsp;&nbsp;
   <img src="./docs/images/그림2.jpg" width="260" alt="주행 내비게이션 화면"/>
 </p>
-```
+
 
 | 위치 | 이름 | 역할 |
 |---|---|---|
