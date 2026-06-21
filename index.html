@@ -1197,7 +1197,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.0.9</span>
+    <span id="app-version" title="애플리케이션 버전">v3.1.0</span>
   </div>
 </div>
 
@@ -1461,6 +1461,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div style="font-size:56px">🏁</div>
   <h2>시나리오 완주!</h2>
   <p id="done-info">모든 구간을 완료했습니다.</p>
+  <p id="done-l1-summary"></p>
   <button id="btn-done" onclick="resetScenario()">확인</button>
 </div>
 
@@ -3293,6 +3294,7 @@ function loadScenario(restore){
     map.setView(SCENARIOS[loc].center,SCENARIOS[loc].zoom,{animate:false});
   }
   renderMap();
+  loadLegL1FromStorage();
   renderLegList();
   renderCurLeg();
   updateHeader();
@@ -3341,6 +3343,41 @@ function renderActiveLeg(){
 // ══════════════════════════════════════════════════════════
 //  구간 목록
 // ══════════════════════════════════════════════════════════
+// 구간(leg)별 L1 검증 결과 — 위치·시나리오별로 localStorage에 저장해서
+// 새로고침해도 유지되고, 다른 시나리오로 전환하면 그 시나리오 것만 보인다.
+let legL1Status={};
+
+function legL1StorageKey(){ return `nav_leg_l1:${loc}-${scKey}`; }
+
+function loadLegL1FromStorage(){
+  legL1Status={};
+  try{
+    const raw=localStorage.getItem(legL1StorageKey());
+    if(raw) legL1Status=JSON.parse(raw)||{};
+  }catch(_){ legL1Status={}; }
+}
+
+function saveLegL1ToStorage(){
+  try{ localStorage.setItem(legL1StorageKey(),JSON.stringify(legL1Status)); }catch(_){}
+}
+
+// stopAdpRecording이 결과를 받을 때마다 호출. legId가 실제 구간 id가 아니면
+// (예: 구간 정보 없이 정지한 경우의 '주행' 같은 임시 라벨) 조용히 무시된다.
+function setLegL1Status(legId,status){
+  if(!legId||!legs.some(lg=>lg.id===legId)) return;
+  legL1Status[legId]=status;
+  saveLegL1ToStorage();
+  renderLegList();
+}
+
+function legL1Badge(legId){
+  const status=legL1Status[legId];
+  if(status==='pass') return '🟢';
+  if(status==='warn') return '🟡';
+  if(status==='fail') return '🔴';
+  return '';
+}
+
 function renderLegList(){
   const el=document.getElementById('leg-list'); el.innerHTML='';
   legs.forEach((lg,i)=>{
@@ -3348,10 +3385,11 @@ function renderLegList(){
     const div=document.createElement('div');
     div.className='leg-item'+(done?' done':'')+(active?' active':'');
     div.id='li-'+i;
+    const l1Badge=legL1Badge(lg.id);
     div.innerHTML=`
       <span class="leg-drag-handle">⠿</span>
       <div class="leg-dot ${done?'dot-done':active?'dot-active':'dot-pending'}"></div>
-      <div class="leg-id">${lg.id}</div>
+      <div class="leg-id">${lg.id}${l1Badge?` <span class="leg-l1-badge" title="L1 검증 결과">${l1Badge}</span>`:''}</div>
       <div class="leg-info">
         <div class="leg-se">${lg.s} → ${lg.e}</div>
         <div class="leg-meta">${lg.dist}km · ${lg.time>0?(lg.dist/lg.time*60).toFixed(1):'—'}km/h · ${lg.time}분</div>
@@ -4125,7 +4163,7 @@ async function stopAdpRecording(label){
       if(data.stopped&&data.l1_status){
         status=data.l1_status;
         console.log('[ADP] L1 검증 결과:',label,status);
-        if(label) showL1Toast(label,status);
+        if(label){ showL1Toast(label,status); setLegL1Status(label,status); }
       }
     }
   }catch(e){
@@ -4390,6 +4428,21 @@ function showDone(){
   const td=legs.reduce((a,l)=>a+l.dist,0).toFixed(1);
   const tm=legs.reduce((a,l)=>a+l.time+l.rest,0);
   document.getElementById('done-info').textContent=`${loc} · ${sc.name} | ${legs.length}구간 · ${td}km · ${tm}분`;
+
+  const l1El=document.getElementById('done-l1-summary');
+  if(l1El){
+    const statuses=legs.map(lg=>legL1Status[lg.id]).filter(Boolean);
+    if(statuses.length){
+      const pass=statuses.filter(s=>s==='pass').length;
+      const warn=statuses.filter(s=>s==='warn').length;
+      const fail=statuses.filter(s=>s==='fail').length;
+      l1El.textContent=`L1 검증 — 🟢 통과 ${pass} · 🟡 경고 ${warn} · 🔴 실패 ${fail}`;
+      l1El.style.display='';
+    } else {
+      l1El.textContent='';
+      l1El.style.display='none';
+    }
+  }
   document.getElementById('done-overlay').classList.add('show');
 }
 function resetScenario(){ document.getElementById('done-overlay').classList.remove('show'); loadScenario(); }
