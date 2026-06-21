@@ -1137,6 +1137,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-item" onclick="window.open('https://map.naver.com/p/?c=127.032,37.498,14,0,0,0,dh','_blank');closeSettingsMenu()">🗺️ 네이버 지도</div>
   <div class="settings-item" onclick="openTrafficConfig();closeSettingsMenu()">🚦 교통 설정</div>
   <div class="settings-item" onclick="configureSensorMonitorIP();closeSettingsMenu()">📡 수집 시스템 IP 설정</div>
+  <div class="settings-item" onclick="configureAdpPreset().catch(e=>{console.error('[ADP] 프리셋 선택 처리 중 오류:',e);alert('예상치 못한 오류가 발생했습니다: '+e.message);});closeSettingsMenu()">🎬 수집 프리셋 선택</div>
   <div class="settings-divider"></div>
   <div class="settings-item" onclick="downloadTodayLogExcel();closeSettingsMenu()">📥 오늘 기록 다운로드<span id="export-log-count"></span></div>
   <div class="settings-item" onclick="clearTodayTripLog();closeSettingsMenu()">🗑️ 오늘 기록 초기화</div>
@@ -1155,7 +1156,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.0.1</span>
+    <span id="app-version" title="애플리케이션 버전">v3.0.2</span>
   </div>
 </div>
 
@@ -3435,6 +3436,7 @@ function togglePlay(){
     document.getElementById('btn-play').className='ctrl-btn';
     finalizeLegSession(legIdx,getGPSPos());
     speak('주행을 정지합니다', true);
+    stopAdpRecording();
   } else {
     isPlaying=true; phase='drive'; setPhaseUI('drive');
     gpsAutoFollow=true;
@@ -3451,6 +3453,7 @@ function togglePlay(){
     startGPS();
     const lg=legs[legIdx];
     fetchOSRM(lg.sLL,lg.eLL,lg.id);
+    startAdpRecording();
   }
 }
 
@@ -3458,7 +3461,7 @@ function advanceLeg(){
   stopTimer(); doneSet.add(legIdx);
   finalizeLegSession(legIdx,getGPSPos());
   legIdx++;
-  if(legIdx>=legs.length){ isPlaying=false; speak('모든 구간을 완료했습니다. 수고하셨습니다!',true); showDone(); return; }
+  if(legIdx>=legs.length){ isPlaying=false; speak('모든 구간을 완료했습니다. 수고하셨습니다!',true); stopAdpRecording(); showDone(); return; }
   phase='drive';
   legStartTime=new Date();
   legStartPos=getGPSPos()||[...legs[legIdx].sLL];
@@ -3709,6 +3712,16 @@ function startGPS(){
 // ══════════════════════════════════════════════════════════
 let smPollTimer=null;
 
+// 끊겨있거나 응답 없는 수집 PC에 fetch가 무한정 걸리지 않도록 짧은 타임아웃을 건다.
+// 타임아웃 없으면 브라우저 기본 타임아웃(수십 초~)까지 버튼이 먹통처럼 느껴짐.
+function fetchWithTimeout(url, opts, ms){
+  ms = ms || 4000;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...(opts || {}), signal: ctrl.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 function getAdpBaseUrl(){
   try{ return localStorage.getItem('nav_adp_base_url')||''; }catch(_){ return ''; }
 }
@@ -3729,6 +3742,92 @@ function configureSensorMonitorIP(){
     stopSensorMonitor();
     el.classList.remove('show');
   }
+}
+
+function getAdpPreset(){
+  try{ return localStorage.getItem('nav_adp_preset')||''; }catch(_){ return ''; }
+}
+
+async function configureAdpPreset(){
+  const base=getAdpBaseUrl();
+  if(!base){ alert('먼저 📡 수집 시스템 IP 설정을 해주세요.'); return; }
+  console.log('[ADP] 프리셋 조회 시작:', base+'/api/presets');
+  let names=[];
+  try{
+    const res=await fetchWithTimeout(base+'/api/presets',{cache:'no-store'},4000);
+    console.log('[ADP] 프리셋 응답:', res.status, res.ok);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data=await res.json();
+    names=(data.presets||[]).map(p=>p.name);
+    console.log('[ADP] 프리셋 목록:', names);
+  }catch(e){
+    console.error('[ADP] 프리셋 조회 실패:', e);
+    const reason = (e.name==='AbortError') ? '4초 동안 응답이 없어 시간 초과되었습니다(연결 안 됨).' : e.message;
+    alert('프리셋 목록을 불러오지 못했습니다.\n\n'
+      +'주소: '+base+'\n오류: '+reason+'\n\n'
+      +'· 수집 PC에서 uvicorn이 --host 0.0.0.0 으로 켜져 있는지\n'
+      +'· 같은 Wi-Fi/LAN에 연결돼 있는지\n'
+      +'· nav-app이 https인데 수집 PC 주소가 http인지(혼합 콘텐츠 차단)\n'
+      +'를 확인해주세요.');
+    return;
+  }
+  if(!names.length){ alert('수집 시스템에 등록된 프리셋이 없습니다.'); return; }
+  const cur=getAdpPreset();
+  const listText=names.map((n,i)=>`${i+1}. ${n}${n===cur?'  ← 현재 선택':''}`).join('\n');
+  const defaultIdx=Math.max(0,names.indexOf(cur))+1;
+  const input=prompt(`사용할 수집 프리셋 번호를 입력하세요.\n\n${listText}`,String(defaultIdx));
+  if(input===null) return;
+  const idx=parseInt(input,10)-1;
+  if(!(idx>=0&&idx<names.length)){ alert('잘못된 번호입니다.'); return; }
+  try{ localStorage.setItem('nav_adp_preset',names[idx]); }catch(_){}
+  alert(`프리셋 "${names[idx]}"으로 설정했습니다.\n다음 ▶ 시작부터 이 프리셋으로 자동 녹화됩니다.`);
+}
+
+// 주행 ▶ 시작/⏸ 정지 ↔ 수집 시스템 녹화 시작/정지 연동.
+// 📡 IP·🎬 프리셋이 설정돼 있을 때만 동작하며, 실패해도 주행 안내 자체는
+// 막지 않는다(센서 수집은 어디까지나 부가 기능). 실패는 콘솔 + 1회 알림.
+async function startAdpRecording(){
+  const base=getAdpBaseUrl();
+  if(!base) return;
+  const preset=getAdpPreset();
+  if(!preset){
+    alert('⚙️ → 🎬 수집 프리셋 선택이 안 되어 있어 자동 녹화를 시작하지 못했습니다.\n주행 안내는 정상 진행됩니다.');
+    return;
+  }
+  try{
+    const res=await fetchWithTimeout(base+'/api/logging/start',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({preset}),
+    },5000);
+    if(!res.ok){
+      const err=await res.json().catch(()=>({}));
+      console.warn('[ADP] 녹화 시작 실패:',err.detail||res.status);
+      alert('수집 시스템 녹화 시작에 실패했습니다.\n'+(err.detail||('HTTP '+res.status))+'\n주행 안내는 정상 진행됩니다.');
+    }
+  }catch(e){
+    const reason = (e.name==='AbortError') ? '5초 동안 응답이 없어 시간 초과되었습니다.' : e.message;
+    console.warn('[ADP] 녹화 시작 요청 실패:',reason);
+    alert('수집 시스템에 연결할 수 없어 녹화를 시작하지 못했습니다.\n'+reason+'\n주행 안내는 정상 진행됩니다.');
+  }
+  pollSensorStatus();
+}
+
+async function stopAdpRecording(){
+  const base=getAdpBaseUrl();
+  if(!base) return;
+  try{
+    const res=await fetchWithTimeout(base+'/api/logging/stop',{method:'POST'},5000);
+    if(res.ok){
+      const data=await res.json();
+      if(data.stopped&&data.l1_status){
+        console.log('[ADP] L1 검증 결과:',data.l1_status);
+      }
+    }
+  }catch(e){
+    console.warn('[ADP] 녹화 정지 요청 실패:',e.message);
+  }
+  pollSensorStatus();
 }
 
 function toggleSensorMonitorExpand(ev){
@@ -3790,7 +3889,7 @@ async function pollSensorStatus(){
   const el=document.getElementById('sensor-monitor');
   if(!base||!el) return;
   try{
-    const res=await fetch(base+'/api/logging/status',{cache:'no-store'});
+    const res=await fetchWithTimeout(base+'/api/logging/status',{cache:'no-store'},3000);
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data=await res.json();
     renderSensorMonitor(data);
