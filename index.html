@@ -1178,7 +1178,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.0.7</span>
+    <span id="app-version" title="애플리케이션 버전">v3.0.8</span>
   </div>
 </div>
 
@@ -3730,7 +3730,10 @@ function startGPS(){
         const lgNow=legs[legIdx];
         notifyAdmin('offroute',`경로 이탈 — ${lgNow?lgNow.id:''}(${lgNow?lgNow.s:''}→${lgNow?lgNow.e:''}) 구간 주행 중`);
       }
-      if(!offRoute) lastWarnSpoken=false;
+      if(!offRoute){
+        if(lastWarnSpoken) notifyAdminRecovered('offroute','경로로 복귀했습니다');
+        lastWarnSpoken=false;
+      }
     }
   },err=>{
     updateGpsStatus(999,null,'lost');
@@ -3859,14 +3862,31 @@ async function sendAdminAlert(message){
 }
 
 // key별로 ADMIN_ALERT_REPEAT_MS(5분)에 한 번만 실제 발송 — 같은 문제가 계속돼도 도배 안 되게.
+// key별로 마지막 알림이 "나쁨" 상태였는지 기억해둔다 — 복구 알림은
+// 실제로 나빴다가 좋아질 때만 보내고, 원래부터 정상이면 보내지 않는다.
+let adminAlertWasBad={};
+
 function notifyAdmin(key,message){
   const cfg=getAdminAlertConfig();
   if(!cfg.type||!cfg.url) return;
+  adminAlertWasBad[key]=true;
   const now=Date.now();
   if(now-(adminAlertLastSentAt[key]||0)<ADMIN_ALERT_REPEAT_MS) return;
   adminAlertLastSentAt[key]=now;
   const vehicle=getCurrentVehicle()||'차량 미상';
   sendAdminAlert(`🚨 [${vehicle}] ${message}`);
+}
+
+// key가 직전에 "나쁨"으로 알림 갔던 적이 있을 때만 복구 메시지를 보낸다.
+// 스로틀 타이머도 같이 초기화해서, 다음에 다시 나빠지면 5분 기다리지 않고 바로 알림 가게 한다.
+function notifyAdminRecovered(key,message){
+  const cfg=getAdminAlertConfig();
+  if(!cfg.type||!cfg.url) return;
+  if(!adminAlertWasBad[key]) return;
+  adminAlertWasBad[key]=false;
+  delete adminAlertLastSentAt[key];
+  const vehicle=getCurrentVehicle()||'차량 미상';
+  sendAdminAlert(`✅ [${vehicle}] ${message}`);
 }
 
 function configureSensorMonitorIP(){
@@ -4117,32 +4137,42 @@ function renderSensorMonitor(data){
   const diskCritical=diskPct!=null&&diskPct>=90; // 디스크 90% 이상 — 패널 경고 + 경고음/진동
 
   const sensors=(data.live&&data.live.sensors)||[];
-  if(!data.running||!sensors.length){
+  const hasSensors=data.running&&sensors.length>0;
+  const levels=hasSensors?sensors.map(sensorHealthLevel):[];
+  const deadCount=levels.filter(l=>l==='dead').length;
+  const warnCount=levels.filter(l=>l==='warn').length;
+
+  // 관리자 알림(나빠짐/복구됨)은 화면 색상 분기와 별개로 항상 평가한다 —
+  // "경고"로 내려가도 끊김이 0개면 센서는 이미 복구된 것으로 본다.
+  if(deadCount>0){
+    const deadNames=sensors.filter((s,i)=>levels[i]==='dead').map(s=>s.sensor).join(', ');
+    notifyAdmin('sensor',`센서 이상 ${deadCount}개(${deadNames}) — 끊김 또는 심각한 저속`);
+  } else {
+    notifyAdminRecovered('sensor','센서가 정상으로 복구되었습니다');
+  }
+  if(diskCritical){
+    notifyAdmin('disk',`디스크 사용률 ${diskPct}% — 공간 부족`);
+  } else {
+    notifyAdminRecovered('disk','디스크 여유 공간이 정상 범위로 돌아왔습니다');
+  }
+
+  if(!hasSensors){
     if(diskCritical){
       el.classList.add('bad');
       mainText.textContent=`디스크 사용률 ${diskPct}% — 공간 부족`;
       notifySensorBad();
-      notifyAdmin('disk',`디스크 사용률 ${diskPct}% — 공간 부족`);
     } else {
       el.classList.add('ok');
       mainText.textContent=data.running?'녹화중 · 센서 정보 없음':'대기중 · 녹화 안 함';
       notifySensorRecovered();
     }
   } else {
-    const levels=sensors.map(sensorHealthLevel);
-    const deadCount=levels.filter(l=>l==='dead').length;
-    const warnCount=levels.filter(l=>l==='warn').length;
     const issues=[];
     if(deadCount>0) issues.push(`센서 끊김 ${deadCount}개`);
     if(diskCritical) issues.push(`디스크 ${diskPct}%`);
     if(issues.length){
       el.classList.add('bad'); mainText.textContent=issues.join(' · ');
       notifySensorBad();
-      if(deadCount>0){
-        const deadNames=sensors.filter((s,i)=>levels[i]==='dead').map(s=>s.sensor).join(', ');
-        notifyAdmin('sensor',`센서 이상 ${deadCount}개(${deadNames}) — 끊김 또는 심각한 저속`);
-      }
-      if(diskCritical) notifyAdmin('disk',`디스크 사용률 ${diskPct}% — 공간 부족`);
     } else if(warnCount>0){
       el.classList.add('ok'); mainText.textContent=`센서 경고 ${warnCount}개`;
       notifySensorRecovered();
