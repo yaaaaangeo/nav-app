@@ -1156,7 +1156,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.0.2</span>
+    <span id="app-version" title="애플리케이션 버전">v3.0.3</span>
   </div>
 </div>
 
@@ -3849,6 +3849,57 @@ function sensorHealthLevel(s){
   return 'ok';
 }
 
+// ── 센서 끊김 경고음/진동 ──
+// 패널이 빨갛게(bad) 바뀌는 순간 1회, 그 뒤로도 계속 빨간 상태면
+// SM_ALERT_REPEAT_MS마다 다시 울려서 운전 중 시선이 지도에만 있어도 알아채게 한다.
+const SM_ALERT_REPEAT_MS=30000;
+let smWasBad=false;
+let smLastAlertAt=0;
+let smAudioCtx=null;
+
+function playSensorAlertTone(){
+  try{
+    const Ctx=window.AudioContext||window.webkitAudioContext;
+    if(!Ctx) return;
+    if(!smAudioCtx) smAudioCtx=new Ctx();
+    if(smAudioCtx.state==='suspended') smAudioCtx.resume();
+    const ctx=smAudioCtx;
+    const beep=(startOffset)=>{
+      const osc=ctx.createOscillator();
+      const gain=ctx.createGain();
+      osc.type='square'; osc.frequency.value=880;
+      const t0=ctx.currentTime+startOffset;
+      gain.gain.setValueAtTime(0.0001,t0);
+      gain.gain.exponentialRampToValueAtTime(0.35,t0+0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001,t0+0.18);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(t0); osc.stop(t0+0.2);
+    };
+    beep(0); beep(0.25);
+  }catch(_){}
+}
+
+function fireSensorAlert(){
+  playSensorAlertTone();
+  try{ if(navigator.vibrate) navigator.vibrate([200,100,200]); }catch(_){}
+}
+
+function notifySensorBad(){
+  const now=Date.now();
+  if(!smWasBad){
+    smWasBad=true;
+    smLastAlertAt=now;
+    fireSensorAlert();
+  } else if(now-smLastAlertAt>=SM_ALERT_REPEAT_MS){
+    smLastAlertAt=now;
+    fireSensorAlert();
+  }
+}
+
+function notifySensorRecovered(){
+  smWasBad=false;
+}
+
 function renderSensorMonitor(data){
   const el=document.getElementById('sensor-monitor');
   const mainText=document.getElementById('sm-main-text');
@@ -3861,13 +3912,21 @@ function renderSensorMonitor(data){
   if(!data.running||!sensors.length){
     el.classList.add('ok');
     mainText.textContent=data.running?'녹화중 · 센서 정보 없음':'대기중 · 녹화 안 함';
+    notifySensorRecovered();
   } else {
     const levels=sensors.map(sensorHealthLevel);
     const deadCount=levels.filter(l=>l==='dead').length;
     const warnCount=levels.filter(l=>l==='warn').length;
-    if(deadCount>0){ el.classList.add('bad'); mainText.textContent=`센서 끊김 ${deadCount}개`; }
-    else if(warnCount>0){ el.classList.add('ok'); mainText.textContent=`센서 경고 ${warnCount}개`; }
-    else { el.classList.add('good'); mainText.textContent='전체 센서 정상'; }
+    if(deadCount>0){
+      el.classList.add('bad'); mainText.textContent=`센서 끊김 ${deadCount}개`;
+      notifySensorBad();
+    } else if(warnCount>0){
+      el.classList.add('ok'); mainText.textContent=`센서 경고 ${warnCount}개`;
+      notifySensorRecovered();
+    } else {
+      el.classList.add('good'); mainText.textContent='전체 센서 정상';
+      notifySensorRecovered();
+    }
   }
 
   const storage=data.storage;
@@ -3900,6 +3959,7 @@ async function pollSensorStatus(){
     const storageLine=document.getElementById('sm-storage-line');
     if(mainText) mainText.textContent='수집 시스템 연결 끊김';
     if(storageLine) storageLine.textContent='';
+    notifySensorBad();
   }
 }
 
