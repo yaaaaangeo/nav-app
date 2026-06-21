@@ -1155,7 +1155,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.0.0</span>
+    <span id="app-version" title="애플리케이션 버전">v3.0.1</span>
   </div>
 </div>
 
@@ -1205,7 +1205,6 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     <div id="hdr-icon-group">
       <button id="btn-tts" onclick="toggleTTS()" title="음성 안내 켜기/끄기">🔊</button>
       <button id="btn-focus-start" onclick="focusToStart()" title="출발지로 지도 이동">🔍</button>
-      <button id="btn-sensor-mon" onclick="toggleSensorMonitorPanel()" title="수집 시스템 모니터링">📡</button>
       <button id="btn-settings" onclick="toggleSettingsMenu()" title="설정">⚙️</button>
     </div>
   </div>
@@ -3088,6 +3087,7 @@ function restorePanelState(){
 function refreshMapSize(){
   // 패널 접기/펼치기나 모바일 브라우저 UI 변화로 지도 영역 크기가 바뀐 뒤
   // Leaflet이 새 크기를 다시 계산하도록 한다. 지도 중심과 줌은 유지한다.
+  syncOverlayBottoms();
   if(!map) return;
 
   requestAnimationFrame(()=>{
@@ -3127,6 +3127,7 @@ function toggleStepsPanel(){
   setPanelCollapsed('steps-panel','btn-steps-toggle',collapsed);
   savePanelState();
   refreshMapSize();
+  syncOverlayBottoms();
 }
 
 function renderStepsList(){
@@ -3499,6 +3500,18 @@ function updateLegUI(){
 // ══════════════════════════════════════════════════════════
 //  GPS
 // ══════════════════════════════════════════════════════════
+// 좌하단(GPS)·우하단(수집 시스템 모니터) 박스를 steps-panel 높이만큼
+// 위로 올려서 "전체 경로 안내"가 펼쳐져도 가려지지 않게 한다.
+function syncOverlayBottoms(){
+  const stepsEl=document.getElementById('steps-panel');
+  if(!stepsEl) return;
+  const bottom=(stepsEl.offsetHeight||0)+8+'px';
+  const gpsEl=document.getElementById('gps-status');
+  const smEl=document.getElementById('sensor-monitor');
+  if(gpsEl) gpsEl.style.bottom=bottom;
+  if(smEl) smEl.style.bottom=bottom;
+}
+
 function updateGpsStatus(accuracy, coords, level){
   const el=document.getElementById('gps-status');
   const mainEl=document.getElementById('gps-main-line');
@@ -3507,12 +3520,8 @@ function updateGpsStatus(accuracy, coords, level){
   if(!el||!mainEl||!accEl||!coordEl) return;
   el.classList.remove('good','ok','bad','lost');
 
-  // steps-panel 높이만큼 GPS 박스를 위로 올려서 겹침 방지
-  const stepsEl=document.getElementById('steps-panel');
-  if(stepsEl){
-    const stepsH=stepsEl.offsetHeight||0;
-    el.style.bottom=(stepsH+8)+'px';
-  }
+  // steps-panel 높이만큼 GPS·센서모니터 박스를 위로 올려서 겹침 방지
+  syncOverlayBottoms();
 
   if(level==='lost'){
     el.classList.add('lost');
@@ -3715,19 +3724,11 @@ function configureSensorMonitorIP(){
     el.classList.add('show');
     try{ localStorage.setItem('nav_sensor_panel_show','1'); }catch(_){}
     startSensorMonitor();
+    syncOverlayBottoms();
   } else {
     stopSensorMonitor();
     el.classList.remove('show');
   }
-}
-
-function toggleSensorMonitorPanel(){
-  if(!getAdpBaseUrl()){ configureSensorMonitorIP(); return; }
-  const el=document.getElementById('sensor-monitor');
-  el.classList.toggle('show');
-  const showing=el.classList.contains('show');
-  try{ localStorage.setItem('nav_sensor_panel_show',showing?'1':'0'); }catch(_){}
-  if(showing) startSensorMonitor(); else stopSensorMonitor();
 }
 
 function toggleSensorMonitorExpand(ev){
@@ -4699,6 +4700,7 @@ function exitEditMode(){
     const delta=stepsStartY-e.clientY; // 위로 드래그 = 더 크게
     const newH=Math.max(60,Math.min(window.innerHeight*0.65,stepsStartH+delta));
     document.getElementById('steps-panel').style.height=newH+'px';
+    syncOverlayBottoms();
   });
   document.addEventListener('mouseup',()=>{
     if(!stepsDragging) return;
