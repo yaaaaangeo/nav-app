@@ -1177,7 +1177,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.0.5</span>
+    <span id="app-version" title="애플리케이션 버전">v3.0.6</span>
   </div>
 </div>
 
@@ -1556,6 +1556,7 @@ function submitLogin() {
   if (badge) badge.textContent = `${selectedVehicle} · ${name}`;
 
   document.getElementById('login-screen').classList.add('hidden');
+  applyAdpForVehicle(selectedVehicle);
   // 로그인 후 지도/구간목록 재초기화
   setTimeout(()=>{
     refreshMapSize();
@@ -1682,6 +1683,7 @@ const _origExitScEditMode=typeof exitScEditMode==='function'?exitScEditMode:null
       const badge = document.getElementById('login-user-badge');
       if (badge) badge.textContent = `${vehicle} · ${user}`;
       document.getElementById('login-screen').classList.add('hidden');
+      applyAdpForVehicle(vehicle);
     }
   } catch(e) {}
 })();
@@ -3756,12 +3758,54 @@ function getAdpBaseUrl(){
   try{ return localStorage.getItem('nav_adp_base_url')||''; }catch(_){ return ''; }
 }
 
+// 현재 로그인된(또는 로그인 화면에서 선택 중인) 차량명
+function getCurrentVehicle(){
+  try{ return sessionStorage.getItem('nav_vehicle')||selectedVehicle||''; }
+  catch(_){ return selectedVehicle||''; }
+}
+
+// 차량명 → 수집 PC 주소 매핑 (토레스 1~4호차마다 IP가 다를 수 있어서)
+function getAdpVehicleMap(){
+  try{ return JSON.parse(localStorage.getItem('nav_adp_vehicle_map')||'{}'); }
+  catch(_){ return {}; }
+}
+
+function setAdpVehicleIp(vehicle,url){
+  if(!vehicle) return;
+  try{
+    const map=getAdpVehicleMap();
+    if(url) map[vehicle]=url; else delete map[vehicle];
+    localStorage.setItem('nav_adp_vehicle_map',JSON.stringify(map));
+  }catch(_){}
+}
+
+// 로그인(또는 세션 복원) 시점에 호출: 현재 차량에 저장된 IP가 있으면
+// 묻지 않고 바로 적용해서 패널을 켠다. 없으면 아무것도 안 하고 조용히 넘어간다.
+function applyAdpForVehicle(vehicle){
+  if(!vehicle) return;
+  const url=getAdpVehicleMap()[vehicle];
+  if(!url) return;
+  try{ localStorage.setItem('nav_adp_base_url',url); }catch(_){}
+  const el=document.getElementById('sensor-monitor');
+  if(el){
+    el.classList.add('show');
+    try{ localStorage.setItem('nav_sensor_panel_show','1'); }catch(_){}
+    startSensorMonitor();
+    syncOverlayBottoms();
+  }
+}
+
 function configureSensorMonitorIP(){
   const cur=getAdpBaseUrl();
-  const input=prompt('수집 시스템(Thanks-to-SOOHEON00) 주소를 입력하세요.\n예: http://192.168.1.50:8000',cur||'http://');
+  const vehicle=getCurrentVehicle();
+  const promptLabel=vehicle
+    ? `수집 시스템(Thanks-to-SOOHEON00) 주소를 입력하세요.\n예: http://192.168.1.50:8000\n\n"${vehicle}"에 저장되어 다음 로그인부터 자동 연결됩니다.`
+    : '수집 시스템(Thanks-to-SOOHEON00) 주소를 입력하세요.\n예: http://192.168.1.50:8000';
+  const input=prompt(promptLabel,cur||'http://');
   if(input===null) return;
   const url=input.trim().replace(/\/+$/,'');
   try{ localStorage.setItem('nav_adp_base_url',url); }catch(_){}
+  setAdpVehicleIp(vehicle,url);
   const el=document.getElementById('sensor-monitor');
   if(url){
     el.classList.add('show');
