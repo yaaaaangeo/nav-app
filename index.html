@@ -409,6 +409,27 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #turn-instr{font-size:16px;font-weight:700;color:var(--c59);margin-top:4px;}
 #turn-road{font-size:11px;color:var(--c60);margin-top:3px;white-space:normal;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 
+/* 구간 종료 L1 검증 결과 토스트 — 턴바이턴 위에 잠깐 떴다 자동으로 사라짐 */
+#l1-toast{
+  position:absolute;top:12px;left:50%;z-index:2000;
+  min-width:200px;max-width:320px;
+  background:var(--ov-bg2);border:1.5px solid var(--c4);border-radius:12px;
+  padding:9px 18px;backdrop-filter:blur(8px);
+  box-shadow:0 4px 24px rgba(0,0,0,0.6);
+  text-align:center;pointer-events:none;
+  opacity:0;transform:translateX(-50%) translateY(-16px);
+  transition:opacity .25s ease, transform .25s ease;
+}
+#l1-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+#l1-toast.pass{border-color:var(--c16);}
+#l1-toast.warn{border-color:var(--c61);}
+#l1-toast.fail{border-color:var(--c62);}
+#l1-toast .l1-title{font-size:11px;color:var(--c8);}
+#l1-toast .l1-status{font-size:15px;font-weight:800;margin-top:2px;}
+#l1-toast.pass .l1-status{color:var(--c10);}
+#l1-toast.warn .l1-status{color:var(--c14);}
+#l1-toast.fail .l1-status{color:var(--c11);}
+
 /* GPS 상태 표시 */
 #gps-status{
   position:absolute;bottom:12px;left:12px;z-index:1000;
@@ -1138,6 +1159,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-item" onclick="openTrafficConfig();closeSettingsMenu()">🚦 교통 설정</div>
   <div class="settings-item" onclick="configureSensorMonitorIP();closeSettingsMenu()">📡 수집 시스템 IP 설정</div>
   <div class="settings-item" onclick="configureAdpPreset().catch(e=>{console.error('[ADP] 프리셋 선택 처리 중 오류:',e);alert('예상치 못한 오류가 발생했습니다: '+e.message);});closeSettingsMenu()">🎬 수집 프리셋 선택</div>
+  <div class="settings-item" onclick="toggleAdpTestMode();closeSettingsMenu()">🧪 ADP 테스트 모드 켜기/끄기</div>
   <div class="settings-divider"></div>
   <div class="settings-item" onclick="downloadTodayLogExcel();closeSettingsMenu()">📥 오늘 기록 다운로드<span id="export-log-count"></span></div>
   <div class="settings-item" onclick="clearTodayTripLog();closeSettingsMenu()">🗑️ 오늘 기록 초기화</div>
@@ -1156,7 +1178,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.0.3</span>
+    <span id="app-version" title="애플리케이션 버전">v3.0.4</span>
   </div>
 </div>
 
@@ -1235,6 +1257,9 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
         <div id="turn-road"></div>
       </div>
     </div>
+
+    <!-- 구간 종료 시 L1 검증 결과 토스트 (Thanks-to-SOOHEON00 ADP 연동) -->
+    <div id="l1-toast"></div>
 
     <!-- 지도 하단 스택 -->
     <div id="bottom-stack">
@@ -3436,7 +3461,7 @@ function togglePlay(){
     document.getElementById('btn-play').className='ctrl-btn';
     finalizeLegSession(legIdx,getGPSPos());
     speak('주행을 정지합니다', true);
-    stopAdpRecording();
+    stopAdpRecording(legs[legIdx]?legs[legIdx].id:'주행');
   } else {
     isPlaying=true; phase='drive'; setPhaseUI('drive');
     gpsAutoFollow=true;
@@ -3453,15 +3478,20 @@ function togglePlay(){
     startGPS();
     const lg=legs[legIdx];
     fetchOSRM(lg.sLL,lg.eLL,lg.id);
-    startAdpRecording();
+    startAdpRecording(true);
   }
 }
 
 function advanceLeg(){
   stopTimer(); doneSet.add(legIdx);
   finalizeLegSession(legIdx,getGPSPos());
+  const finishedLeg=legs[legIdx];
   legIdx++;
-  if(legIdx>=legs.length){ isPlaying=false; speak('모든 구간을 완료했습니다. 수고하셨습니다!',true); stopAdpRecording(); showDone(); return; }
+  if(legIdx>=legs.length){
+    isPlaying=false; speak('모든 구간을 완료했습니다. 수고하셨습니다!',true);
+    stopAdpRecording(finishedLeg?finishedLeg.id:'마지막 구간');
+    showDone(); return;
+  }
   phase='drive';
   legStartTime=new Date();
   legStartPos=getGPSPos()||[...legs[legIdx].sLL];
@@ -3473,6 +3503,7 @@ function advanceLeg(){
   updateLegUI();
   startTimer(getCurrentEtaMin()*60);
   fetchOSRM(lg.sLL,lg.eLL,lg.id);
+  rotateAdpRecording(finishedLeg?finishedLeg.id:null);
 }
 
 function jumpToLeg(i){
@@ -3726,6 +3757,57 @@ function getAdpBaseUrl(){
   try{ return localStorage.getItem('nav_adp_base_url')||''; }catch(_){ return ''; }
 }
 
+// ── ADP 테스트 모드 ──
+// 실제 수집 PC가 없어도(네트워크 안 됨/장비 없음) 패널 색상·펼치기·경고음·
+// 구간별 L1 토스트를 전부 가짜 데이터로 체험할 수 있게 한다. IP·프리셋 설정 불필요.
+function isAdpTestMode(){
+  try{ return localStorage.getItem('nav_adp_test_mode')==='1'; }catch(_){ return false; }
+}
+
+function toggleAdpTestMode(){
+  const turningOn=!isAdpTestMode();
+  try{ localStorage.setItem('nav_adp_test_mode',turningOn?'1':'0'); }catch(_){}
+  const el=document.getElementById('sensor-monitor');
+  if(turningOn){
+    if(el) el.classList.add('show');
+    try{ localStorage.setItem('nav_sensor_panel_show','1'); }catch(_){}
+    startSensorMonitor();
+    syncOverlayBottoms();
+    alert('🧪 ADP 테스트 모드를 켰습니다.\n\n'
+      +'실제 수집 PC 연결 없이 가짜 데이터로 동작을 확인할 수 있어요.\n'
+      +'· 지도 우하단 패널이 8초 주기로 대기→정상→경고→끊김을 돌아가며 보여줍니다.\n'
+      +'· ▶ 시작 후 구간이 넘어갈 때마다 L1 토스트(통과/경고/실패)가 랜덤으로 뜹니다.\n'
+      +'· 끊김 상태일 때는 경고음/진동도 그대로 울립니다.\n\n'
+      +'끄려면 같은 메뉴를 다시 눌러주세요.');
+  } else {
+    if(el && !getAdpBaseUrl()){ el.classList.remove('show'); stopSensorMonitor(); }
+    alert('🧪 ADP 테스트 모드를 껐습니다.');
+  }
+}
+
+// 8초마다 대기→정상→경고→끊김 순서로 순환하는 가짜 /api/logging/status 응답
+function simulateSensorStatus(){
+  const phase=Math.floor(Date.now()/8000)%4;
+  if(phase===0){
+    return { running:false, storage:{ session_bytes:0, disk_used_pct:42, disk_free_bytes:90_000_000_000 } };
+  }
+  const sensors=[
+    { sensor:'lidar_front', hz:9.8, dropped_queue:0, queue_depth:0 },
+    { sensor:'cam_front',   hz:19.6, dropped_queue:0, queue_depth:0 },
+  ];
+  if(phase===2){ sensors[1].dropped_queue=6; sensors[1].queue_depth=4; }
+  if(phase===3){ sensors[1].hz=0; sensors[1].dropped_queue=20; }
+  return {
+    running:true,
+    live:{ available:true, sensors },
+    storage:{
+      session_bytes:80_000_000+phase*40_000_000,
+      disk_used_pct:55+phase*5,
+      disk_free_bytes:50_000_000_000-phase*5_000_000_000,
+    },
+  };
+}
+
 function configureSensorMonitorIP(){
   const cur=getAdpBaseUrl();
   const input=prompt('수집 시스템(Thanks-to-SOOHEON00) 주소를 입력하세요.\n예: http://192.168.1.50:8000',cur||'http://');
@@ -3783,15 +3865,43 @@ async function configureAdpPreset(){
   alert(`프리셋 "${names[idx]}"으로 설정했습니다.\n다음 ▶ 시작부터 이 프리셋으로 자동 녹화됩니다.`);
 }
 
-// 주행 ▶ 시작/⏸ 정지 ↔ 수집 시스템 녹화 시작/정지 연동.
-// 📡 IP·🎬 프리셋이 설정돼 있을 때만 동작하며, 실패해도 주행 안내 자체는
-// 막지 않는다(센서 수집은 어디까지나 부가 기능). 실패는 콘솔 + 1회 알림.
-async function startAdpRecording(){
+// 구간(leg) 하나 = 수집 시스템(ADP) 녹화 1세션.
+// ▶ 시작 → 1구간 녹화 시작. 구간 끝나서 다음 구간으로 자동 전환될 때마다
+// → 방금 끝난 구간 녹화 정지(+L1 결과 토스트) → 다음 구간 녹화 시작, 반복.
+// ⏸ 정지 또는 마지막 구간 완주 시 마지막으로 녹화 정지(+토스트)만 하고 끝.
+// 📡 IP·🎬 프리셋이 없으면 전부 조용히 건너뛰고 주행 안내는 그대로 진행한다.
+let l1ToastTimer=null;
+
+function showL1Toast(label,status){
+  const el=document.getElementById('l1-toast');
+  if(!el) return;
+  el.classList.remove('pass','warn','fail');
+  let cls='fail',text='검증 실패',icon='🔴';
+  if(status==='pass'){ cls='pass'; text='통과'; icon='🟢'; }
+  else if(status==='warn'){ cls='warn'; text='경고'; icon='🟡'; }
+  else if(status==='fail'){ cls='fail'; text='실패'; icon='🔴'; }
+  else if(status){ text=String(status); icon='⚠️'; }
+  el.classList.add(cls);
+  el.innerHTML=`<div class="l1-title">${label} · L1 검증</div><div class="l1-status">${icon} ${text}</div>`;
+  el.classList.add('show');
+  clearTimeout(l1ToastTimer);
+  l1ToastTimer=setTimeout(()=>el.classList.remove('show'),6000);
+}
+
+// 첫 시작(togglePlay)에서만 설정 누락을 1회 알림. 구간 전환마다(rotateAdpRecording)
+// 매번 알림이 뜨면 운전 중 방해되므로 그쪽은 console만 남긴다.
+async function startAdpRecording(announceErrors){
+  if(isAdpTestMode()){
+    console.log('[ADP-TEST] 녹화 시작 시뮬레이션');
+    pollSensorStatus();
+    return;
+  }
   const base=getAdpBaseUrl();
   if(!base) return;
   const preset=getAdpPreset();
   if(!preset){
-    alert('⚙️ → 🎬 수집 프리셋 선택이 안 되어 있어 자동 녹화를 시작하지 못했습니다.\n주행 안내는 정상 진행됩니다.');
+    console.warn('[ADP] 프리셋 미설정으로 녹화 시작 건너뜀');
+    if(announceErrors) alert('⚙️ → 🎬 수집 프리셋 선택이 안 되어 있어 자동 녹화를 시작하지 못했습니다.\n주행 안내는 정상 진행됩니다.');
     return;
   }
   try{
@@ -3803,31 +3913,51 @@ async function startAdpRecording(){
     if(!res.ok){
       const err=await res.json().catch(()=>({}));
       console.warn('[ADP] 녹화 시작 실패:',err.detail||res.status);
-      alert('수집 시스템 녹화 시작에 실패했습니다.\n'+(err.detail||('HTTP '+res.status))+'\n주행 안내는 정상 진행됩니다.');
+      if(announceErrors) alert('수집 시스템 녹화 시작에 실패했습니다.\n'+(err.detail||('HTTP '+res.status))+'\n주행 안내는 정상 진행됩니다.');
     }
   }catch(e){
-    const reason = (e.name==='AbortError') ? '5초 동안 응답이 없어 시간 초과되었습니다.' : e.message;
+    const reason=(e.name==='AbortError')?'5초 동안 응답이 없어 시간 초과되었습니다.':e.message;
     console.warn('[ADP] 녹화 시작 요청 실패:',reason);
-    alert('수집 시스템에 연결할 수 없어 녹화를 시작하지 못했습니다.\n'+reason+'\n주행 안내는 정상 진행됩니다.');
+    if(announceErrors) alert('수집 시스템에 연결할 수 없어 녹화를 시작하지 못했습니다.\n'+reason+'\n주행 안내는 정상 진행됩니다.');
   }
   pollSensorStatus();
 }
 
-async function stopAdpRecording(){
+// label이 있으면 정지 후 L1 결과를 토스트로 띄운다. 연결 실패는 console만(토스트 생략).
+async function stopAdpRecording(label){
+  if(isAdpTestMode()){
+    const pool=['pass','pass','warn','fail'];
+    const status=pool[Math.floor(Math.random()*pool.length)];
+    console.log('[ADP-TEST] L1 시뮬레이션 결과:',label,status);
+    if(label) showL1Toast(label,status);
+    pollSensorStatus();
+    return status;
+  }
   const base=getAdpBaseUrl();
-  if(!base) return;
+  if(!base) return null;
+  let status=null;
   try{
     const res=await fetchWithTimeout(base+'/api/logging/stop',{method:'POST'},5000);
     if(res.ok){
       const data=await res.json();
       if(data.stopped&&data.l1_status){
-        console.log('[ADP] L1 검증 결과:',data.l1_status);
+        status=data.l1_status;
+        console.log('[ADP] L1 검증 결과:',label,status);
+        if(label) showL1Toast(label,status);
       }
     }
   }catch(e){
     console.warn('[ADP] 녹화 정지 요청 실패:',e.message);
   }
   pollSensorStatus();
+  return status;
+}
+
+// 구간 전환 시점에 호출: 방금 끝난 구간 정지(+토스트) → 다음 구간 시작.
+async function rotateAdpRecording(finishedLegLabel){
+  if(!getAdpBaseUrl()&&!isAdpTestMode()) return;
+  if(finishedLegLabel) await stopAdpRecording(finishedLegLabel);
+  await startAdpRecording(false);
 }
 
 function toggleSensorMonitorExpand(ev){
@@ -3944,9 +4074,14 @@ function renderSensorMonitor(data){
 }
 
 async function pollSensorStatus(){
-  const base=getAdpBaseUrl();
   const el=document.getElementById('sensor-monitor');
-  if(!base||!el) return;
+  if(!el) return;
+  if(isAdpTestMode()){
+    renderSensorMonitor(simulateSensorStatus());
+    return;
+  }
+  const base=getAdpBaseUrl();
+  if(!base) return;
   try{
     const res=await fetchWithTimeout(base+'/api/logging/status',{cache:'no-store'},3000);
     if(!res.ok) throw new Error('HTTP '+res.status);
@@ -4880,11 +5015,12 @@ loadTrafficConfig();
 restorePanelState();
 refreshMapSize();
 
-// 수집 시스템 모니터링 — IP가 이미 설정돼 있고 마지막으로 켜둔 상태였다면 자동 재시작
+// 수집 시스템 모니터링 — IP가 이미 설정돼 있거나 테스트 모드가 켜져 있고,
+// 마지막으로 켜둔 상태였다면 자동 재시작
 {
   const adpBase=getAdpBaseUrl();
   const wasShown=localStorage.getItem('nav_sensor_panel_show')!=='0';
-  if(adpBase&&wasShown){
+  if((adpBase||isAdpTestMode())&&wasShown){
     document.getElementById('sensor-monitor').classList.add('show');
     startSensorMonitor();
   }
