@@ -1120,7 +1120,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.1.5</span>
+    <span id="app-version" title="애플리케이션 버전">v3.1.6</span>
   </div>
 </div>
 
@@ -4557,50 +4557,66 @@ function exitEditMode(){
 //  패널 크기 조절 (드래그 리사이즈)
 // ══════════════════════════════════════════════════════════
 (function initResize(){
-  // 우측 패널 ← 핸들 드래그
+  // 터치/마우스 공통 좌표 추출 헬퍼
+  const clientX=e=>e.touches?e.touches[0].clientX:e.clientX;
+  const clientY=e=>e.touches?e.touches[0].clientY:e.clientY;
+
+  // 우측 패널 ← 핸들 드래그 (mouse + touch)
   let panelDragging=false, panelStartX=0, panelStartW=0;
   const panelHandle=document.getElementById('panel-resize-handle');
-  panelHandle.addEventListener('mousedown',e=>{
-    panelDragging=true; panelStartX=e.clientX;
+  const onPanelStart=e=>{
+    panelDragging=true; panelStartX=clientX(e);
     panelStartW=document.getElementById('panel').offsetWidth;
     panelHandle.classList.add('dragging');
     document.body.style.userSelect='none';
     e.preventDefault();
-  });
-  document.addEventListener('mousemove',e=>{
+  };
+  const onPanelMove=e=>{
     if(!panelDragging) return;
-    const delta=panelStartX-e.clientX;
+    const delta=panelStartX-clientX(e);
     const newW=Math.max(280,Math.min(680,panelStartW+delta));
     document.getElementById('main').style.gridTemplateColumns=`1fr ${newW}px`;
-  });
-  document.addEventListener('mouseup',()=>{
+  };
+  const onPanelEnd=()=>{
     if(!panelDragging) return;
     panelDragging=false;
     panelHandle.classList.remove('dragging');
     document.body.style.userSelect='';
-  });
+  };
+  panelHandle.addEventListener('mousedown',onPanelStart);
+  panelHandle.addEventListener('touchstart',onPanelStart,{passive:false});
+  document.addEventListener('mousemove',onPanelMove);
+  document.addEventListener('touchmove',onPanelMove,{passive:false});
+  document.addEventListener('mouseup',onPanelEnd);
+  document.addEventListener('touchend',onPanelEnd);
 
-  // 경로 안내 패널 ↑ 핸들 드래그
+  // 경로 안내 패널 ↑ 핸들 드래그 (mouse + touch)
   let stepsDragging=false, stepsStartY=0, stepsStartH=0;
   const stepsHandle=document.getElementById('steps-resize-handle');
-  stepsHandle.addEventListener('mousedown',e=>{
+  const onStepsStart=e=>{
     if(document.getElementById('steps-panel').classList.contains('collapsed')) return;
-    stepsDragging=true; stepsStartY=e.clientY;
+    stepsDragging=true; stepsStartY=clientY(e);
     stepsStartH=document.getElementById('steps-panel').offsetHeight;
     document.body.style.userSelect='none';
     e.preventDefault();
-  });
-  document.addEventListener('mousemove',e=>{
+  };
+  const onStepsMove=e=>{
     if(!stepsDragging) return;
-    const delta=stepsStartY-e.clientY; // 위로 드래그 = 더 크게
+    const delta=stepsStartY-clientY(e); // 위로 드래그 = 더 크게
     const newH=Math.max(60,Math.min(window.innerHeight*0.65,stepsStartH+delta));
     document.getElementById('steps-panel').style.height=newH+'px';
-  });
-  document.addEventListener('mouseup',()=>{
+  };
+  const onStepsEnd=()=>{
     if(!stepsDragging) return;
     stepsDragging=false;
     document.body.style.userSelect='';
-  });
+  };
+  stepsHandle.addEventListener('mousedown',onStepsStart);
+  stepsHandle.addEventListener('touchstart',onStepsStart,{passive:false});
+  document.addEventListener('mousemove',onStepsMove);
+  document.addEventListener('touchmove',onStepsMove,{passive:false});
+  document.addEventListener('mouseup',onStepsEnd);
+  document.addEventListener('touchend',onStepsEnd);
 })();
 
 // 초기화 — 저장된 경로 먼저 불러온 뒤 시나리오 로드
