@@ -7,28 +7,38 @@ export default async function handler(req, res) {
   const { minX, maxX, minY, maxY } = req.query;
 
   try {
-    const params = new URLSearchParams({
-      apiKey: ITS_KEY,
-      type: 'all',
-      getType: 'json',
-      minX, maxX, minY, maxY,
+    const baseUrl = 'https://openapi.its.go.kr:9443/trafficInfo';
+    const qs = [
+      `apiKey=${encodeURIComponent(ITS_KEY)}`,
+      `type=all`,
+      `getType=json`,
+      `minX=${encodeURIComponent(minX)}`,
+      `maxX=${encodeURIComponent(maxX)}`,
+      `minY=${encodeURIComponent(minY)}`,
+      `maxY=${encodeURIComponent(maxY)}`,
+    ].join('&');
+
+    const url = `${baseUrl}?${qs}`;
+    const r = await fetch(url, { 
+      headers: { 'Accept': 'application/json' }
     });
-    const url = `https://openapi.its.go.kr:9443/trafficInfo?${params}`;
-    const r = await fetch(url);
+
+    if (!r.ok) throw new Error(`ITS HTTP ${r.status}`);
+
     const json = await r.json();
 
     if (json?.header?.resultCode !== 0) {
-      throw new Error(json?.header?.resultMsg || '알 수 없는 오류');
+      throw new Error(json?.header?.resultMsg || 'ITS 오류');
     }
 
     const rows = json?.body?.items || [];
     const list = Array.isArray(rows) ? rows : [rows];
-    const traffic = list.map(r => ({
-      roadName:   r.roadName || '',
-      linkId:     r.linkId || '',
-      speed:      Number(r.speed) || 0,
-      travelTime: Number(r.travelTime) || 0,
-      roadType:   r.roadDrcType || 'urban',
+    const traffic = list.map(item => ({
+      roadName:   item.roadName || '',
+      linkId:     item.linkId || '',
+      speed:      Number(item.speed) || 0,
+      travelTime: Number(item.travelTime) || 0,
+      roadType:   item.roadDrcType || 'urban',
     }));
 
     return res.json({
@@ -39,6 +49,7 @@ export default async function handler(req, res) {
       updatedAt: new Date().toISOString(),
       note: '교통정보 출처: 국가교통정보센터 ITS',
     });
+
   } catch (e) {
     return res.status(500).json({ ok: false, error: e.message });
   }
