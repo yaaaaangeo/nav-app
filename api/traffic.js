@@ -9,19 +9,28 @@ export default async function handler(req, res) {
   try {
     const params = new URLSearchParams({
       apiKey: ITS_KEY,
-      type: 'json',
+      type: 'all',
+      getType: 'json',
       minX, maxX, minY, maxY,
     });
     const url = `https://openapi.its.go.kr:9443/trafficInfo?${params}`;
     const r = await fetch(url);
     const json = await r.json();
-    const rows = json?.body?.items?.item || [];
+
+    if (json?.header?.resultCode !== 0) {
+      throw new Error(json?.header?.resultMsg || '알 수 없는 오류');
+    }
+
+    const rows = json?.body?.items || [];
     const list = Array.isArray(rows) ? rows : [rows];
     const traffic = list.map(r => ({
-      roadName: r.roadName || r.linkName || '',
-      speed:    Number(r.speed) || 0,
-      roadType: r.roadsTypeCode === '1' ? '고속도로' : 'urban',
+      roadName:   r.roadName || '',
+      linkId:     r.linkId || '',
+      speed:      Number(r.speed) || 0,
+      travelTime: Number(r.travelTime) || 0,
+      roadType:   r.roadDrcType || 'urban',
     }));
+
     return res.json({
       ok: true,
       source: 'ITS',
