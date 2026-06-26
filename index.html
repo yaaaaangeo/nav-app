@@ -1120,7 +1120,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.1.3</span>
+    <span id="app-version" title="애플리케이션 버전">v3.1.4</span>
   </div>
 </div>
 
@@ -2030,7 +2030,7 @@ function getTrafficBounds(){
     });
   }
   if(!points.length){
-    const c=SCENARIOS[loc].center;
+    const sc=SCENARIOS[loc]; const c=sc?sc.center:[37.498,127.032];
     return {minX:c[1]-.08,maxX:c[1]+.08,minY:c[0]-.08,maxY:c[0]+.08};
   }
   const lats=points.map(p=>p[0]), lngs=points.map(p=>p[1]);
@@ -3186,7 +3186,8 @@ function loadScenario(restore){
     map.setView([savedMapView.lat,savedMapView.lng],savedMapView.zoom,{animate:false});
   }else{
     gpsAutoFollow=true;
-    map.setView(SCENARIOS[loc].center,SCENARIOS[loc].zoom,{animate:false});
+    const _sc=SCENARIOS[loc];
+    map.setView(_sc?_sc.center:[37.498,127.032],_sc?_sc.zoom:13,{animate:false});
   }
   renderMap();
   renderLegList();
@@ -3830,16 +3831,22 @@ let addLegMode=false, alfStartMk=null, alfEndMk=null;
 let alfSLL=null, alfELL=null;
 let alfOsrmDist=0, alfOsrmTime=0;
 
-async function alfReverseGeocode(lat,lng,inputId){
-  try{
-    const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ko`,
-      {headers:{'Accept-Language':'ko'}});
-    const d=await r.json();
-    const a=d.address||{};
-    const name=a.road||a.suburb||a.neighbourhood||a.village||a.city_district||a.city||(d.display_name||'').split(',')[0];
-    const el=document.getElementById(inputId);
-    if(el&&!el._userEdited) el.value=name||'';
-  }catch(_){}
+const _alfGeoTimers={}; // inputId별 debounce 타이머 (drag 연속 호출 rate-limit 방지)
+function alfReverseGeocode(lat,lng,inputId){
+  // 마커 드래그 연속 호출 시 마지막 위치만 Nominatim에 요청 (800ms debounce)
+  if(_alfGeoTimers[inputId]) clearTimeout(_alfGeoTimers[inputId]);
+  _alfGeoTimers[inputId]=setTimeout(async()=>{
+    delete _alfGeoTimers[inputId];
+    try{
+      const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ko`,
+        {headers:{'Accept-Language':'ko'}});
+      const d=await r.json();
+      const a=d.address||{};
+      const name=a.road||a.suburb||a.neighbourhood||a.village||a.city_district||a.city||(d.display_name||'').split(',')[0];
+      const el=document.getElementById(inputId);
+      if(el&&!el._userEdited) el.value=name||'';
+    }catch(_){}
+  },800);
 }
 
 async function alfFetchOSRM(){
@@ -3873,7 +3880,7 @@ function toggleAddLegForm(){
 
   // 출발점 = 이전 구간 도착 좌표
   const lastLeg=legs[legs.length-1];
-  alfSLL=lastLeg?[...lastLeg.eLL]:[...SCENARIOS[loc].center];
+  const _alfSc=SCENARIOS[loc]; alfSLL=lastLeg?[...lastLeg.eLL]:[...(_alfSc?_alfSc.center:[37.498,127.032])];
   alfELL=[alfSLL[0]-0.006, alfSLL[1]+0.008];
 
   document.getElementById('alf-s').value=lastLeg?lastLeg.e:'';
@@ -4198,7 +4205,6 @@ function loadTripLog(){
   }catch(e){ return []; }
 }
 
-// ★ trip log 크기
 const TRIP_LOG_MAX=500;
 function saveTripLog(log){
   // 최대 500건 초과 시 오래된 항목부터 제거
@@ -4461,10 +4467,21 @@ async function handleImportFile(ev){
 
     if(data.waypoints) Object.assign(WAYPOINTS,data.waypoints);
     if(data.customLegs){
+      // 각 구간이 필수 필드(id·s·e·sLL·eLL)를 갖추고 있는지 검증 후 덮어씀
+      const isValidLeg=lg=>lg&&typeof lg==='object'
+        &&typeof lg.id==='string'
+        &&Array.isArray(lg.sLL)&&lg.sLL.length===2
+        &&Array.isArray(lg.eLL)&&lg.eLL.length===2
+        &&Number.isFinite(lg.sLL[0])&&Number.isFinite(lg.sLL[1])
+        &&Number.isFinite(lg.eLL[0])&&Number.isFinite(lg.eLL[1]);
       Object.keys(SCENARIOS).forEach(locKey=>{
         Object.keys(SCENARIOS[locKey]).forEach(scK=>{
           const saved=data.customLegs[`${locKey}-${scK}`];
-          if(saved&&saved.length) SCENARIOS[locKey][scK].legs=saved;
+          if(!Array.isArray(saved)||!saved.length) return;
+          const valid=saved.filter(isValidLeg);
+          if(valid.length!==saved.length)
+            console.warn(`import: ${locKey}-${scK} 중 ${saved.length-valid.length}개 구간이 유효하지 않아 제외됨`);
+          if(valid.length) SCENARIOS[locKey][scK].legs=valid;
         });
       });
     }
