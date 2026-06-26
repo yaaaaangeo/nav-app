@@ -1602,10 +1602,6 @@ function _closeOnOutside(e){
   if(!menu.contains(e.target)&&!btn.contains(e.target)) closeSettingsMenu();
 }
 
-// sc-editing 진입/종료 시 메뉴 내 저장 버튼 표시/숨김 동기화
-const _origEnterScEditMode=typeof enterScEditMode==='function'?enterScEditMode:null;
-const _origExitScEditMode=typeof exitScEditMode==='function'?exitScEditMode:null;
-
 // 이미 로그인된 세션이면 바로 통과
 (function checkSession() {
   try {
