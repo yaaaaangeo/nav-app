@@ -1120,7 +1120,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.1.4</span>
+    <span id="app-version" title="애플리케이션 버전">v3.1.5</span>
   </div>
 </div>
 
@@ -2860,13 +2860,22 @@ let timerWarn5Spoken=false;   // 5분 경고 중복 방지
 function speak(text, priority=false){
   if(!ttsEnabled) return;
   if(!window.speechSynthesis) return;
-  if(priority) window.speechSynthesis.cancel(); // 높은 우선순위면 현재 발화 중단
-  const utt=new SpeechSynthesisUtterance(text);
-  utt.lang='ko-KR';
-  utt.rate=1.05;
-  utt.pitch=1.0;
-  utt.volume=1.0;
-  window.speechSynthesis.speak(utt);
+  const _doSpeak=()=>{
+    const utt=new SpeechSynthesisUtterance(text);
+    utt.lang='ko-KR';
+    utt.rate=1.05;
+    utt.pitch=1.0;
+    utt.volume=1.0;
+    window.speechSynthesis.speak(utt);
+  };
+  if(priority){
+    window.speechSynthesis.cancel();
+    // iOS Safari는 cancel() 직후 speak()를 무시하는 버그가 있어
+    // 다음 태스크에서 speak()를 호출해야 정상 발화된다.
+    setTimeout(_doSpeak, 50);
+  } else {
+    _doSpeak();
+  }
 }
 
 // 음성 안내 버튼 (헤더에 추가)
@@ -4501,9 +4510,15 @@ async function handleImportFile(ev){
     updateTripLogCount();
 
     // 위치/시나리오/구간 복원
+    // loc → scKey 순서로 먼저 확정한 뒤 UI를 갱신해 불일치 구간을 없앤다.
     if(data.currentView&&SCENARIOS[data.currentView.loc]){
-      loc=data.currentView.loc;
-      if(SCENARIOS[loc][data.currentView.scKey]) scKey=data.currentView.scKey;
+      const newLoc=data.currentView.loc;
+      // 새 loc 기준으로 scKey 유효성 검사 — 없으면 해당 loc의 첫 번째 키로 fallback
+      const newScKey=
+        (SCENARIOS[newLoc][data.currentView.scKey])
+          ? data.currentView.scKey
+          : Object.keys(SCENARIOS[newLoc])[0];
+      loc=newLoc; scKey=newScKey; // loc·scKey 동시 확정 후 UI 갱신
       applyLocUI(loc);
       const scSelEl=document.getElementById('sc-sel');
       if(scSelEl) scSelEl.value=scKey;
