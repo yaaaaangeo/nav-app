@@ -6,26 +6,25 @@ export default async function handler(req, res) {
   const ITS_KEY = process.env.ITS_KEY;
   const { minX, maxX, minY, maxY } = req.query;
 
-  try {
-    const baseUrl = 'https://openapi.its.go.kr:9443/trafficInfo';
-    const qs = [
-      `apiKey=${encodeURIComponent(ITS_KEY)}`,
-      `type=all`,
-      `getType=json`,
-      `minX=${encodeURIComponent(minX)}`,
-      `maxX=${encodeURIComponent(maxX)}`,
-      `minY=${encodeURIComponent(minY)}`,
-      `maxY=${encodeURIComponent(maxY)}`,
-    ].join('&');
+  const url = `https://openapi.its.go.kr:9443/trafficInfo?apiKey=${ITS_KEY}&type=all&getType=json&minX=${minX}&maxX=${maxX}&minY=${minY}&maxY=${maxY}`;
 
-    const url = `${baseUrl}?${qs}`;
-    const r = await fetch(url, { 
+  console.log('Fetching:', url.replace(ITS_KEY, '***'));
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const r = await fetch(url, {
+      signal: controller.signal,
       headers: { 'Accept': 'application/json' }
     });
+    clearTimeout(timeout);
 
-    if (!r.ok) throw new Error(`ITS HTTP ${r.status}`);
+    console.log('Response status:', r.status);
+    const text = await r.text();
+    console.log('Response preview:', text.slice(0, 200));
 
-    const json = await r.json();
+    const json = JSON.parse(text);
 
     if (json?.header?.resultCode !== 0) {
       throw new Error(json?.header?.resultMsg || 'ITS 오류');
@@ -38,19 +37,23 @@ export default async function handler(req, res) {
       linkId:     item.linkId || '',
       speed:      Number(item.speed) || 0,
       travelTime: Number(item.travelTime) || 0,
-      roadType:   item.roadDrcType || 'urban',
     }));
 
     return res.json({
-      ok: true,
-      source: 'ITS',
-      traffic,
-      events: [],
+      ok: true, source: 'ITS', traffic, events: [],
       updatedAt: new Date().toISOString(),
       note: '교통정보 출처: 국가교통정보센터 ITS',
     });
 
   } catch (e) {
-    return res.status(500).json({ ok: false, error: e.message });
+    console.error('Error name:', e.name);
+    console.error('Error message:', e.message);
+    console.error('Error cause:', e.cause);
+    return res.status(500).json({
+      ok: false,
+      error: e.message,
+      errorName: e.name,
+      errorCause: String(e.cause || ''),
+    });
   }
 }
