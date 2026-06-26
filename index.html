@@ -3348,10 +3348,12 @@ function startTimer(sec){
 function stopTimer(){ if(timerInterval){clearInterval(timerInterval);timerInterval=null;} }
 
 function startRestPhase(){
+  const lg=legs[legIdx];
+  if(!lg){ console.warn('startRestPhase: legs[legIdx] 없음'); return; }
   stopTimer(); phase='rest'; setPhaseUI('rest');
   timerWarn5Spoken=false;
   speak('휴식 시간입니다. 안전한 곳에 정차하세요', true);
-  startTimer(legs[legIdx].rest*60);
+  startTimer(lg.rest*60);
 }
 
 function setPhaseUI(p){
