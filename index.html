@@ -1120,7 +1120,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.1.2</span>
+    <span id="app-version" title="애플리케이션 버전">v3.1.3</span>
   </div>
 </div>
 
@@ -2625,6 +2625,7 @@ function calculateBearingDegrees(from,to){
 // 현재 분기점을 통과한 직후 따라가야 하는 경로 방향을 구한다.
 // 가까운 다음 회전의 방향이 섞이지 않도록 다음 분기점 직전까지만 사용한다.
 function getExpectedHeadingAfterStep(stepIdx){
+  if(stepIdx<0||stepIdx>=osrmStepRouteMeters.length) return null;
   const stepMeters=osrmStepRouteMeters[stepIdx];
   if(!Number.isFinite(stepMeters)||routeCumulativeMeters.length<2) return null;
 
@@ -3165,7 +3166,8 @@ function loadScenario(restore){
   doneSet.clear();
   clearOSRM();
   showTurnOverlay(false);
-  const sc=SCENARIOS[loc][scKey];
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey];
+  if(!sc){ console.warn('loadScenario: 유효하지 않은 loc/scKey',loc,scKey); return; }
   legs=sc.legs;
   let idx=0;
   if(restore&&legs.length){
@@ -3323,9 +3325,9 @@ function renderCurLeg(){
 }
 
 function updateHeader(){
-  const sc=SCENARIOS[loc][scKey];
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey];
   const el=document.getElementById('hdr-progress');
-  if(el) el.textContent=`${loc} · ${sc.name} · ${doneSet.size}/${legs.length} 완료`;
+  if(el) el.textContent=sc?`${loc} · ${sc.name} · ${doneSet.size}/${legs.length} 완료`:'';
 }
 
 // ══════════════════════════════════════════════════════════
@@ -3499,11 +3501,20 @@ function updateGpsStatus(accuracy, coords, level){
   if(coords) coordEl.textContent=coords[0].toFixed(5)+', '+coords[1].toFixed(5);
 }
 
+let gpsLostTimer=null; // startGPS 스코프 밖으로 이동 — stopGPS에서도 정리 가능
+
+function stopGPS(){
+  if(gpsLostTimer){ clearTimeout(gpsLostTimer); gpsLostTimer=null; }
+  if(watchId!==null){
+    try{ navigator.geolocation.clearWatch(watchId); }catch(_){}
+    watchId=null;
+  }
+}
+
 function startGPS(){
   if(!navigator.geolocation) return;
   document.getElementById('gps-status').classList.add('show');
-  if(watchId!==null) return;
-  let gpsLostTimer=null;
+  stopGPS(); // 기존 watch가 살아있으면 정리 후 재등록
   function resetGpsLostTimer(){
     if(gpsLostTimer) clearTimeout(gpsLostTimer);
     gpsLostTimer=setTimeout(()=>updateGpsStatus(999,null,'lost'),25000);
@@ -3651,6 +3662,9 @@ function startGPS(){
   },err=>{
     updateGpsStatus(999,null,'lost');
     console.warn('GPS 오류',err);
+    // 오류 후 watchId를 초기화해야 startGPS() 재호출 시 재등록이 가능하다
+    if(gpsLostTimer){ clearTimeout(gpsLostTimer); gpsLostTimer=null; }
+    watchId=null;
   },{enableHighAccuracy:true,maximumAge:1500,timeout:10000});
 }
 
@@ -3715,7 +3729,7 @@ function loadCurrentView(){
 // ══════════════════════════════════════════════════════════
 function showDone(){
   renderLegList(); updateHeader();
-  const sc=SCENARIOS[loc][scKey];
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc) return;
   const td=legs.reduce((a,l)=>a+l.dist,0).toFixed(1);
   const tm=legs.reduce((a,l)=>a+l.time+l.rest,0);
   document.getElementById('done-info').textContent=`${loc} · ${sc.name} | ${legs.length}구간 · ${td}km · ${tm}분`;
@@ -3923,7 +3937,7 @@ function addNewLeg(){
 
   if(!alfSLL||!alfELL){ alert('출발·도착 마커를 지도에서 이동해 위치를 설정하세요.'); return; }
 
-  const sc=SCENARIOS[loc][scKey];
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc) return;
   const prefix=sc.legs[0]?sc.legs[0].id.replace(/\d+$/,''):'NEW';
   const newId=prefix+(sc.legs.length+1);
   sc.legs.push({id:newId,s,e,sLL:[...alfSLL],eLL:[...alfELL],dist,spd,time,rest:0});
@@ -3939,7 +3953,7 @@ function deleteCurrentLeg(){
   if(!legs[legIdx]){ alert('삭제할 구간이 없습니다.'); return; }
   const lg=legs[legIdx];
   if(!confirm(`"${lg.id}: ${lg.s} → ${lg.e}" 구간을 삭제할까요?`)) return;
-  const sc=SCENARIOS[loc][scKey];
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc) return;
   sc.legs.splice(legIdx,1);
   if(legIdx>=sc.legs.length) legIdx=Math.max(0,sc.legs.length-1);
   saveWaypointsToStorage();
@@ -4184,8 +4198,12 @@ function loadTripLog(){
   }catch(e){ return []; }
 }
 
+// ★ trip log 크기
+const TRIP_LOG_MAX=500;
 function saveTripLog(log){
-  try{ localStorage.setItem('nav_trip_log',JSON.stringify(log)); }
+  // 최대 500건 초과 시 오래된 항목부터 제거
+  const trimmed=log.length>TRIP_LOG_MAX?log.slice(log.length-TRIP_LOG_MAX):log;
+  try{ localStorage.setItem('nav_trip_log',JSON.stringify(trimmed)); }
   catch(e){ console.warn('주행 기록 저장 실패:',e); }
 }
 
@@ -4219,8 +4237,13 @@ function finalizeLegSession(idx,endPos){
   legStartTime=null; legStartPos=null;
 
   // 출발/도착 GPS 좌표를 건물·장소명으로 비동기 변환 (실패 시 좌표 그대로 유지)
-  reverseGeocodePlace(sPos[0],sPos[1]).then(name=>updateTripLogPlace(entryId,'start',name));
-  reverseGeocodePlace(ePos[0],ePos[1]).then(name=>updateTripLogPlace(entryId,'end',name));
+  // Nominatim 무료 정책(1 req/sec)을 지키기 위해 순차 호출한다.
+  reverseGeocodePlace(sPos[0],sPos[1]).then(name=>{
+    updateTripLogPlace(entryId,'start',name);
+    setTimeout(()=>{
+      reverseGeocodePlace(ePos[0],ePos[1]).then(n=>updateTripLogPlace(entryId,'end',n));
+    },1100);
+  });
 }
 
 // GPS 좌표 → 건물/장소명 (예: "서울대학교 시흥캠퍼스"). 실패 시 null.
