@@ -1132,7 +1132,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.2.3</span>
+    <span id="app-version" title="애플리케이션 버전">v3.2.4</span>
   </div>
 </div>
 
@@ -1922,7 +1922,7 @@ const HEADING_MATCH_TOLERANCE_DEG=45;
 const ROUTE_HEADING_LOOKAHEAD_METERS=20;
 const COMBINED_MANEUVER_MAX_GAP_METERS=150;
 
-// 공공 교통정보: 강남=서울 TOPIS, 판교/시흥=국가 ITS
+// 공공 교통정보: 국가 ITS 단일 사용
 const TRAFFIC_REFRESH_MS=15*60*1000;
 let trafficRefreshTimer=null;
 let trafficLastUpdatedAt=0;
@@ -2111,7 +2111,7 @@ async function refreshTrafficData(manual=false){
   trafficLoading=true;
   updateTrafficButton('loading');
   document.getElementById('traffic-card').classList.add('show');
-  updateTrafficStatusCard(loc==='강남'?'서울 TOPIS':'국가 ITS',manual?'수동 갱신 중...':'교통정보 갱신 중...');
+  updateTrafficStatusCard('국가 ITS',manual?'수동 갱신 중...':'교통정보 갱신 중...');
 
   if(trafficAbortCtrl){ try{trafficAbortCtrl.abort();}catch(_){} }
   trafficAbortCtrl=new AbortController();
@@ -2149,7 +2149,7 @@ async function refreshTrafficData(manual=false){
     if(error&&error.name==='AbortError') return;
     console.error('교통정보 갱신 실패:',error);
     updateTrafficButton('error');
-    updateTrafficStatusCard(loc==='강남'?'서울 TOPIS':'국가 ITS',`갱신 실패: ${error.message}`);
+    updateTrafficStatusCard('국가 ITS',`갱신 실패: ${error.message}`);
   }finally{
     trafficLoading=false;
     trafficAbortCtrl=null;
@@ -2732,7 +2732,7 @@ function getCombinedManeuverText(stepIdx){
   const nextStep=osrmSteps[stepIdx+1];
   if(!nextStep||nextStep.maneuver.type==='arrive') return '';
 
-  const nextInfo=getManeuverInfo(nextStep.maneuver.type,nextStep.maneuver.modifier);
+  const nextInfo=getManeuverInfo(nextStep.maneuver.type,nextStep.maneuver.modifier,nextStep);
   const roundedGap=Math.max(10,Math.round(gap/10)*10);
   const nextRoad=nextStep.name?` · ${nextStep.name}`:'';
   return `이후 ${roundedGap}m 앞 ${nextInfo.text}${nextRoad}`;
@@ -2919,12 +2919,28 @@ const MANEUVER_KO={
   notification:{icon:'⬆',text:'계속 직진'},
 };
 
-function getManeuverInfo(type,modifier){
-  const mod=modifier||'straight';
-  const base=MANEUVER_KO[type];
-  if(!base) return {icon:'⬆',text:'계속 진행'};
-  if(typeof base.icon!=='undefined') return base; // leaf
-  return base[mod]||base['default']||{icon:'⬆',text:'계속 진행'};
+function getManeuverInfo(type, modifier, step){
+  // bearing_before/after 로 실제 회전 방향 보정
+  let mod = modifier || 'straight';
+  if(step && step.maneuver){
+    const before = step.maneuver.bearing_before;
+    const after  = step.maneuver.bearing_after;
+    if(typeof before === 'number' && typeof after === 'number'){
+      let diff = ((after - before) + 360) % 360;
+      if(diff > 180) diff -= 360; // -180 ~ 180
+      if(type === 'turn' || type === 'off ramp' || type === 'on ramp' || type === 'fork'){
+        if(diff < -60)       mod = diff < -120 ? 'sharp left'  : 'left';
+        else if(diff > 60)   mod = diff >  120 ? 'sharp right' : 'right';
+        else if(diff < -15)  mod = 'slight left';
+        else if(diff >  15)  mod = 'slight right';
+        else                 mod = 'straight';
+      }
+    }
+  }
+  const base = MANEUVER_KO[type];
+  if(!base) return {icon:'⬆', text:'계속 진행'};
+  if(typeof base.icon !== 'undefined') return base;
+  return base[mod] || base['default'] || {icon:'⬆', text:'계속 진행'};
 }
 
 // 거리 표시 단위 — '출발합니다'는 "앞으로 다가올 거리"가 아니라
@@ -2972,7 +2988,7 @@ function toggleTTS(){
 
 function getTurnVoiceText(step, distM, stepIdx=currentStepIdx){
   if(!step) return null;
-  const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
+  const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier,step);
   const road=step.name?` ${step.name}`:'';
   if(step.maneuver.type==='arrive') return `목적지에 도착했습니다`;
   if(step.maneuver.type==='depart') return null;
@@ -2986,7 +3002,7 @@ function showNextStep(idx,curPos){
   const step=osrmSteps[idx];
   if(!step) return;
 
-  const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
+  const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier,step);
   const stepLoc=step.maneuver.location;
   let dist=getStepRouteDistanceMeters(idx);
   if(dist==null){
@@ -3059,7 +3075,7 @@ function updateTurnFromPosition(lat,lng,vehicleHeading=null,headingReliable=fals
   const step=osrmSteps[currentStepIdx];
   if(!step) return;
 
-  const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
+  const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier,step);
   let d=getStepRouteDistanceMeters(currentStepIdx,guidanceProgress);
 
   // 경로 누적거리 매핑이 불가능할 때에만 직선거리를 대체값으로 사용한다.
@@ -3192,7 +3208,7 @@ function renderStepsList(){
     return;
   }
   osrmSteps.forEach((step,i)=>{
-    const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier);
+    const info=getManeuverInfo(step.maneuver.type,step.maneuver.modifier,step);
     const dist=step.distance;
     if(step.maneuver.type==='depart') return; // 출발 스텝 리스트에서 제외
     const distStr=dist>=1000?(dist/1000).toFixed(1)+'km 후 ':(dist>0?Math.round(dist)+'m 후 ':'');
