@@ -1132,7 +1132,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.2.1</span>
+    <span id="app-version" title="애플리케이션 버전">v3.2.2</span>
   </div>
 </div>
 
@@ -1229,29 +1229,16 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       </div>
     </div>
 
-    <!-- 교통정보 팝업 -->
-    <div id="traffic-card">
-      <div id="traffic-card-head">
-        <span id="traffic-source">교통정보</span>
-        <button id="traffic-refresh-btn" onclick="refreshTrafficData(true)">새로고침</button>
-        <button id="traffic-close-btn" onclick="toggleTrafficCard()">✕</button>
-      </div>
-      <div id="traffic-status-line">설정이 필요합니다.</div>
-      <div id="traffic-leg-info">
-        <div class="tli-box">
-          <div class="tli-label">출발지 속도</div>
-          <div class="tli-val" id="tli-spd-s">0<span class="tli-unit">km/h</span></div>
-        </div>
-        <div class="tli-box">
-          <div class="tli-label">도착지 속도</div>
-          <div class="tli-val" id="tli-spd-e">0<span class="tli-unit">km/h</span></div>
-        </div>
-      </div>
+    <!-- 교통정보 팝업 (숨김) -->
+    <div id="traffic-card" style="display:none">
+      <div id="traffic-card-head"><span id="traffic-source"></span><button id="traffic-refresh-btn" onclick="refreshTrafficData(true)" style="display:none"></button><button id="traffic-close-btn" style="display:none"></button></div>
+      <div id="traffic-status-line"></div>
+      <div id="traffic-leg-info"><div class="tli-box"><div class="tli-label"></div><div class="tli-val" id="tli-spd-s"></div></div><div class="tli-box"><div class="tli-label"></div><div class="tli-val" id="tli-spd-e"></div></div></div>
       <div id="traffic-note"></div>
     </div>
 
-    <!-- 신호등 버튼 (GPS 위) -->
-    <div id="traffic-fab" onclick="toggleTrafficCard()">🚦</div>
+    <!-- 신호등 버튼 -->
+    <div id="traffic-fab" onclick="refreshTrafficData(true)" title="교통정보 새로고침">🚦</div>
 
     <!-- GPS 상태 -->
     <div id="gps-status">
@@ -1318,6 +1305,9 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
               <div class="stat-v" id="sv-time-v">—</div>
               <div class="stat-u">분</div><div class="stat-u" style="color:var(--c50)">예상시간</div>
             </div>
+          </div>
+          <div id="its-credit" style="font-size:9px;color:var(--c2);text-align:center;margin-top:2px;display:none">
+            <span id="its-credit-text"></span>
           </div>
           <div id="timer-box">
             <div id="timer-label">TIMER</div>
@@ -2260,26 +2250,23 @@ function getItsAvgSpeedFallback(){
 function updateTrafficSummary(){
   const dt=new Date(trafficData.updatedAt||Date.now());
   const label=Number.isNaN(dt.getTime())?'방금':dt.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
-  const source='국가교통정보센터 ITS';
-  document.getElementById('traffic-source').textContent=`🚦 ${source} · ${loc}`;
-  document.getElementById('traffic-status-line').textContent=`${label} 업데이트 · 다음 갱신 약 15분 후`;
-
-  // 출발/도착 링크 속도 표시 (없으면 전체 평균으로 폴백)
-  const lg=legs[legIdx];
-  const sSpd=lg?getLegLinkSpeed(lg.sId):null;
-  const eSpd=lg?getLegLinkSpeed(lg.eId):null;
-  const fallback=getItsAvgSpeedFallback();
-  const sEl=document.getElementById('tli-spd-s');
-  const eEl=document.getElementById('tli-spd-e');
-  if(sEl) sEl.innerHTML=`${sSpd??fallback??0}<span class="tli-unit">km/h</span>`;
-  if(eEl) eEl.innerHTML=`${eSpd??fallback??0}<span class="tli-unit">km/h</span>`;
-
-  document.getElementById('traffic-note').textContent=trafficData.note||'';
+  // 현재 구간 카드 하단에 출처+업데이트 시간 표시
+  const creditEl=document.getElementById('its-credit');
+  const creditText=document.getElementById('its-credit-text');
+  if(creditEl&&creditText){
+    creditEl.style.display='block';
+    creditText.textContent=`🚦 국가교통정보센터 ITS · ${label} 업데이트`;
+  }
 }
 
 function updateTrafficStatusCard(source,message){
-  document.getElementById('traffic-source').textContent=`🚦 ${source}`;
-  document.getElementById('traffic-status-line').textContent=message;
+  // 패널 카드에 표시 (에러/로딩 상태)
+  const creditEl=document.getElementById('its-credit');
+  const creditText=document.getElementById('its-credit-text');
+  if(creditEl&&creditText){
+    creditEl.style.display='block';
+    creditText.textContent=`🚦 ${source} · ${message}`;
+  }
 }
 
 // 모바일에서 백그라운드 타이머가 멈춘 경우 화면 복귀 시 즉시 보정한다.
@@ -2357,12 +2344,21 @@ async function fetchOSRM(sLL,eLL,legId){
     const data=await res.json();
     if(data.code==='Ok'&&data.routes&&data.routes[0]){
       const route=data.routes[0];
-      osrmDuration=route.duration; // 초 단위
-      // 출발/도착 핀까지 정확히 이어지도록 첫/끝 좌표 고정
+      osrmDuration=route.duration;
       const coords=route.geometry.coordinates;
+      // 첫/끝 좌표를 출발/도착 핀으로 고정하고
+      // 도착지 이후 좌표는 제거
       coords.unshift([sLL[1],sLL[0]]);
-      coords.push([eLL[1],eLL[0]]);
-      currentRouteCoords=coords;
+      // 도착지 좌표와 가장 가까운 인덱스를 찾아 거기서 자름
+      const eLng=eLL[1], eLat=eLL[0];
+      let closestIdx=coords.length-1, closestDist=Infinity;
+      for(let i=0;i<coords.length;i++){
+        const d=Math.hypot(coords[i][0]-eLng, coords[i][1]-eLat);
+        if(d<closestDist){ closestDist=d; closestIdx=i; }
+      }
+      const trimmed=coords.slice(0,closestIdx+1);
+      trimmed.push([eLL[1],eLL[0]]);
+      currentRouteCoords=trimmed;
       drawOSRMRoute(currentRouteCoords);
       // 다중 waypoint → legs 배열 flatten
       // depart/중간arrive 모두 제거 — 실제 회전 지시 스텝만 남김
