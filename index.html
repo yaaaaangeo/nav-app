@@ -1132,7 +1132,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.2.2</span>
+    <span id="app-version" title="애플리케이션 버전">v3.2.3</span>
   </div>
 </div>
 
@@ -1237,9 +1237,6 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       <div id="traffic-note"></div>
     </div>
 
-    <!-- 신호등 버튼 -->
-    <div id="traffic-fab" onclick="refreshTrafficData(true)" title="교통정보 새로고침">🚦</div>
-
     <!-- GPS 상태 -->
     <div id="gps-status">
       <div><span id="gps-dot"></span><span id="gps-main-line">GPS 수신 중...</span></div>
@@ -1306,8 +1303,9 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
               <div class="stat-u">분</div><div class="stat-u" style="color:var(--c50)">예상시간</div>
             </div>
           </div>
-          <div id="its-credit" style="font-size:9px;color:var(--c2);text-align:center;margin-top:2px;display:none">
+          <div id="its-credit" style="font-size:9px;color:var(--c2);text-align:center;margin-top:2px;display:none;display:flex;align-items:center;justify-content:center;gap:5px;">
             <span id="its-credit-text"></span>
+            <button onclick="refreshTrafficData(true)" style="background:none;border:1px solid var(--c55);border-radius:4px;color:var(--c2);font-size:9px;padding:1px 5px;cursor:pointer;">🚦 갱신</button>
           </div>
           <div id="timer-box">
             <div id="timer-label">TIMER</div>
@@ -1952,10 +1950,26 @@ trafficEventLayer=L.layerGroup().addTo(map);
 
 // ★
 const TRAFFIC_ADMIN_PW='smobi000';
+const ITS_KEY_TTL_MS=30*24*60*60*1000; // 30일
 
 function loadTrafficConfig(){
-  try{ trafficWorkerUrl=localStorage.getItem('nav_its_key')||''; }
-  catch(_){ trafficWorkerUrl=''; }
+  try{
+    const key=localStorage.getItem('nav_its_key')||'';
+    const savedAt=Number(localStorage.getItem('nav_its_key_saved_at')||0);
+    // 30일 초과 시 키 삭제 후 재입력 요청
+    if(key&&Date.now()-savedAt>ITS_KEY_TTL_MS){
+      localStorage.removeItem('nav_its_key');
+      localStorage.removeItem('nav_its_key_saved_at');
+      trafficWorkerUrl='';
+      // 잠깐 후 설정 창 자동 오픈
+      setTimeout(()=>{
+        alert('ITS API 인증키가 만료되었습니다(30일). 다시 입력해주세요.');
+        openTrafficConfig();
+      },1500);
+    } else {
+      trafficWorkerUrl=key;
+    }
+  } catch(_){ trafficWorkerUrl=''; }
   updateTrafficButton();
 }
 
@@ -1990,7 +2004,10 @@ function saveTrafficConfig(){
   const key=(document.getElementById('traffic-its-key').value||'').trim();
   if(!key){ alert('ITS API 인증키를 입력해주세요.'); return; }
   trafficWorkerUrl=key;
-  try{ localStorage.setItem('nav_its_key',key); }catch(_){}
+  try{
+    localStorage.setItem('nav_its_key',key);
+    localStorage.setItem('nav_its_key_saved_at',String(Date.now()));
+  }catch(_){}
   closeTrafficConfig();
   updateTrafficButton();
   startTrafficUpdates(loc);
@@ -1998,7 +2015,10 @@ function saveTrafficConfig(){
 
 function clearTrafficConfig(){
   trafficWorkerUrl='';
-  try{ localStorage.removeItem('nav_its_key'); }catch(_){}
+  try{
+    localStorage.removeItem('nav_its_key');
+    localStorage.removeItem('nav_its_key_saved_at');
+  }catch(_){}
   stopTrafficUpdates(true);
   closeTrafficConfig();
   updateTrafficButton();
@@ -2006,19 +2026,12 @@ function clearTrafficConfig(){
 
 function updateTrafficButton(state){
   const btn=document.getElementById('btn-traffic');
-  const fab=document.getElementById('traffic-fab');
   if(btn){
     btn.classList.remove('loading','live','error');
     if(state==='loading'){ btn.classList.add('loading'); btn.textContent='🚦 교통 조회 중'; }
     else if(state==='live'){ btn.classList.add('live'); btn.textContent='🚦 국가 ITS 실시간'; }
     else if(state==='error'){ btn.classList.add('error'); btn.textContent='🚦 교통 오류'; }
     else { btn.textContent=trafficWorkerUrl?'🚦 교통 대기':'🚦 교통 설정 필요'; }
-  }
-  if(fab){
-    fab.classList.remove('live','error');
-    if(state==='live') fab.classList.add('live');
-    else if(state==='error') fab.classList.add('error');
-    if(trafficWorkerUrl) fab.classList.add('show');
   }
 }
 
@@ -2861,7 +2874,16 @@ function updateCurStats(){
   document.getElementById('sv-spd-v').textContent=displaySpd;
   document.getElementById('sv-time-v').textContent=etaMin;
 
-  if(!isPlaying&&phase==='drive') updateTimerDisplay(etaMin*60);
+  // 주행 중이든 아니든 ITS 예상시간으로 타이머 동기화
+  if(phase==='drive'&&etaMin>0){
+    if(!isPlaying){
+      updateTimerDisplay(etaMin*60);
+    } else {
+      // 주행 중엔 타이머가 실행 중이므로 ITS 값으로 재설정
+      timerSec=etaMin*60;
+      updateTimerDisplay(timerSec);
+    }
+  }
 }
 
 // ══════════════════════════════════════════════════════════
