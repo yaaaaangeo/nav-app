@@ -849,9 +849,13 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   position:absolute;top:12px;right:12px;z-index:1001;width:min(320px,calc(100% - 24px));
   background:var(--ov-bg4);border:1px solid var(--c114);border-radius:11px;
   box-shadow:0 5px 20px rgba(0,0,0,.45);backdrop-filter:blur(8px);padding:10px 12px;
-  display:none;
+  display:none;cursor:pointer;transition:padding .15s;
 }
 #traffic-card.show{display:block;}
+#traffic-card.collapsed #traffic-summary,
+#traffic-card.collapsed #traffic-legend,
+#traffic-card.collapsed #traffic-note{display:none;}
+#traffic-card.collapsed{padding:7px 12px;}
 #traffic-card-head{display:flex;align-items:center;gap:7px;}
 #traffic-source{font-size:12px;font-weight:800;color:var(--c115);flex:1;}
 #traffic-refresh-btn{background:var(--c116);color:var(--c117);border:1px solid var(--c118);border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;}
@@ -1120,7 +1124,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v2.0.0</span>
+    <span id="app-version" title="애플리케이션 버전">v3.1.8</span>
   </div>
 </div>
 
@@ -1218,11 +1222,12 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     </div>
 
     <!-- 공공 교통정보 상태 -->
-    <div id="traffic-card">
+    <div id="traffic-card" onclick="toggleTrafficCard(event)">
       <div id="traffic-card-head">
         <span id="traffic-source">교통정보 준비 중</span>
-        <button id="traffic-refresh-btn" onclick="refreshTrafficData(true)">새로고침</button>
-        <button id="traffic-close-btn" onclick="document.getElementById('traffic-card').classList.remove('show')">✕</button>
+        <span id="traffic-collapse-icon" style="font-size:10px;color:var(--c120);margin-right:2px">▲</span>
+        <button id="traffic-refresh-btn" onclick="event.stopPropagation();refreshTrafficData(true)">새로고침</button>
+        <button id="traffic-close-btn" onclick="event.stopPropagation();document.getElementById('traffic-card').classList.remove('show')">✕</button>
       </div>
       <div id="traffic-status-line">중계 서버를 설정해주세요.</div>
       <div id="traffic-summary">
@@ -1356,16 +1361,27 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 <div id="traffic-modal" onclick="if(event.target===this) closeTrafficConfig()">
   <div id="traffic-modal-box">
-    <div id="traffic-modal-title">🚦 공공 교통정보 연결</div>
-    <div id="traffic-modal-desc">
-      GitHub Pages에서 인증키를 노출하지 않도록 Cloudflare Worker 중계 주소를 사용합니다.<br/>
-      강남은 서울 TOPIS, 판교·시흥은 국가 ITS를 즉시 조회하고 이후 15분마다 갱신합니다.
+    <div id="traffic-modal-title">🚦 교통정보 설정</div>
+    <div id="traffic-pw-section">
+      <div id="traffic-modal-desc">관리자 비밀번호를 입력하세요.</div>
+      <input id="traffic-pw-input" type="password" placeholder="비밀번호" autocomplete="off"
+        style="width:100%;background:var(--c133);border:1px solid var(--c55);color:var(--c134);border-radius:7px;padding:9px 10px;font-size:12px;outline:none;"
+        onkeydown="if(event.key==='Enter') checkTrafficPassword()"/>
+      <div id="traffic-pw-error" style="color:#e05;font-size:11px;margin-top:5px;display:none">비밀번호가 틀렸습니다.</div>
+      <div id="traffic-modal-actions">
+        <button class="traffic-modal-btn" onclick="closeTrafficConfig()">취소</button>
+        <button class="traffic-modal-btn" onclick="checkTrafficPassword()">확인</button>
+      </div>
     </div>
-    <input id="traffic-worker-url" type="url" placeholder="https://nav-traffic-proxy.계정.workers.dev" autocomplete="off"/>
-    <div id="traffic-modal-actions">
-      <button class="traffic-modal-btn" id="traffic-cancel-btn" onclick="closeTrafficConfig()">취소</button>
-      <button class="traffic-modal-btn" id="traffic-clear-btn" onclick="clearTrafficConfig()">설정 삭제</button>
-      <button class="traffic-modal-btn" id="traffic-save-btn" onclick="saveTrafficConfig()">저장 및 적용</button>
+    <div id="traffic-config-section" style="display:none">
+      <div id="traffic-modal-desc">국가교통정보센터 ITS API 인증키를 입력하세요.<br/>인증키는 이 기기에만 저장됩니다.</div>
+      <input id="traffic-its-key" type="text" placeholder="ITS API 인증키" autocomplete="off"
+        style="width:100%;background:var(--c133);border:1px solid var(--c55);color:var(--c134);border-radius:7px;padding:9px 10px;font-size:12px;outline:none;"/>
+      <div id="traffic-modal-actions">
+        <button class="traffic-modal-btn" onclick="closeTrafficConfig()">취소</button>
+        <button class="traffic-modal-btn" onclick="clearTrafficConfig()">설정 삭제</button>
+        <button class="traffic-modal-btn" onclick="saveTrafficConfig()">저장 및 적용</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1601,10 +1617,6 @@ function _closeOnOutside(e){
   const btn=document.getElementById('btn-settings');
   if(!menu.contains(e.target)&&!btn.contains(e.target)) closeSettingsMenu();
 }
-
-// sc-editing 진입/종료 시 메뉴 내 저장 버튼 표시/숨김 동기화
-const _origEnterScEditMode=typeof enterScEditMode==='function'?enterScEditMode:null;
-const _origExitScEditMode=typeof exitScEditMode==='function'?exitScEditMode:null;
 
 // 이미 로그인된 세션이면 바로 통과
 (function checkSession() {
@@ -1907,7 +1919,9 @@ let osrmAbortCtrl=null;
 
 // 턴 안내 단계는 분기점을 경로상 5m 이상 통과하고,
 // 차량 방향이 분기점 이후 경로 방향과 비슷할 때만 전환한다.
+// heading 불신뢰 상태에서는 STEP_PASS_FALLBACK_METERS 이상 지나치면 무조건 전환한다.
 const STEP_PASS_MARGIN_METERS=5;
+const STEP_PASS_FALLBACK_METERS=30; // heading 불신뢰 시 fallback 전진 거리
 const HEADING_MATCH_TOLERANCE_DEG=45;
 const ROUTE_HEADING_LOOKAHEAD_METERS=20;
 const COMBINED_MANEUVER_MAX_GAP_METERS=150;
@@ -1938,35 +1952,47 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'�
 
 trafficEventLayer=L.layerGroup().addTo(map);
 
-function normalizeWorkerUrl(value){
-  return String(value||'').trim().replace(/\/+$/,'');
-}
+// ★
+const TRAFFIC_ADMIN_PW='smobi000';
 
 function loadTrafficConfig(){
-  try{ trafficWorkerUrl=normalizeWorkerUrl(localStorage.getItem('nav_traffic_worker_url')); }
+  try{ trafficWorkerUrl=localStorage.getItem('nav_its_key')||''; }
   catch(_){ trafficWorkerUrl=''; }
   updateTrafficButton();
 }
 
 function openTrafficConfig(){
-  const input=document.getElementById('traffic-worker-url');
-  if(input) input.value=trafficWorkerUrl||'';
+  document.getElementById('traffic-pw-section').style.display='';
+  document.getElementById('traffic-config-section').style.display='none';
+  document.getElementById('traffic-pw-input').value='';
+  document.getElementById('traffic-pw-error').style.display='none';
   document.getElementById('traffic-modal').classList.add('show');
+  setTimeout(()=>document.getElementById('traffic-pw-input').focus(),100);
 }
 
 function closeTrafficConfig(){
   document.getElementById('traffic-modal').classList.remove('show');
 }
 
-function saveTrafficConfig(){
-  const input=document.getElementById('traffic-worker-url');
-  const value=normalizeWorkerUrl(input?input.value:'');
-  if(!/^https:\/\//i.test(value)){
-    alert('Cloudflare Worker의 https:// 주소를 입력해주세요.');
-    return;
+function checkTrafficPassword(){
+  const pw=document.getElementById('traffic-pw-input').value;
+  if(pw===TRAFFIC_ADMIN_PW){
+    document.getElementById('traffic-pw-section').style.display='none';
+    document.getElementById('traffic-config-section').style.display='';
+    document.getElementById('traffic-its-key').value=localStorage.getItem('nav_its_key')||'';
+    setTimeout(()=>document.getElementById('traffic-its-key').focus(),100);
+  }else{
+    document.getElementById('traffic-pw-error').style.display='';
+    document.getElementById('traffic-pw-input').value='';
+    document.getElementById('traffic-pw-input').focus();
   }
-  trafficWorkerUrl=value;
-  try{ localStorage.setItem('nav_traffic_worker_url',value); }catch(_){}
+}
+
+function saveTrafficConfig(){
+  const key=(document.getElementById('traffic-its-key').value||'').trim();
+  if(!key){ alert('ITS API 인증키를 입력해주세요.'); return; }
+  trafficWorkerUrl=key;
+  try{ localStorage.setItem('nav_its_key',key); }catch(_){}
   closeTrafficConfig();
   updateTrafficButton();
   startTrafficUpdates(loc);
@@ -1974,7 +2000,7 @@ function saveTrafficConfig(){
 
 function clearTrafficConfig(){
   trafficWorkerUrl='';
-  try{ localStorage.removeItem('nav_traffic_worker_url'); }catch(_){}
+  try{ localStorage.removeItem('nav_its_key'); }catch(_){}
   stopTrafficUpdates(true);
   closeTrafficConfig();
   updateTrafficButton();
@@ -1995,7 +2021,7 @@ function updateTrafficButton(state){
   if(state==='error'){
     btn.classList.add('error'); btn.textContent='🚦 교통 오류'; return;
   }
-  btn.textContent=trafficWorkerUrl?'🚦 교통 대기':'🚦 교통 설정';
+  btn.textContent=trafficWorkerUrl?'🚦 교통 대기':'🚦 교통 설정 필요';
 }
 
 function clearTrafficLayers(){
@@ -2014,7 +2040,7 @@ function startTrafficUpdates(location){
   stopTrafficUpdates(true);
   updateTrafficButton();
   if(!trafficWorkerUrl){
-    updateTrafficStatusCard('설정 필요','Cloudflare Worker 중계 주소를 입력해주세요.');
+    updateTrafficStatusCard('설정 필요','교통 설정에서 ITS API 인증키를 입력해주세요.');
     return;
   }
   refreshTrafficData(true);
@@ -2032,7 +2058,7 @@ function getTrafficBounds(){
     });
   }
   if(!points.length){
-    const c=SCENARIOS[loc].center;
+    const sc=SCENARIOS[loc]; const c=sc?sc.center:[37.498,127.032];
     return {minX:c[1]-.08,maxX:c[1]+.08,minY:c[0]-.08,maxY:c[0]+.08};
   }
   const lats=points.map(p=>p[0]), lngs=points.map(p=>p[1]);
@@ -2079,32 +2105,34 @@ async function refreshTrafficData(manual=false){
   if(trafficAbortCtrl){ try{trafficAbortCtrl.abort();}catch(_){} }
   trafficAbortCtrl=new AbortController();
   const bounds=getTrafficBounds();
-  const params=new URLSearchParams({
-    loc,
-    minX:String(bounds.minX),maxX:String(bounds.maxX),
-    minY:String(bounds.minY),maxY:String(bounds.maxY),
-    roads:getCurrentRoadNames().join('|'),
-    linkIds:getTopisLinkIds().join(',')
-  });
   try{
-    const response=await fetch(`${trafficWorkerUrl}/traffic?${params.toString()}`,{
+    const itsUrl=`https://openapi.its.go.kr:9443/trafficInfo?apiKey=${encodeURIComponent(trafficWorkerUrl)}&type=all&getType=json&minX=${bounds.minX}&maxX=${bounds.maxX}&minY=${bounds.minY}&maxY=${bounds.maxY}`;
+    const response=await fetch(itsUrl,{
       signal:trafficAbortCtrl.signal,
       headers:{'Accept':'application/json'}
     });
-    const body=await response.json().catch(()=>({}));
-    if(!response.ok||body.ok===false){
-      throw new Error(body.error||`HTTP ${response.status}`);
+    const raw=await response.json().catch(()=>({}));
+    if(raw?.header?.resultCode!==0){
+      throw new Error(raw?.header?.resultMsg||`HTTP ${response.status}`);
     }
+    const rows=raw?.body?.items||[];
+    const list=Array.isArray(rows)?rows:[rows];
     trafficData={
-      source:body.source||(loc==='강남'?'TOPIS':'ITS'),
-      traffic:Array.isArray(body.traffic)?body.traffic:[],
-      events:Array.isArray(body.events)?body.events:[],
-      updatedAt:body.updatedAt||new Date().toISOString(),
-      note:body.note||''
+      source:'ITS',
+      traffic:list.map(item=>({
+        roadName:item.roadName||'',
+        linkId:item.linkId||'',
+        speed:Number(item.speed)||0,
+        travelTime:Number(item.travelTime)||0,
+      })),
+      events:[],
+      updatedAt:new Date().toISOString(),
+      note:'교통정보 출처: 국가교통정보센터 ITS'
     };
     trafficLastUpdatedAt=Date.now();
     renderTrafficOverlay();
     updateTrafficSummary();
+    updateCurStats();
     updateTrafficButton('live');
   }catch(error){
     if(error&&error.name==='AbortError') return;
@@ -2627,6 +2655,7 @@ function calculateBearingDegrees(from,to){
 // 현재 분기점을 통과한 직후 따라가야 하는 경로 방향을 구한다.
 // 가까운 다음 회전의 방향이 섞이지 않도록 다음 분기점 직전까지만 사용한다.
 function getExpectedHeadingAfterStep(stepIdx){
+  if(stepIdx<0||stepIdx>=osrmStepRouteMeters.length) return null;
   const stepMeters=osrmStepRouteMeters[stepIdx];
   if(!Number.isFinite(stepMeters)||routeCumulativeMeters.length<2) return null;
 
@@ -2784,22 +2813,42 @@ function getCurrentEtaMin(){
   return Math.max(1,Math.round(lg.time));
 }
 
+function toggleTrafficCard(e){
+  if(e&&(e.target.closest('#traffic-refresh-btn')||e.target.closest('#traffic-close-btn'))) return;
+  const card=document.getElementById('traffic-card');
+  const icon=document.getElementById('traffic-collapse-icon');
+  card.classList.toggle('collapsed');
+  if(icon) icon.textContent=card.classList.contains('collapsed')?'▼':'▲';
+}
+
+function getItsAvgSpeed(){
+  if(!trafficData||!trafficData.traffic||!trafficData.traffic.length) return null;
+  const speeds=trafficData.traffic.map(t=>Number(t.speed)).filter(s=>s>0);
+  if(!speeds.length) return null;
+  return speeds.reduce((a,b)=>a+b,0)/speeds.length;
+}
+
 function updateCurStats(){
   const lg=legs[legIdx]; if(!lg) return;
 
   const realDist=routeDistanceKm(currentRouteCoords);
   if(realDist!=null&&realDist>0) lg.dist=+realDist.toFixed(1);
 
+  // ITS 실시간 속도 반영
+  const itsSpd=getItsAvgSpeed();
   const targetSpd=lg.time>0?(lg.dist/lg.time*60):0;
+  const displaySpd=itsSpd?Math.round(itsSpd):targetSpd;
   lg.spd=targetSpd;
 
-  const etaMin=getCurrentEtaMin();
+  // 실시간 속도로 예상시간 재계산
+  const etaMin=itsSpd&&itsSpd>0
+    ? Math.round(lg.dist/itsSpd*60)
+    : getCurrentEtaMin();
 
   document.getElementById('sv-dist-v').textContent=lg.dist.toFixed(1);
-  document.getElementById('sv-spd-v').textContent=targetSpd.toFixed(1);
+  document.getElementById('sv-spd-v').textContent=displaySpd.toFixed?displaySpd.toFixed(1):displaySpd;
   document.getElementById('sv-time-v').textContent=etaMin;
 
-  // 대기 중(미재생)일 때는 주행 타이머도 "현재예상"과 동일하게 표시
   if(!isPlaying&&phase==='drive') updateTimerDisplay(etaMin*60);
 }
 
@@ -2861,13 +2910,22 @@ let timerWarn5Spoken=false;   // 5분 경고 중복 방지
 function speak(text, priority=false){
   if(!ttsEnabled) return;
   if(!window.speechSynthesis) return;
-  if(priority) window.speechSynthesis.cancel(); // 높은 우선순위면 현재 발화 중단
-  const utt=new SpeechSynthesisUtterance(text);
-  utt.lang='ko-KR';
-  utt.rate=1.05;
-  utt.pitch=1.0;
-  utt.volume=1.0;
-  window.speechSynthesis.speak(utt);
+  const _doSpeak=()=>{
+    const utt=new SpeechSynthesisUtterance(text);
+    utt.lang='ko-KR';
+    utt.rate=1.05;
+    utt.pitch=1.0;
+    utt.volume=1.0;
+    window.speechSynthesis.speak(utt);
+  };
+  if(priority){
+    window.speechSynthesis.cancel();
+    // iOS Safari는 cancel() 직후 speak()를 무시하는 버그가 있어
+    // 다음 태스크에서 speak()를 호출해야 정상 발화된다.
+    setTimeout(_doSpeak, 50);
+  } else {
+    _doSpeak();
+  }
 }
 
 // 음성 안내 버튼 (헤더에 추가)
@@ -2951,7 +3009,13 @@ function updateTurnFromPosition(lat,lng,vehicleHeading=null,headingReliable=fals
       headingReliable
     );
 
-    if(passedMeters>=STEP_PASS_MARGIN_METERS&&headingMatched){
+    // heading 신뢰 시: 5m 통과 + 방향 일치
+    // heading 불신뢰 시: 30m 이상 통과하면 무조건 전진 (기동을 지나쳤는데 안내가 멈추는 현상 방지)
+    const shouldAdvance=
+      (passedMeters>=STEP_PASS_MARGIN_METERS&&headingMatched)||
+      (passedMeters>=STEP_PASS_FALLBACK_METERS);
+
+    if(shouldAdvance){
       currentStepIdx++;
       resetGuidanceDistanceState();
       highlightCurrentStep(currentStepIdx);
@@ -3161,7 +3225,8 @@ function loadScenario(restore){
   doneSet.clear();
   clearOSRM();
   showTurnOverlay(false);
-  const sc=SCENARIOS[loc][scKey];
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey];
+  if(!sc){ console.warn('loadScenario: 유효하지 않은 loc/scKey',loc,scKey); return; }
   legs=sc.legs;
   let idx=0;
   if(restore&&legs.length){
@@ -3180,7 +3245,8 @@ function loadScenario(restore){
     map.setView([savedMapView.lat,savedMapView.lng],savedMapView.zoom,{animate:false});
   }else{
     gpsAutoFollow=true;
-    map.setView(SCENARIOS[loc].center,SCENARIOS[loc].zoom,{animate:false});
+    const _sc=SCENARIOS[loc];
+    map.setView(_sc?_sc.center:[37.498,127.032],_sc?_sc.zoom:13,{animate:false});
   }
   renderMap();
   renderLegList();
@@ -3319,9 +3385,9 @@ function renderCurLeg(){
 }
 
 function updateHeader(){
-  const sc=SCENARIOS[loc][scKey];
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey];
   const el=document.getElementById('hdr-progress');
-  if(el) el.textContent=`${loc} · ${sc.name} · ${doneSet.size}/${legs.length} 완료`;
+  if(el) el.textContent=sc?`${loc} · ${sc.name} · ${doneSet.size}/${legs.length} 완료`:'';
 }
 
 // ══════════════════════════════════════════════════════════
@@ -3340,10 +3406,12 @@ function startTimer(sec){
 function stopTimer(){ if(timerInterval){clearInterval(timerInterval);timerInterval=null;} }
 
 function startRestPhase(){
+  const lg=legs[legIdx];
+  if(!lg){ console.warn('startRestPhase: legs[legIdx] 없음'); return; }
   stopTimer(); phase='rest'; setPhaseUI('rest');
   timerWarn5Spoken=false;
   speak('휴식 시간입니다. 안전한 곳에 정차하세요', true);
-  startTimer(legs[legIdx].rest*60);
+  startTimer(lg.rest*60);
 }
 
 function setPhaseUI(p){
@@ -3493,11 +3561,20 @@ function updateGpsStatus(accuracy, coords, level){
   if(coords) coordEl.textContent=coords[0].toFixed(5)+', '+coords[1].toFixed(5);
 }
 
+let gpsLostTimer=null; // startGPS 스코프 밖으로 이동 — stopGPS에서도 정리 가능
+
+function stopGPS(){
+  if(gpsLostTimer){ clearTimeout(gpsLostTimer); gpsLostTimer=null; }
+  if(watchId!==null){
+    try{ navigator.geolocation.clearWatch(watchId); }catch(_){}
+    watchId=null;
+  }
+}
+
 function startGPS(){
   if(!navigator.geolocation) return;
   document.getElementById('gps-status').classList.add('show');
-  if(watchId!==null) return;
-  let gpsLostTimer=null;
+  stopGPS(); // 기존 watch가 살아있으면 정리 후 재등록
   function resetGpsLostTimer(){
     if(gpsLostTimer) clearTimeout(gpsLostTimer);
     gpsLostTimer=setTimeout(()=>updateGpsStatus(999,null,'lost'),25000);
@@ -3645,6 +3722,9 @@ function startGPS(){
   },err=>{
     updateGpsStatus(999,null,'lost');
     console.warn('GPS 오류',err);
+    // 오류 후 watchId를 초기화해야 startGPS() 재호출 시 재등록이 가능하다
+    if(gpsLostTimer){ clearTimeout(gpsLostTimer); gpsLostTimer=null; }
+    watchId=null;
   },{enableHighAccuracy:true,maximumAge:1500,timeout:10000});
 }
 
@@ -3709,7 +3789,7 @@ function loadCurrentView(){
 // ══════════════════════════════════════════════════════════
 function showDone(){
   renderLegList(); updateHeader();
-  const sc=SCENARIOS[loc][scKey];
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc) return;
   const td=legs.reduce((a,l)=>a+l.dist,0).toFixed(1);
   const tm=legs.reduce((a,l)=>a+l.time+l.rest,0);
   document.getElementById('done-info').textContent=`${loc} · ${sc.name} | ${legs.length}구간 · ${td}km · ${tm}분`;
@@ -3810,16 +3890,22 @@ let addLegMode=false, alfStartMk=null, alfEndMk=null;
 let alfSLL=null, alfELL=null;
 let alfOsrmDist=0, alfOsrmTime=0;
 
-async function alfReverseGeocode(lat,lng,inputId){
-  try{
-    const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ko`,
-      {headers:{'Accept-Language':'ko'}});
-    const d=await r.json();
-    const a=d.address||{};
-    const name=a.road||a.suburb||a.neighbourhood||a.village||a.city_district||a.city||(d.display_name||'').split(',')[0];
-    const el=document.getElementById(inputId);
-    if(el&&!el._userEdited) el.value=name||'';
-  }catch(_){}
+const _alfGeoTimers={}; // inputId별 debounce 타이머 (drag 연속 호출 rate-limit 방지)
+function alfReverseGeocode(lat,lng,inputId){
+  // 마커 드래그 연속 호출 시 마지막 위치만 Nominatim에 요청 (800ms debounce)
+  if(_alfGeoTimers[inputId]) clearTimeout(_alfGeoTimers[inputId]);
+  _alfGeoTimers[inputId]=setTimeout(async()=>{
+    delete _alfGeoTimers[inputId];
+    try{
+      const r=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=ko`,
+        {headers:{'Accept-Language':'ko'}});
+      const d=await r.json();
+      const a=d.address||{};
+      const name=a.road||a.suburb||a.neighbourhood||a.village||a.city_district||a.city||(d.display_name||'').split(',')[0];
+      const el=document.getElementById(inputId);
+      if(el&&!el._userEdited) el.value=name||'';
+    }catch(_){}
+  },800);
 }
 
 async function alfFetchOSRM(){
@@ -3853,7 +3939,7 @@ function toggleAddLegForm(){
 
   // 출발점 = 이전 구간 도착 좌표
   const lastLeg=legs[legs.length-1];
-  alfSLL=lastLeg?[...lastLeg.eLL]:[...SCENARIOS[loc].center];
+  const _alfSc=SCENARIOS[loc]; alfSLL=lastLeg?[...lastLeg.eLL]:[...(_alfSc?_alfSc.center:[37.498,127.032])];
   alfELL=[alfSLL[0]-0.006, alfSLL[1]+0.008];
 
   document.getElementById('alf-s').value=lastLeg?lastLeg.e:'';
@@ -3917,7 +4003,7 @@ function addNewLeg(){
 
   if(!alfSLL||!alfELL){ alert('출발·도착 마커를 지도에서 이동해 위치를 설정하세요.'); return; }
 
-  const sc=SCENARIOS[loc][scKey];
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc) return;
   const prefix=sc.legs[0]?sc.legs[0].id.replace(/\d+$/,''):'NEW';
   const newId=prefix+(sc.legs.length+1);
   sc.legs.push({id:newId,s,e,sLL:[...alfSLL],eLL:[...alfELL],dist,spd,time,rest:0});
@@ -3933,7 +4019,7 @@ function deleteCurrentLeg(){
   if(!legs[legIdx]){ alert('삭제할 구간이 없습니다.'); return; }
   const lg=legs[legIdx];
   if(!confirm(`"${lg.id}: ${lg.s} → ${lg.e}" 구간을 삭제할까요?`)) return;
-  const sc=SCENARIOS[loc][scKey];
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc) return;
   sc.legs.splice(legIdx,1);
   if(legIdx>=sc.legs.length) legIdx=Math.max(0,sc.legs.length-1);
   saveWaypointsToStorage();
@@ -4178,8 +4264,11 @@ function loadTripLog(){
   }catch(e){ return []; }
 }
 
+const TRIP_LOG_MAX=500;
 function saveTripLog(log){
-  try{ localStorage.setItem('nav_trip_log',JSON.stringify(log)); }
+  // 최대 500건 초과 시 오래된 항목부터 제거
+  const trimmed=log.length>TRIP_LOG_MAX?log.slice(log.length-TRIP_LOG_MAX):log;
+  try{ localStorage.setItem('nav_trip_log',JSON.stringify(trimmed)); }
   catch(e){ console.warn('주행 기록 저장 실패:',e); }
 }
 
@@ -4213,8 +4302,13 @@ function finalizeLegSession(idx,endPos){
   legStartTime=null; legStartPos=null;
 
   // 출발/도착 GPS 좌표를 건물·장소명으로 비동기 변환 (실패 시 좌표 그대로 유지)
-  reverseGeocodePlace(sPos[0],sPos[1]).then(name=>updateTripLogPlace(entryId,'start',name));
-  reverseGeocodePlace(ePos[0],ePos[1]).then(name=>updateTripLogPlace(entryId,'end',name));
+  // Nominatim 무료 정책(1 req/sec)을 지키기 위해 순차 호출한다.
+  reverseGeocodePlace(sPos[0],sPos[1]).then(name=>{
+    updateTripLogPlace(entryId,'start',name);
+    setTimeout(()=>{
+      reverseGeocodePlace(ePos[0],ePos[1]).then(n=>updateTripLogPlace(entryId,'end',n));
+    },1100);
+  });
 }
 
 // GPS 좌표 → 건물/장소명 (예: "서울대학교 시흥캠퍼스"). 실패 시 null.
@@ -4432,10 +4526,21 @@ async function handleImportFile(ev){
 
     if(data.waypoints) Object.assign(WAYPOINTS,data.waypoints);
     if(data.customLegs){
+      // 각 구간이 필수 필드(id·s·e·sLL·eLL)를 갖추고 있는지 검증 후 덮어씀
+      const isValidLeg=lg=>lg&&typeof lg==='object'
+        &&typeof lg.id==='string'
+        &&Array.isArray(lg.sLL)&&lg.sLL.length===2
+        &&Array.isArray(lg.eLL)&&lg.eLL.length===2
+        &&Number.isFinite(lg.sLL[0])&&Number.isFinite(lg.sLL[1])
+        &&Number.isFinite(lg.eLL[0])&&Number.isFinite(lg.eLL[1]);
       Object.keys(SCENARIOS).forEach(locKey=>{
         Object.keys(SCENARIOS[locKey]).forEach(scK=>{
           const saved=data.customLegs[`${locKey}-${scK}`];
-          if(saved&&saved.length) SCENARIOS[locKey][scK].legs=saved;
+          if(!Array.isArray(saved)||!saved.length) return;
+          const valid=saved.filter(isValidLeg);
+          if(valid.length!==saved.length)
+            console.warn(`import: ${locKey}-${scK} 중 ${saved.length-valid.length}개 구간이 유효하지 않아 제외됨`);
+          if(valid.length) SCENARIOS[locKey][scK].legs=valid;
         });
       });
     }
@@ -4455,9 +4560,15 @@ async function handleImportFile(ev){
     updateTripLogCount();
 
     // 위치/시나리오/구간 복원
+    // loc → scKey 순서로 먼저 확정한 뒤 UI를 갱신해 불일치 구간을 없앤다.
     if(data.currentView&&SCENARIOS[data.currentView.loc]){
-      loc=data.currentView.loc;
-      if(SCENARIOS[loc][data.currentView.scKey]) scKey=data.currentView.scKey;
+      const newLoc=data.currentView.loc;
+      // 새 loc 기준으로 scKey 유효성 검사 — 없으면 해당 loc의 첫 번째 키로 fallback
+      const newScKey=
+        (SCENARIOS[newLoc][data.currentView.scKey])
+          ? data.currentView.scKey
+          : Object.keys(SCENARIOS[newLoc])[0];
+      loc=newLoc; scKey=newScKey; // loc·scKey 동시 확정 후 UI 갱신
       applyLocUI(loc);
       const scSelEl=document.getElementById('sc-sel');
       if(scSelEl) scSelEl.value=scKey;
@@ -4496,50 +4607,66 @@ function exitEditMode(){
 //  패널 크기 조절 (드래그 리사이즈)
 // ══════════════════════════════════════════════════════════
 (function initResize(){
-  // 우측 패널 ← 핸들 드래그
+  // 터치/마우스 공통 좌표 추출 헬퍼
+  const clientX=e=>e.touches?e.touches[0].clientX:e.clientX;
+  const clientY=e=>e.touches?e.touches[0].clientY:e.clientY;
+
+  // 우측 패널 ← 핸들 드래그 (mouse + touch)
   let panelDragging=false, panelStartX=0, panelStartW=0;
   const panelHandle=document.getElementById('panel-resize-handle');
-  panelHandle.addEventListener('mousedown',e=>{
-    panelDragging=true; panelStartX=e.clientX;
+  const onPanelStart=e=>{
+    panelDragging=true; panelStartX=clientX(e);
     panelStartW=document.getElementById('panel').offsetWidth;
     panelHandle.classList.add('dragging');
     document.body.style.userSelect='none';
     e.preventDefault();
-  });
-  document.addEventListener('mousemove',e=>{
+  };
+  const onPanelMove=e=>{
     if(!panelDragging) return;
-    const delta=panelStartX-e.clientX;
+    const delta=panelStartX-clientX(e);
     const newW=Math.max(280,Math.min(680,panelStartW+delta));
     document.getElementById('main').style.gridTemplateColumns=`1fr ${newW}px`;
-  });
-  document.addEventListener('mouseup',()=>{
+  };
+  const onPanelEnd=()=>{
     if(!panelDragging) return;
     panelDragging=false;
     panelHandle.classList.remove('dragging');
     document.body.style.userSelect='';
-  });
+  };
+  panelHandle.addEventListener('mousedown',onPanelStart);
+  panelHandle.addEventListener('touchstart',onPanelStart,{passive:false});
+  document.addEventListener('mousemove',onPanelMove);
+  document.addEventListener('touchmove',onPanelMove,{passive:false});
+  document.addEventListener('mouseup',onPanelEnd);
+  document.addEventListener('touchend',onPanelEnd);
 
-  // 경로 안내 패널 ↑ 핸들 드래그
+  // 경로 안내 패널 ↑ 핸들 드래그 (mouse + touch)
   let stepsDragging=false, stepsStartY=0, stepsStartH=0;
   const stepsHandle=document.getElementById('steps-resize-handle');
-  stepsHandle.addEventListener('mousedown',e=>{
+  const onStepsStart=e=>{
     if(document.getElementById('steps-panel').classList.contains('collapsed')) return;
-    stepsDragging=true; stepsStartY=e.clientY;
+    stepsDragging=true; stepsStartY=clientY(e);
     stepsStartH=document.getElementById('steps-panel').offsetHeight;
     document.body.style.userSelect='none';
     e.preventDefault();
-  });
-  document.addEventListener('mousemove',e=>{
+  };
+  const onStepsMove=e=>{
     if(!stepsDragging) return;
-    const delta=stepsStartY-e.clientY; // 위로 드래그 = 더 크게
+    const delta=stepsStartY-clientY(e); // 위로 드래그 = 더 크게
     const newH=Math.max(60,Math.min(window.innerHeight*0.65,stepsStartH+delta));
     document.getElementById('steps-panel').style.height=newH+'px';
-  });
-  document.addEventListener('mouseup',()=>{
+  };
+  const onStepsEnd=()=>{
     if(!stepsDragging) return;
     stepsDragging=false;
     document.body.style.userSelect='';
-  });
+  };
+  stepsHandle.addEventListener('mousedown',onStepsStart);
+  stepsHandle.addEventListener('touchstart',onStepsStart,{passive:false});
+  document.addEventListener('mousemove',onStepsMove);
+  document.addEventListener('touchmove',onStepsMove,{passive:false});
+  document.addEventListener('mouseup',onStepsEnd);
+  document.addEventListener('touchend',onStepsEnd);
 })();
 
 // 초기화 — 저장된 경로 먼저 불러온 뒤 시나리오 로드
