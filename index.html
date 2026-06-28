@@ -849,9 +849,13 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   position:absolute;top:12px;right:12px;z-index:1001;width:min(320px,calc(100% - 24px));
   background:var(--ov-bg4);border:1px solid var(--c114);border-radius:11px;
   box-shadow:0 5px 20px rgba(0,0,0,.45);backdrop-filter:blur(8px);padding:10px 12px;
-  display:none;
+  display:none;cursor:pointer;transition:padding .15s;
 }
 #traffic-card.show{display:block;}
+#traffic-card.collapsed #traffic-summary,
+#traffic-card.collapsed #traffic-legend,
+#traffic-card.collapsed #traffic-note{display:none;}
+#traffic-card.collapsed{padding:7px 12px;}
 #traffic-card-head{display:flex;align-items:center;gap:7px;}
 #traffic-source{font-size:12px;font-weight:800;color:var(--c115);flex:1;}
 #traffic-refresh-btn{background:var(--c116);color:var(--c117);border:1px solid var(--c118);border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;}
@@ -1120,7 +1124,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.1.7</span>
+    <span id="app-version" title="애플리케이션 버전">v3.1.8</span>
   </div>
 </div>
 
@@ -1218,11 +1222,12 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     </div>
 
     <!-- 공공 교통정보 상태 -->
-    <div id="traffic-card">
+    <div id="traffic-card" onclick="toggleTrafficCard(event)">
       <div id="traffic-card-head">
         <span id="traffic-source">교통정보 준비 중</span>
-        <button id="traffic-refresh-btn" onclick="refreshTrafficData(true)">새로고침</button>
-        <button id="traffic-close-btn" onclick="document.getElementById('traffic-card').classList.remove('show')">✕</button>
+        <span id="traffic-collapse-icon" style="font-size:10px;color:var(--c120);margin-right:2px">▲</span>
+        <button id="traffic-refresh-btn" onclick="event.stopPropagation();refreshTrafficData(true)">새로고침</button>
+        <button id="traffic-close-btn" onclick="event.stopPropagation();document.getElementById('traffic-card').classList.remove('show')">✕</button>
       </div>
       <div id="traffic-status-line">중계 서버를 설정해주세요.</div>
       <div id="traffic-summary">
@@ -2127,6 +2132,7 @@ async function refreshTrafficData(manual=false){
     trafficLastUpdatedAt=Date.now();
     renderTrafficOverlay();
     updateTrafficSummary();
+    updateCurStats();
     updateTrafficButton('live');
   }catch(error){
     if(error&&error.name==='AbortError') return;
@@ -2807,22 +2813,42 @@ function getCurrentEtaMin(){
   return Math.max(1,Math.round(lg.time));
 }
 
+function toggleTrafficCard(e){
+  if(e&&(e.target.closest('#traffic-refresh-btn')||e.target.closest('#traffic-close-btn'))) return;
+  const card=document.getElementById('traffic-card');
+  const icon=document.getElementById('traffic-collapse-icon');
+  card.classList.toggle('collapsed');
+  if(icon) icon.textContent=card.classList.contains('collapsed')?'▼':'▲';
+}
+
+function getItsAvgSpeed(){
+  if(!trafficData||!trafficData.traffic||!trafficData.traffic.length) return null;
+  const speeds=trafficData.traffic.map(t=>Number(t.speed)).filter(s=>s>0);
+  if(!speeds.length) return null;
+  return speeds.reduce((a,b)=>a+b,0)/speeds.length;
+}
+
 function updateCurStats(){
   const lg=legs[legIdx]; if(!lg) return;
 
   const realDist=routeDistanceKm(currentRouteCoords);
   if(realDist!=null&&realDist>0) lg.dist=+realDist.toFixed(1);
 
+  // ITS 실시간 속도 반영
+  const itsSpd=getItsAvgSpeed();
   const targetSpd=lg.time>0?(lg.dist/lg.time*60):0;
+  const displaySpd=itsSpd?Math.round(itsSpd):targetSpd;
   lg.spd=targetSpd;
 
-  const etaMin=getCurrentEtaMin();
+  // 실시간 속도로 예상시간 재계산
+  const etaMin=itsSpd&&itsSpd>0
+    ? Math.round(lg.dist/itsSpd*60)
+    : getCurrentEtaMin();
 
   document.getElementById('sv-dist-v').textContent=lg.dist.toFixed(1);
-  document.getElementById('sv-spd-v').textContent=targetSpd.toFixed(1);
+  document.getElementById('sv-spd-v').textContent=displaySpd.toFixed?displaySpd.toFixed(1):displaySpd;
   document.getElementById('sv-time-v').textContent=etaMin;
 
-  // 대기 중(미재생)일 때는 주행 타이머도 "현재예상"과 동일하게 표시
   if(!isPlaying&&phase==='drive') updateTimerDisplay(etaMin*60);
 }
 
