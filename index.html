@@ -845,31 +845,38 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #btn-traffic.loading{color:var(--c14);border-color:var(--c110);}
 #btn-traffic.live{color:var(--c10);border-color:var(--c111);background:var(--c112);}
 #btn-traffic.error{color:var(--c15);border-color:var(--c17);background:var(--c113);}
+/* 신호등 버튼 */
+#traffic-fab{
+  position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  z-index:1001;width:38px;height:38px;border-radius:50%;
+  background:var(--ov-bg4);border:1px solid var(--c114);
+  box-shadow:0 2px 8px rgba(0,0,0,.4);backdrop-filter:blur(6px);
+  display:none;align-items:center;justify-content:center;
+  font-size:20px;cursor:pointer;
+}
+#traffic-fab.show{display:flex;}
+#traffic-fab.live{border-color:var(--c111);background:var(--c112);}
+#traffic-fab.error{border-color:var(--c17);}
+/* 팝업 카드 */
 #traffic-card{
-  position:absolute;bottom:12px;right:12px;z-index:1001;width:min(220px,calc(100% - 24px));
-  background:var(--ov-bg4);border:1px solid var(--c114);border-radius:9px;
-  box-shadow:0 3px 12px rgba(0,0,0,.45);backdrop-filter:blur(8px);padding:7px 9px;
-  display:none;cursor:pointer;transition:all .15s;
+  position:absolute;right:56px;top:50%;transform:translateY(-50%);
+  z-index:1002;width:min(260px,calc(100vw - 80px));
+  background:var(--ov-bg4);border:1px solid var(--c114);border-radius:10px;
+  box-shadow:0 4px 16px rgba(0,0,0,.5);backdrop-filter:blur(8px);padding:10px 12px;
+  display:none;
 }
 #traffic-card.show{display:block;}
-#traffic-card.collapsed #traffic-summary,
-#traffic-card.collapsed #traffic-legend,
-#traffic-card.collapsed #traffic-note,
-#traffic-card.collapsed #traffic-status-line{display:none;}
-#traffic-card-head{display:flex;align-items:center;gap:5px;}
-#traffic-source{font-size:10px;font-weight:800;color:var(--c115);flex:1;}
-#traffic-collapse-icon{font-size:9px;color:var(--c120);}
-#traffic-refresh-btn{background:var(--c116);color:var(--c117);border:1px solid var(--c118);border-radius:4px;padding:2px 5px;font-size:9px;cursor:pointer;}
-#traffic-close-btn{background:none;border:none;color:var(--c119);font-size:11px;cursor:pointer;padding:1px;}
-#traffic-status-line{font-size:9px;color:var(--c120);margin-top:3px;}
-#traffic-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin-top:6px;}
-.traffic-stat{border:1px solid var(--c121);background:var(--c122);border-radius:5px;padding:4px 2px;text-align:center;}
-.traffic-stat b{display:block;font-size:11px;color:var(--c53);}
-.traffic-stat span{font-size:8px;color:var(--c123);}
-#traffic-legend{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;font-size:8px;color:var(--c124);}
-.traffic-key{display:inline-flex;align-items:center;gap:2px;}
-.traffic-swatch{width:11px;height:3px;border-radius:3px;display:inline-block;}
-#traffic-note{font-size:8px;color:var(--c125);line-height:1.35;margin-top:5px;}
+#traffic-card-head{display:flex;align-items:center;gap:5px;margin-bottom:6px;}
+#traffic-source{font-size:11px;font-weight:800;color:var(--c115);flex:1;}
+#traffic-refresh-btn{background:var(--c116);color:var(--c117);border:1px solid var(--c118);border-radius:4px;padding:2px 6px;font-size:9px;cursor:pointer;}
+#traffic-close-btn{background:none;border:none;color:var(--c119);font-size:13px;cursor:pointer;padding:2px;}
+#traffic-status-line{font-size:9px;color:var(--c120);margin-bottom:8px;}
+#traffic-leg-info{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;}
+.tli-box{background:var(--c122);border:1px solid var(--c121);border-radius:7px;padding:6px 8px;text-align:center;}
+.tli-label{font-size:9px;color:var(--c123);margin-bottom:2px;}
+.tli-val{font-size:15px;font-weight:800;color:var(--c53);}
+.tli-unit{font-size:9px;color:var(--c132);margin-left:2px;}
+#traffic-note{font-size:8px;color:var(--c125);line-height:1.4;margin-top:4px;}
 .traffic-event-icon{background:transparent;border:none;}
 .traffic-event-pin{width:25px;height:25px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--c12);border:2px solid var(--btn-text);box-shadow:0 2px 7px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;}
 .traffic-event-pin span{transform:rotate(45deg);font-size:12px;}
@@ -960,8 +967,8 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 @media(max-width:700px){
   #btn-traffic{font-size:10px;padding:4px 7px;}
-  #traffic-card{bottom:6px;right:6px;width:calc(100% - 12px);padding:6px 8px;}
-  #traffic-summary{gap:3px;}
+  #traffic-fab{right:8px;top:50%;width:36px;height:36px;font-size:18px;}
+  #traffic-card{right:52px;width:min(240px,calc(100vw - 70px));}
   .traffic-stat b{font-size:12px;}
 }
 
@@ -1125,7 +1132,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.1.9</span>
+    <span id="app-version" title="애플리케이션 버전">v3.2.0</span>
   </div>
 </div>
 
@@ -1222,29 +1229,28 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       </div>
     </div>
 
-    <!-- 공공 교통정보 상태 -->
-    <div id="traffic-card" onclick="toggleTrafficCard(event)">
+    <!-- 신호등 버튼 -->
+    <div id="traffic-fab" onclick="toggleTrafficCard()">🚦</div>
+
+    <!-- 교통정보 팝업 -->
+    <div id="traffic-card">
       <div id="traffic-card-head">
-        <span id="traffic-source">교통정보 준비 중</span>
-        <span id="traffic-collapse-icon">▲</span>
-        <button id="traffic-refresh-btn" onclick="event.stopPropagation();refreshTrafficData(true)">새로고침</button>
-        <button id="traffic-close-btn" onclick="event.stopPropagation();document.getElementById('traffic-card').classList.remove('show')">✕</button>
+        <span id="traffic-source">교통정보</span>
+        <button id="traffic-refresh-btn" onclick="refreshTrafficData(true)">새로고침</button>
+        <button id="traffic-close-btn" onclick="toggleTrafficCard()">✕</button>
       </div>
       <div id="traffic-status-line">설정이 필요합니다.</div>
-      <div id="traffic-summary">
-        <div class="traffic-stat"><b id="traffic-smooth">0</b><span>원활</span></div>
-        <div class="traffic-stat"><b id="traffic-slow">0</b><span>서행</span></div>
-        <div class="traffic-stat"><b id="traffic-jam">0</b><span>정체</span></div>
-        <div class="traffic-stat"><b id="traffic-events">0</b><span>돌발</span></div>
+      <div id="traffic-leg-info">
+        <div class="tli-box">
+          <div class="tli-label">출발지 속도</div>
+          <div class="tli-val" id="tli-spd-s">0<span class="tli-unit">km/h</span></div>
+        </div>
+        <div class="tli-box">
+          <div class="tli-label">도착지 속도</div>
+          <div class="tli-val" id="tli-spd-e">0<span class="tli-unit">km/h</span></div>
+        </div>
       </div>
-      <div id="traffic-legend">
-        <span class="traffic-key"><i class="traffic-swatch" style="background:#22c55e"></i>원활</span>
-        <span class="traffic-key"><i class="traffic-swatch" style="background:#facc15"></i>서행</span>
-        <span class="traffic-key"><i class="traffic-swatch" style="background:#ef4444"></i>정체</span>
-        <span class="traffic-key"><i class="traffic-swatch" style="background:#6b7280"></i>지나간 길</span>
-        <span class="traffic-key"><i class="traffic-swatch" style="background:#3b82f6"></i>정보 없음</span>
-      </div>
-      <div id="traffic-note">강남은 서울 TOPIS, 판교·시흥은 국가교통정보센터 ITS를 사용하며 15분마다 갱신합니다.</div>
+      <div id="traffic-note"></div>
     </div>
 
     <!-- GPS 상태 -->
@@ -2009,20 +2015,20 @@ function clearTrafficConfig(){
 
 function updateTrafficButton(state){
   const btn=document.getElementById('btn-traffic');
-  if(!btn) return;
-  btn.classList.remove('loading','live','error');
-  if(state==='loading'){
-    btn.classList.add('loading'); btn.textContent='🚦 교통 조회 중'; return;
+  const fab=document.getElementById('traffic-fab');
+  if(btn){
+    btn.classList.remove('loading','live','error');
+    if(state==='loading'){ btn.classList.add('loading'); btn.textContent='🚦 교통 조회 중'; }
+    else if(state==='live'){ btn.classList.add('live'); btn.textContent='🚦 국가 ITS 실시간'; }
+    else if(state==='error'){ btn.classList.add('error'); btn.textContent='🚦 교통 오류'; }
+    else { btn.textContent=trafficWorkerUrl?'🚦 교통 대기':'🚦 교통 설정 필요'; }
   }
-  if(state==='live'){
-    btn.classList.add('live');
-    btn.textContent=loc==='강남'?'🚦 TOPIS 실시간':'🚦 국가 ITS 실시간';
-    return;
+  if(fab){
+    fab.classList.remove('live','error');
+    if(state==='live') fab.classList.add('live');
+    else if(state==='error') fab.classList.add('error');
+    if(trafficWorkerUrl) fab.classList.add('show');
   }
-  if(state==='error'){
-    btn.classList.add('error'); btn.textContent='🚦 교통 오류'; return;
-  }
-  btn.textContent=trafficWorkerUrl?'🚦 교통 대기':'🚦 교통 설정 필요';
 }
 
 function clearTrafficLayers(){
@@ -2236,31 +2242,35 @@ function escapeTrafficHtml(value){
   return String(value||'').replace(/[&<>'"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
 }
 
+function getLegLinkSpeed(linkId){
+  if(!trafficData||!trafficData.traffic||!linkId) return null;
+  const id=String(linkId).trim();
+  const item=trafficData.traffic.find(t=>String(t.linkId).trim()===id);
+  return item&&Number(item.speed)>0?Math.round(Number(item.speed)):null;
+}
+
 function updateTrafficSummary(){
-  let smooth=0,slow=0,jam=0;
-  trafficData.traffic.forEach(item=>{
-    const status=classifyTraffic(item.speed,item.roadType);
-    if(status==='smooth') smooth++;
-    else if(status==='slow') slow++;
-    else if(status==='jam') jam++;
-  });
-  document.getElementById('traffic-smooth').textContent=smooth;
-  document.getElementById('traffic-slow').textContent=slow;
-  document.getElementById('traffic-jam').textContent=jam;
-  document.getElementById('traffic-events').textContent=trafficData.events.length;
   const dt=new Date(trafficData.updatedAt||Date.now());
   const label=Number.isNaN(dt.getTime())?'방금':dt.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
-  const source=trafficData.source==='TOPIS'?'서울 TOPIS':'국가교통정보센터 ITS';
+  const source='국가교통정보센터 ITS';
   document.getElementById('traffic-source').textContent=`🚦 ${source} · ${loc}`;
   document.getElementById('traffic-status-line').textContent=`${label} 업데이트 · 다음 갱신 약 15분 후`;
-  document.getElementById('traffic-note').textContent=trafficData.note||'도로명 매칭이 가능한 구간은 실시간 속도 색상으로 표시합니다.';
-  document.getElementById('traffic-card').classList.add('show');
+
+  // 출발/도착 링크 속도 표시
+  const lg=legs[legIdx];
+  const sSpd=lg?getLegLinkSpeed(lg.sId):null;
+  const eSpd=lg?getLegLinkSpeed(lg.eId):null;
+  const sEl=document.getElementById('tli-spd-s');
+  const eEl=document.getElementById('tli-spd-e');
+  if(sEl) sEl.innerHTML=`${sSpd??0}<span class="tli-unit">km/h</span>`;
+  if(eEl) eEl.innerHTML=`${eSpd??0}<span class="tli-unit">km/h</span>`;
+
+  document.getElementById('traffic-note').textContent=trafficData.note||'';
 }
 
 function updateTrafficStatusCard(source,message){
   document.getElementById('traffic-source').textContent=`🚦 ${source}`;
   document.getElementById('traffic-status-line').textContent=message;
-  document.getElementById('traffic-card').classList.add('show');
 }
 
 // 모바일에서 백그라운드 타이머가 멈춘 경우 화면 복귀 시 즉시 보정한다.
@@ -2814,19 +2824,18 @@ function getCurrentEtaMin(){
   return Math.max(1,Math.round(lg.time));
 }
 
-function toggleTrafficCard(e){
-  if(e&&(e.target.closest('#traffic-refresh-btn')||e.target.closest('#traffic-close-btn'))) return;
+function toggleTrafficCard(){
   const card=document.getElementById('traffic-card');
-  const icon=document.getElementById('traffic-collapse-icon');
-  card.classList.toggle('collapsed');
-  if(icon) icon.textContent=card.classList.contains('collapsed')?'▼':'▲';
+  card.classList.toggle('show');
 }
 
-function getItsAvgSpeed(){
-  if(!trafficData||!trafficData.traffic||!trafficData.traffic.length) return null;
-  const speeds=trafficData.traffic.map(t=>Number(t.speed)).filter(s=>s>0);
-  if(!speeds.length) return null;
-  return speeds.reduce((a,b)=>a+b,0)/speeds.length;
+function getItsLegAvgSpeed(){
+  const lg=legs[legIdx]; if(!lg) return null;
+  const sSpd=getLegLinkSpeed(lg.sId);
+  const eSpd=getLegLinkSpeed(lg.eId);
+  const valid=[sSpd,eSpd].filter(v=>v!=null&&v>0);
+  if(!valid.length) return null;
+  return valid.reduce((a,b)=>a+b,0)/valid.length;
 }
 
 function updateCurStats(){
@@ -2835,22 +2844,17 @@ function updateCurStats(){
   const realDist=routeDistanceKm(currentRouteCoords);
   if(realDist!=null&&realDist>0) lg.dist=+realDist.toFixed(1);
 
-  // ITS 실시간 속도 반영
-  const itsSpd=getItsAvgSpeed();
-  const targetSpd=lg.time>0?(lg.dist/lg.time*60):0;
-  lg.spd=targetSpd;
+  lg.spd=lg.time>0?(lg.dist/lg.time*60):0;
 
-  // ITS 데이터 없으면 0, 있으면 실시간 속도로 예상시간 계산
+  // 출발/도착 링크 평균속도로 예상시간 계산, 없으면 0
+  const itsSpd=getItsLegAvgSpeed();
   const displaySpd=itsSpd?Math.round(itsSpd):0;
-  const etaMin=itsSpd&&itsSpd>0
-    ? Math.round(lg.dist/itsSpd*60)
-    : 0;
+  const etaMin=itsSpd&&itsSpd>0?Math.round(lg.dist/itsSpd*60):0;
 
   document.getElementById('sv-dist-v').textContent=lg.dist.toFixed(1);
   document.getElementById('sv-spd-v').textContent=displaySpd;
   document.getElementById('sv-time-v').textContent=etaMin;
 
-  // 대기 중(미재생)일 때는 주행 타이머도 "현재예상"과 동일하게 표시
   if(!isPlaying&&phase==='drive') updateTimerDisplay(etaMin*60);
 }
 
