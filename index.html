@@ -1132,7 +1132,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.2.4</span>
+    <span id="app-version" title="애플리케이션 버전">v3.2.5</span>
   </div>
 </div>
 
@@ -2359,19 +2359,10 @@ async function fetchOSRM(sLL,eLL,legId){
       const route=data.routes[0];
       osrmDuration=route.duration;
       const coords=route.geometry.coordinates;
-      // 첫/끝 좌표를 출발/도착 핀으로 고정하고
-      // 도착지 이후 좌표는 제거
-      coords.unshift([sLL[1],sLL[0]]);
-      // 도착지 좌표와 가장 가까운 인덱스를 찾아 거기서 자름
-      const eLng=eLL[1], eLat=eLL[0];
-      let closestIdx=coords.length-1, closestDist=Infinity;
-      for(let i=0;i<coords.length;i++){
-        const d=Math.hypot(coords[i][0]-eLng, coords[i][1]-eLat);
-        if(d<closestDist){ closestDist=d; closestIdx=i; }
-      }
-      const trimmed=coords.slice(0,closestIdx+1);
-      trimmed.push([eLL[1],eLL[0]]);
-      currentRouteCoords=trimmed;
+      // 첫/끝 좌표를 출발/도착 핀으로 정확히 고정
+      coords[0]=[sLL[1],sLL[0]];
+      coords[coords.length-1]=[eLL[1],eLL[0]];
+      currentRouteCoords=coords;
       drawOSRMRoute(currentRouteCoords);
       // 다중 waypoint → legs 배열 flatten
       // depart/중간arrive 모두 제거 — 실제 회전 지시 스텝만 남김
@@ -2596,13 +2587,23 @@ function getStepRouteDistanceMeters(stepIdx,progressMeters=routeProgressMeters){
 }
 
 // 실제 운전자 조작이 필요한 안내만 남긴다.
-// 단순 도로명 변경, 알림, 직진 유지 스텝은 다음 유효 안내와 합친다.
 function isActionableGuidanceStep(step){
   const type=step&&step.maneuver&&step.maneuver.type;
   const modifier=(step&&step.maneuver&&step.maneuver.modifier)||'straight';
 
   if(type==='arrive') return true;
-  if(type==='new name'||type==='notification') return false;
+  if(type==='notification') return false;
+  if(type==='new name'){
+    // bearing 차이가 20도 이상이면 실제 방향 변경이므로 남긴다
+    const before=step.maneuver.bearing_before;
+    const after=step.maneuver.bearing_after;
+    if(typeof before==='number'&&typeof after==='number'){
+      let diff=((after-before)+360)%360;
+      if(diff>180) diff-=360;
+      if(Math.abs(diff)>=20) return true;
+    }
+    return false;
+  }
   if(type==='continue'&&(modifier==='straight'||modifier==='')) return false;
   if(type==='turn'&&modifier==='straight') return false;
   return true;
