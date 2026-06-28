@@ -1186,7 +1186,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v4.0.2</span>
+    <span id="app-version" title="애플리케이션 버전">v4.0.3</span>
   </div>
 </div>
 
@@ -3940,7 +3940,6 @@ function togglePlay(){
     document.getElementById('btn-play').textContent='⏸ 정지';
     document.getElementById('btn-play').className='ctrl-btn running';
     startGPS();
-    startCollectorRecording(); // 수집 시스템 녹화 시작
     const lg=legs[legIdx];
     fetchOSRM(lg.sLL,lg.eLL,lg.id);
   }
