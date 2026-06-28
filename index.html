@@ -1120,7 +1120,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.1.6</span>
+    <span id="app-version" title="애플리케이션 버전">v3.1.7</span>
   </div>
 </div>
 
@@ -1356,16 +1356,27 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 <div id="traffic-modal" onclick="if(event.target===this) closeTrafficConfig()">
   <div id="traffic-modal-box">
-    <div id="traffic-modal-title">🚦 공공 교통정보 연결</div>
-    <div id="traffic-modal-desc">
-      GitHub Pages에서 인증키를 노출하지 않도록 Cloudflare Worker 중계 주소를 사용합니다.<br/>
-      강남은 서울 TOPIS, 판교·시흥은 국가 ITS를 즉시 조회하고 이후 15분마다 갱신합니다.
+    <div id="traffic-modal-title">🚦 교통정보 설정</div>
+    <div id="traffic-pw-section">
+      <div id="traffic-modal-desc">관리자 비밀번호를 입력하세요.</div>
+      <input id="traffic-pw-input" type="password" placeholder="비밀번호" autocomplete="off"
+        style="width:100%;background:var(--c133);border:1px solid var(--c55);color:var(--c134);border-radius:7px;padding:9px 10px;font-size:12px;outline:none;"
+        onkeydown="if(event.key==='Enter') checkTrafficPassword()"/>
+      <div id="traffic-pw-error" style="color:#e05;font-size:11px;margin-top:5px;display:none">비밀번호가 틀렸습니다.</div>
+      <div id="traffic-modal-actions">
+        <button class="traffic-modal-btn" onclick="closeTrafficConfig()">취소</button>
+        <button class="traffic-modal-btn" onclick="checkTrafficPassword()">확인</button>
+      </div>
     </div>
-    <input id="traffic-worker-url" type="url" placeholder="https://nav-traffic-proxy.계정.workers.dev" autocomplete="off"/>
-    <div id="traffic-modal-actions">
-      <button class="traffic-modal-btn" id="traffic-cancel-btn" onclick="closeTrafficConfig()">취소</button>
-      <button class="traffic-modal-btn" id="traffic-clear-btn" onclick="clearTrafficConfig()">설정 삭제</button>
-      <button class="traffic-modal-btn" id="traffic-save-btn" onclick="saveTrafficConfig()">저장 및 적용</button>
+    <div id="traffic-config-section" style="display:none">
+      <div id="traffic-modal-desc">국가교통정보센터 ITS API 인증키를 입력하세요.<br/>인증키는 이 기기에만 저장됩니다.</div>
+      <input id="traffic-its-key" type="text" placeholder="ITS API 인증키" autocomplete="off"
+        style="width:100%;background:var(--c133);border:1px solid var(--c55);color:var(--c134);border-radius:7px;padding:9px 10px;font-size:12px;outline:none;"/>
+      <div id="traffic-modal-actions">
+        <button class="traffic-modal-btn" onclick="closeTrafficConfig()">취소</button>
+        <button class="traffic-modal-btn" onclick="clearTrafficConfig()">설정 삭제</button>
+        <button class="traffic-modal-btn" onclick="saveTrafficConfig()">저장 및 적용</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1936,35 +1947,47 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'�
 
 trafficEventLayer=L.layerGroup().addTo(map);
 
-function normalizeWorkerUrl(value){
-  return String(value||'').trim().replace(/\/+$/,'');
-}
+// ★
+const TRAFFIC_ADMIN_PW='smobi000';
 
 function loadTrafficConfig(){
-  try{ trafficWorkerUrl=normalizeWorkerUrl(localStorage.getItem('nav_traffic_worker_url')); }
+  try{ trafficWorkerUrl=localStorage.getItem('nav_its_key')||''; }
   catch(_){ trafficWorkerUrl=''; }
   updateTrafficButton();
 }
 
 function openTrafficConfig(){
-  const input=document.getElementById('traffic-worker-url');
-  if(input) input.value=trafficWorkerUrl||'';
+  document.getElementById('traffic-pw-section').style.display='';
+  document.getElementById('traffic-config-section').style.display='none';
+  document.getElementById('traffic-pw-input').value='';
+  document.getElementById('traffic-pw-error').style.display='none';
   document.getElementById('traffic-modal').classList.add('show');
+  setTimeout(()=>document.getElementById('traffic-pw-input').focus(),100);
 }
 
 function closeTrafficConfig(){
   document.getElementById('traffic-modal').classList.remove('show');
 }
 
-function saveTrafficConfig(){
-  const input=document.getElementById('traffic-worker-url');
-  const value=normalizeWorkerUrl(input?input.value:'');
-  if(!/^https:\/\//i.test(value)){
-    alert('Cloudflare Worker의 https:// 주소를 입력해주세요.');
-    return;
+function checkTrafficPassword(){
+  const pw=document.getElementById('traffic-pw-input').value;
+  if(pw===TRAFFIC_ADMIN_PW){
+    document.getElementById('traffic-pw-section').style.display='none';
+    document.getElementById('traffic-config-section').style.display='';
+    document.getElementById('traffic-its-key').value=localStorage.getItem('nav_its_key')||'';
+    setTimeout(()=>document.getElementById('traffic-its-key').focus(),100);
+  }else{
+    document.getElementById('traffic-pw-error').style.display='';
+    document.getElementById('traffic-pw-input').value='';
+    document.getElementById('traffic-pw-input').focus();
   }
-  trafficWorkerUrl=value;
-  try{ localStorage.setItem('nav_traffic_worker_url',value); }catch(_){}
+}
+
+function saveTrafficConfig(){
+  const key=(document.getElementById('traffic-its-key').value||'').trim();
+  if(!key){ alert('ITS API 인증키를 입력해주세요.'); return; }
+  trafficWorkerUrl=key;
+  try{ localStorage.setItem('nav_its_key',key); }catch(_){}
   closeTrafficConfig();
   updateTrafficButton();
   startTrafficUpdates(loc);
@@ -1972,7 +1995,7 @@ function saveTrafficConfig(){
 
 function clearTrafficConfig(){
   trafficWorkerUrl='';
-  try{ localStorage.removeItem('nav_traffic_worker_url'); }catch(_){}
+  try{ localStorage.removeItem('nav_its_key'); }catch(_){}
   stopTrafficUpdates(true);
   closeTrafficConfig();
   updateTrafficButton();
@@ -1993,7 +2016,7 @@ function updateTrafficButton(state){
   if(state==='error'){
     btn.classList.add('error'); btn.textContent='🚦 교통 오류'; return;
   }
-  btn.textContent=trafficWorkerUrl?'🚦 교통 대기':'🚦 교통 설정';
+  btn.textContent=trafficWorkerUrl?'🚦 교통 대기':'🚦 교통 설정 필요';
 }
 
 function clearTrafficLayers(){
@@ -2012,7 +2035,7 @@ function startTrafficUpdates(location){
   stopTrafficUpdates(true);
   updateTrafficButton();
   if(!trafficWorkerUrl){
-    updateTrafficStatusCard('설정 필요','Cloudflare Worker 중계 주소를 입력해주세요.');
+    updateTrafficStatusCard('설정 필요','교통 설정에서 ITS API 인증키를 입력해주세요.');
     return;
   }
   refreshTrafficData(true);
@@ -2077,28 +2100,29 @@ async function refreshTrafficData(manual=false){
   if(trafficAbortCtrl){ try{trafficAbortCtrl.abort();}catch(_){} }
   trafficAbortCtrl=new AbortController();
   const bounds=getTrafficBounds();
-  const params=new URLSearchParams({
-    loc,
-    minX:String(bounds.minX),maxX:String(bounds.maxX),
-    minY:String(bounds.minY),maxY:String(bounds.maxY),
-    roads:getCurrentRoadNames().join('|'),
-    linkIds:getTopisLinkIds().join(',')
-  });
   try{
-    const response=await fetch(`${trafficWorkerUrl}/traffic?${params.toString()}`,{
+    const itsUrl=`https://openapi.its.go.kr:9443/trafficInfo?apiKey=${encodeURIComponent(trafficWorkerUrl)}&type=all&getType=json&minX=${bounds.minX}&maxX=${bounds.maxX}&minY=${bounds.minY}&maxY=${bounds.maxY}`;
+    const response=await fetch(itsUrl,{
       signal:trafficAbortCtrl.signal,
       headers:{'Accept':'application/json'}
     });
-    const body=await response.json().catch(()=>({}));
-    if(!response.ok||body.ok===false){
-      throw new Error(body.error||`HTTP ${response.status}`);
+    const raw=await response.json().catch(()=>({}));
+    if(raw?.header?.resultCode!==0){
+      throw new Error(raw?.header?.resultMsg||`HTTP ${response.status}`);
     }
+    const rows=raw?.body?.items||[];
+    const list=Array.isArray(rows)?rows:[rows];
     trafficData={
-      source:body.source||(loc==='강남'?'TOPIS':'ITS'),
-      traffic:Array.isArray(body.traffic)?body.traffic:[],
-      events:Array.isArray(body.events)?body.events:[],
-      updatedAt:body.updatedAt||new Date().toISOString(),
-      note:body.note||''
+      source:'ITS',
+      traffic:list.map(item=>({
+        roadName:item.roadName||'',
+        linkId:item.linkId||'',
+        speed:Number(item.speed)||0,
+        travelTime:Number(item.travelTime)||0,
+      })),
+      events:[],
+      updatedAt:new Date().toISOString(),
+      note:'교통정보 출처: 국가교통정보센터 ITS'
     };
     trafficLastUpdatedAt=Date.now();
     renderTrafficOverlay();
