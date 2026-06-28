@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="2026-06-18-version-only-v1"/>
+<meta name="app-version" content="v3.2.5"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -1132,7 +1132,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.2.5</span>
+    <span id="app-version" title="애플리케이션 버전">v3.2.6</span>
   </div>
 </div>
 
@@ -1372,6 +1372,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       <div id="traffic-modal-desc">국가교통정보센터 ITS API 인증키를 입력하세요.<br/>인증키는 이 기기에만 저장됩니다.</div>
       <input id="traffic-its-key" type="text" placeholder="ITS API 인증키" autocomplete="off"
         style="width:100%;background:var(--c133);border:1px solid var(--c55);color:var(--c134);border-radius:7px;padding:9px 10px;font-size:12px;outline:none;"/>
+      <div id="traffic-key-meta" style="font-size:11px;color:var(--c132);margin-top:7px;min-height:16px;"></div>
       <div id="traffic-modal-actions">
         <button class="traffic-modal-btn" onclick="closeTrafficConfig()">취소</button>
         <button class="traffic-modal-btn" onclick="clearTrafficConfig()">설정 삭제</button>
@@ -1992,6 +1993,19 @@ function checkTrafficPassword(){
     document.getElementById('traffic-pw-section').style.display='none';
     document.getElementById('traffic-config-section').style.display='';
     document.getElementById('traffic-its-key').value=localStorage.getItem('nav_its_key')||'';
+    // 저장 날짜 / 만료일 표시
+    (function(){
+      const meta=document.getElementById('traffic-key-meta');
+      if(!meta) return;
+      const savedAt=Number(localStorage.getItem('nav_its_key_saved_at')||0);
+      if(!savedAt){ meta.textContent=''; return; }
+      const saved=new Date(savedAt);
+      const expire=new Date(savedAt+ITS_KEY_TTL_MS);
+      const fmt=d=>`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+      const daysLeft=Math.ceil((expire-Date.now())/(1000*60*60*24));
+      const color=daysLeft<=7?'var(--c11)':'var(--c132)';
+      meta.innerHTML=`<span style="color:${color}">저장일: ${fmt(saved)} · 만료: ${fmt(expire)} (${daysLeft}일 남음)</span>`;
+    })();
     setTimeout(()=>document.getElementById('traffic-its-key').focus(),100);
   }else{
     document.getElementById('traffic-pw-error').style.display='';
@@ -2364,6 +2378,11 @@ async function fetchOSRM(sLL,eLL,legId){
       coords[coords.length-1]=[eLL[1],eLL[0]];
       currentRouteCoords=coords;
       drawOSRMRoute(currentRouteCoords);
+      // 현재 구간 출발~도착이 화면에 꼭 맞게 보이도록 지도 뷰 조정
+      try{
+        const routeLatLngs=coords.map(c=>[c[1],c[0]]);
+        map.fitBounds(L.latLngBounds(routeLatLngs),{padding:[48,48],maxZoom:16,animate:true});
+      }catch(_){}
       // 다중 waypoint → legs 배열 flatten
       // depart/중간arrive 모두 제거 — 실제 회전 지시 스텝만 남김
       const allSteps=route.legs.flatMap(l=>l.steps||[]);
@@ -2441,6 +2460,11 @@ function drawFallbackRoute(sLL,eLL){
   osrmLine=L.polyline([sLL,eLL],{
     color:'#3b82f6',weight:5,opacity:0.85,dashArray:'8 4',lineCap:'round',lineJoin:'round'
   }).addTo(map);
+
+  // 출발~도착만 화면에 맞춤
+  try{
+    map.fitBounds(L.latLngBounds([sLL,eLL]),{padding:[48,48],maxZoom:16,animate:true});
+  }catch(_){}
 }
 
 function clearOSRM(){
@@ -2940,8 +2964,12 @@ function getManeuverInfo(type, modifier, step){
   }
   const base = MANEUVER_KO[type];
   if(!base) return {icon:'⬆', text:'계속 진행'};
+  // turn/fork처럼 modifier별 하위 객체가 있는 타입은 bearing 보정된 mod 우선 적용
+  // base.icon이 있더라도 하위 mod 키가 존재하면 mod로 분기해야 한다
+  if(base[mod]) return base[mod];
+  if(base['default']) return base['default'];
   if(typeof base.icon !== 'undefined') return base;
-  return base[mod] || base['default'] || {icon:'⬆', text:'계속 진행'};
+  return {icon:'⬆', text:'계속 진행'};
 }
 
 // 거리 표시 단위 — '출발합니다'는 "앞으로 다가올 거리"가 아니라
