@@ -846,29 +846,30 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #btn-traffic.live{color:var(--c10);border-color:var(--c111);background:var(--c112);}
 #btn-traffic.error{color:var(--c15);border-color:var(--c17);background:var(--c113);}
 #traffic-card{
-  position:absolute;top:12px;right:12px;z-index:1001;width:min(320px,calc(100% - 24px));
-  background:var(--ov-bg4);border:1px solid var(--c114);border-radius:11px;
-  box-shadow:0 5px 20px rgba(0,0,0,.45);backdrop-filter:blur(8px);padding:10px 12px;
-  display:none;cursor:pointer;transition:padding .15s;
+  position:absolute;bottom:12px;right:12px;z-index:1001;width:min(220px,calc(100% - 24px));
+  background:var(--ov-bg4);border:1px solid var(--c114);border-radius:9px;
+  box-shadow:0 3px 12px rgba(0,0,0,.45);backdrop-filter:blur(8px);padding:7px 9px;
+  display:none;cursor:pointer;transition:all .15s;
 }
 #traffic-card.show{display:block;}
 #traffic-card.collapsed #traffic-summary,
 #traffic-card.collapsed #traffic-legend,
-#traffic-card.collapsed #traffic-note{display:none;}
-#traffic-card.collapsed{padding:7px 12px;}
-#traffic-card-head{display:flex;align-items:center;gap:7px;}
-#traffic-source{font-size:12px;font-weight:800;color:var(--c115);flex:1;}
-#traffic-refresh-btn{background:var(--c116);color:var(--c117);border:1px solid var(--c118);border-radius:5px;padding:3px 7px;font-size:10px;cursor:pointer;}
-#traffic-close-btn{background:none;border:none;color:var(--c119);font-size:13px;cursor:pointer;padding:2px;}
-#traffic-status-line{font-size:10px;color:var(--c120);margin-top:4px;}
-#traffic-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;}
-.traffic-stat{border:1px solid var(--c121);background:var(--c122);border-radius:6px;padding:5px 3px;text-align:center;}
-.traffic-stat b{display:block;font-size:13px;color:var(--c53);}
-.traffic-stat span{font-size:9px;color:var(--c123);}
-#traffic-legend{display:flex;flex-wrap:wrap;gap:7px;margin-top:7px;font-size:9px;color:var(--c124);}
-.traffic-key{display:inline-flex;align-items:center;gap:3px;}
-.traffic-swatch{width:13px;height:4px;border-radius:4px;display:inline-block;}
-#traffic-note{font-size:9px;color:var(--c125);line-height:1.35;margin-top:6px;}
+#traffic-card.collapsed #traffic-note,
+#traffic-card.collapsed #traffic-status-line{display:none;}
+#traffic-card-head{display:flex;align-items:center;gap:5px;}
+#traffic-source{font-size:10px;font-weight:800;color:var(--c115);flex:1;}
+#traffic-collapse-icon{font-size:9px;color:var(--c120);}
+#traffic-refresh-btn{background:var(--c116);color:var(--c117);border:1px solid var(--c118);border-radius:4px;padding:2px 5px;font-size:9px;cursor:pointer;}
+#traffic-close-btn{background:none;border:none;color:var(--c119);font-size:11px;cursor:pointer;padding:1px;}
+#traffic-status-line{font-size:9px;color:var(--c120);margin-top:3px;}
+#traffic-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin-top:6px;}
+.traffic-stat{border:1px solid var(--c121);background:var(--c122);border-radius:5px;padding:4px 2px;text-align:center;}
+.traffic-stat b{display:block;font-size:11px;color:var(--c53);}
+.traffic-stat span{font-size:8px;color:var(--c123);}
+#traffic-legend{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;font-size:8px;color:var(--c124);}
+.traffic-key{display:inline-flex;align-items:center;gap:2px;}
+.traffic-swatch{width:11px;height:3px;border-radius:3px;display:inline-block;}
+#traffic-note{font-size:8px;color:var(--c125);line-height:1.35;margin-top:5px;}
 .traffic-event-icon{background:transparent;border:none;}
 .traffic-event-pin{width:25px;height:25px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--c12);border:2px solid var(--btn-text);box-shadow:0 2px 7px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;}
 .traffic-event-pin span{transform:rotate(45deg);font-size:12px;}
@@ -959,7 +960,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 @media(max-width:700px){
   #btn-traffic{font-size:10px;padding:4px 7px;}
-  #traffic-card{top:6px;right:6px;width:calc(100% - 12px);padding:8px 9px;}
+  #traffic-card{bottom:6px;right:6px;width:calc(100% - 12px);padding:6px 8px;}
   #traffic-summary{gap:3px;}
   .traffic-stat b{font-size:12px;}
 }
@@ -1124,7 +1125,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.1.8</span>
+    <span id="app-version" title="애플리케이션 버전">v3.1.9</span>
   </div>
 </div>
 
@@ -1225,11 +1226,11 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     <div id="traffic-card" onclick="toggleTrafficCard(event)">
       <div id="traffic-card-head">
         <span id="traffic-source">교통정보 준비 중</span>
-        <span id="traffic-collapse-icon" style="font-size:10px;color:var(--c120);margin-right:2px">▲</span>
+        <span id="traffic-collapse-icon">▲</span>
         <button id="traffic-refresh-btn" onclick="event.stopPropagation();refreshTrafficData(true)">새로고침</button>
         <button id="traffic-close-btn" onclick="event.stopPropagation();document.getElementById('traffic-card').classList.remove('show')">✕</button>
       </div>
-      <div id="traffic-status-line">중계 서버를 설정해주세요.</div>
+      <div id="traffic-status-line">설정이 필요합니다.</div>
       <div id="traffic-summary">
         <div class="traffic-stat"><b id="traffic-smooth">0</b><span>원활</span></div>
         <div class="traffic-stat"><b id="traffic-slow">0</b><span>서행</span></div>
@@ -2837,18 +2838,19 @@ function updateCurStats(){
   // ITS 실시간 속도 반영
   const itsSpd=getItsAvgSpeed();
   const targetSpd=lg.time>0?(lg.dist/lg.time*60):0;
-  const displaySpd=itsSpd?Math.round(itsSpd):targetSpd;
   lg.spd=targetSpd;
 
-  // 실시간 속도로 예상시간 재계산
+  // ITS 데이터 없으면 0, 있으면 실시간 속도로 예상시간 계산
+  const displaySpd=itsSpd?Math.round(itsSpd):0;
   const etaMin=itsSpd&&itsSpd>0
     ? Math.round(lg.dist/itsSpd*60)
-    : getCurrentEtaMin();
+    : 0;
 
   document.getElementById('sv-dist-v').textContent=lg.dist.toFixed(1);
-  document.getElementById('sv-spd-v').textContent=displaySpd.toFixed?displaySpd.toFixed(1):displaySpd;
+  document.getElementById('sv-spd-v').textContent=displaySpd;
   document.getElementById('sv-time-v').textContent=etaMin;
 
+  // 대기 중(미재생)일 때는 주행 타이머도 "현재예상"과 동일하게 표시
   if(!isPlaying&&phase==='drive') updateTimerDisplay(etaMin*60);
 }
 
