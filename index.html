@@ -1186,7 +1186,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v4.0.3</span>
+    <span id="app-version" title="애플리케이션 버전">v4.0.4</span>
   </div>
 </div>
 
@@ -4651,15 +4651,10 @@ function saveEditedRoute(){
 
 // 화면 상단 버전 표시
 function renderAppVersion(){
+  // span에 하드코딩된 값을 그대로 사용 — HTML에서 직접 숫자를 바꾸면 반영됨
   const el=document.getElementById('app-version');
   if(!el) return;
-  let ver='v1.1.3';
-  try{
-    const meta=document.querySelector('meta[name="app-version"]');
-    if(meta&&meta.content) ver=meta.content;
-  }catch(e){}
-  el.textContent=ver;
-  el.title='애플리케이션 버전: '+ver;
+  el.title='애플리케이션 버전: '+el.textContent;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -4750,6 +4745,123 @@ function getGPSPos(){
 
 // 진행 중인 주행 세션을 주행기록에 한 줄 저장
 // (시작 시각/위치 ~ 정지(또는 구간완료) 시각/위치, 위치는 GPS 실측 기준)
+
+// ══════════════════════════════════════════════════════════
+//  환경 조건 자동 계산 (구간 완료 시 기록)
+//  도로종류 / 계절 / 날씨 / 시간대 / 장소 / 교통밀도
+// ══════════════════════════════════════════════════════════
+
+// ── 도로 종류 분류 (road 필드 키워드 기반) ──────────────
+function classifyRoadType(road){
+  if(!road) return '도심';
+  const r = road;
+  // 자동차전용
+  if(/올림픽대로|동부간선도로|경부고속도로|서울외곽순환|수도권제1순환|분당내곡간도시고속화|시화방조제|방조제|고속화도로|자동차전용/.test(r))
+    return '자동차전용';
+  // 시흥 공단/산업단지 — 일반 간선
+  if(/공단|산업단지|시화/.test(r))
+    return '도심';
+  // 그 외 전부 도심
+  return '도심';
+}
+
+// ── 계절 ────────────────────────────────────────────────
+function getSeason(){
+  const m = new Date().getMonth()+1; // 1~12
+  if(m>=3&&m<=5)  return '봄';
+  if(m>=6&&m<=8)  return '여름';
+  if(m>=9&&m<=11) return '가을';
+  return '겨울';
+}
+
+// ── 시간대 ──────────────────────────────────────────────
+function getTimeOfDay(){
+  const h = new Date().getHours();
+  if(h>=5 &&h<=7)  return '일출';
+  if(h>=8 &&h<=16) return '주간';
+  if(h>=17&&h<=19) return '일몰';
+  return '야간';
+}
+
+// ── 장소 (현재 loc) ──────────────────────────────────────
+function getLocationLabel(){
+  const MAP = { '강남':'강남', '판교':'성남', '시흥':'시흥', '화성':'화성', '광교':'광교' };
+  return MAP[loc] || loc || '—';
+}
+
+// ── 교통 밀도 (구간 평균속도 기반) ──────────────────────
+// 기준: 여유 <=12대/km/차선, 보통 12~25, 혼잡 25~45, 정체 >=45
+// 평균속도로 역산: 정체<10, 혼잡10~25, 보통25~50, 여유>=50 (km/h)
+function getTrafficDensity(avgSpeedKmh){
+  if(avgSpeedKmh==null||isNaN(avgSpeedKmh)) return '—';
+  if(avgSpeedKmh < 10)  return '정체(≥45대/km/차선)';
+  if(avgSpeedKmh < 25)  return '혼잡(25~45대/km/차선)';
+  if(avgSpeedKmh < 50)  return '보통(12~25대/km/차선)';
+  return '여유(≤12대/km/차선)';
+}
+
+// ── 날씨 (wttr.in) ───────────────────────────────────────
+// wttr.in?format=j1 → JSON, condition_code로 분류
+let _cachedWeather = null;
+let _weatherFetchedAt = 0;
+const WEATHER_CACHE_MS = 10 * 60 * 1000; // 10분 캐시
+
+async function fetchWeather(lat, lng){
+  const now = Date.now();
+  if(_cachedWeather && now - _weatherFetchedAt < WEATHER_CACHE_MS)
+    return _cachedWeather;
+  try{
+    const res = await fetch(
+      `https://wttr.in/${lat},${lng}?format=j1`,
+      { signal: AbortSignal.timeout(6000) }
+    );
+    const data = await res.json();
+    const code = parseInt(data.current_condition?.[0]?.weatherCode || '113');
+    _cachedWeather = weatherCodeToLabel(code);
+    _weatherFetchedAt = now;
+    return _cachedWeather;
+  }catch(e){
+    console.warn('[날씨] wttr.in 실패:', e);
+    return _cachedWeather || '—';
+  }
+}
+
+function weatherCodeToLabel(code){
+  // wttr.in weatherCode → 한국어 날씨
+  if([113].includes(code))                         return '맑음';
+  if([116,119,122].includes(code))                 return '흐림';
+  if([143,248,260].includes(code))                 return '안개';
+  if([176,179,182,185,263,266,281,284,293,296,
+      299,302,305,308,311,314,317,320,353,356,
+      359,362,365,374,377].includes(code))         return '비';
+  if([227,230,323,326,329,332,335,338,350,368,
+      371,395].includes(code))                     return '눈';
+  return '흐림';
+}
+
+// ── 환경 조건 전체 수집 ──────────────────────────────────
+async function collectEnvConditions(lg, elapsedSec){
+  const avgSpeedKmh = (elapsedSec > 0 && lg.dist)
+    ? (lg.dist / (elapsedSec / 3600))
+    : null;
+
+  const gps = getGPSPos();
+  const lat = gps ? gps[0] : (lg.sLL ? lg.sLL[0] : null);
+  const lng = gps ? gps[1] : (lg.sLL ? lg.sLL[1] : null);
+
+  const weather = (lat && lng) ? await fetchWeather(lat, lng) : '—';
+
+  return {
+    roadType:       classifyRoadType(lg.road),
+    season:         getSeason(),
+    weather:        weather,
+    timeOfDay:      getTimeOfDay(),
+    place:          getLocationLabel(),
+    trafficDensity: getTrafficDensity(avgSpeedKmh),
+    avgSpeedKmh:    avgSpeedKmh != null ? avgSpeedKmh.toFixed(1) : '—',
+  };
+}
+
 function finalizeLegSession(idx,endPos){
   const lg=legs[idx]; if(!lg||!legStartTime) return;
   const now=new Date();
@@ -4759,18 +4871,38 @@ function finalizeLegSession(idx,endPos){
   const ePos=endPos||lg.eLL;
   const fmtPos=p=>`${p[0].toFixed(5)}, ${p[1].toFixed(5)}`;
   const entryId=Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  const elapsedSec=(now-startD)/1000;
   const entry={
     _id:entryId,
     date:todayStr(),
     startTime:`${pad(startD.getHours())}:${pad(startD.getMinutes())}:${pad(startD.getSeconds())}`,
     time:`${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
     legId:lg.id, start:fmtPos(sPos), end:fmtPos(ePos),
+    // 환경 조건 (동기 계산 가능한 항목 먼저, 날씨는 비동기로 나중에 업데이트)
+    roadType:  classifyRoadType(lg.road),
+    season:    getSeason(),
+    timeOfDay: getTimeOfDay(),
+    place:     getLocationLabel(),
+    trafficDensity: getTrafficDensity(elapsedSec>0&&lg.dist ? (lg.dist/(elapsedSec/3600)) : null),
+    avgSpeed:  elapsedSec>0&&lg.dist ? (lg.dist/(elapsedSec/3600)).toFixed(1) : '—',
+    weather:   '—', // 비동기로 업데이트
   };
   const log=loadTripLog();
   log.push(entry);
   saveTripLog(log);
   updateTripLogCount();
   legStartTime=null; legStartPos=null;
+  // 날씨 비동기 업데이트
+  const gps=getGPSPos();
+  const lat=gps?gps[0]:(lg.sLL?lg.sLL[0]:null);
+  const lng_=gps?gps[1]:(lg.sLL?lg.sLL[1]:null);
+  if(lat&&lng_){
+    fetchWeather(lat,lng_).then(w=>{
+      const log2=loadTripLog();
+      const e=log2.find(x=>x._id===entryId);
+      if(e){ e.weather=w; saveTripLog(log2); }
+    });
+  }
 
   // 출발/도착 GPS 좌표를 건물·장소명으로 비동기 변환 (실패 시 좌표 그대로 유지)
   // Nominatim 무료 정책(1 req/sec)을 지키기 위해 순차 호출한다.
@@ -4840,12 +4972,16 @@ function downloadTodayLogExcel(){
 
   const infoRow=['차량',loginVehicle,'이름',loginUser,'입장시각',loginTime];
   const blankRow=[];
-  const headers=['번호','날짜','시작시각','완료시각','구간ID','출발','도착'];
+  const headers=['번호','날짜','시작시각','완료시각','구간ID','출발','도착',
+    '도로종류','계절','날씨','시간대','장소','교통밀도','평균속도(km/h)'];
   const rows=todayLogs.map((e,i)=>{
     if(e.type==='logout'){
-      return [i+1,e.date,'',e.time,'로그아웃',`${e.vehicle||''} ${e.user||''}`.trim(),e.place||''];
+      return [i+1,e.date,'',e.time,'로그아웃',`${e.vehicle||''} ${e.user||''}`.trim(),e.place||'',
+        '','','','','','',''];
     }
-    return [i+1,e.date,e.startTime||'',e.time,e.legId,e.start,e.end];
+    return [i+1,e.date,e.startTime||'',e.time,e.legId,e.start,e.end,
+      e.roadType||'—', e.season||'—', e.weather||'—',
+      e.timeOfDay||'—', e.place||'—', e.trafficDensity||'—', e.avgSpeed||'—'];
   });
 
   // 1) SheetJS(xlsx) 라이브러리가 정상 로드된 경우 → 진짜 .xlsx로 다운로드
@@ -4853,7 +4989,8 @@ function downloadTodayLogExcel(){
     try{
       const ws=XLSX.utils.aoa_to_sheet([infoRow,blankRow,headers,...rows]);
       ws['!cols']=[
-        {wch:8},{wch:14},{wch:8},{wch:10},{wch:10},{wch:20},{wch:20},
+        {wch:6},{wch:12},{wch:8},{wch:8},{wch:10},{wch:22},{wch:22},
+        {wch:12},{wch:8},{wch:8},{wch:8},{wch:8},{wch:22},{wch:14},
       ];
       const wb=XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb,ws,'주행기록');
