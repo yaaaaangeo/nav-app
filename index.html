@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.3.0"/>
+<meta name="app-version" content="v3.3.1"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -1812,34 +1812,32 @@ const SCENARIOS={
       {id:"WTPc11",road:"성남대로~성남대로172번길~돌마로90번길~미금일로70번길~금곡로25번길~금곡로",dist:3.1,spd:12.4,time:15,rest:10,s:"오리역",e:"삼익파크빌라2",sId:"260014600",eId:"2060023400",sLL:[37.3569,127.1094],eLL:[37.3607,127.1066]},
     ]},
   },
-  시흥:{center:[37.345,126.730],zoom:12,
+  시흥:{center:[37.345,126.730],zoom:13,
     a:{name:"ㄹ자 그리드",color:"#3b82f6",legs:[
-      {id:"WTSa1",road:"배곧~정왕 간선도로",dist:4.1,spd:18.9,time:13,rest:10,s:"서울대학교 시흥캠퍼스",e:"정왕역",sId:"",eId:"",sLL:[37.3742,126.7313],eLL:[37.3466,126.7359]},
-      {id:"WTSa2",road:"정왕 시내 도로",dist:3.9,spd:15.6,time:15,rest:10,s:"정왕역",e:"정왕어린이도서관",sId:"",eId:"",sLL:[37.3466,126.7359],eLL:[37.3509,126.7366]},
-      {id:"WTSa3",road:"정왕 간선도로",dist:4.9,spd:19.6,time:15,rest:10,s:"정왕어린이도서관",e:"메가박스 시흥정왕",sId:"",eId:"",sLL:[37.3509,126.7366],eLL:[37.3531,126.7332]},
-      {id:"WTSa4",road:"정왕~시화 간선도로",dist:5.0,spd:17.6,time:17,rest:10,s:"메가박스 시흥정왕",e:"정왕고등학교",sId:"",eId:"",sLL:[37.3531,126.7332],eLL:[37.3491,126.7288]},
-      {id:"WTSa5",road:"정왕동 내부도로",dist:4.8,spd:19.2,time:15,rest:10,s:"정왕고등학교",e:"곰솔누리숲7블럭",sId:"",eId:"",sLL:[37.3491,126.7288],eLL:[37.3469,126.7188]},
-      {id:"WTSa6",road:"시화공단 진입도로",dist:5.9,spd:20.8,time:17,rest:10,s:"곰솔누리숲7블럭",e:"삼립 시화공장",sId:"",eId:"",sLL:[37.3469,126.7188],eLL:[37.3362,126.7163]},
-      {id:"WTSa7",road:"시화공단 내부도로",dist:6.4,spd:25.6,time:15,rest:10,s:"삼립 시화공장",e:"소망공원",sId:"",eId:"",sLL:[37.3362,126.7163],eLL:[37.3302,126.7179]},
-      {id:"WTSa8",road:"공단 동측 도로",dist:5.9,spd:22.1,time:16,rest:10,s:"소망공원",e:"고려제지",sId:"",eId:"",sLL:[37.3302,126.7179],eLL:[37.3268,126.7242]},
-      {id:"WTSa9",road:"시화공단 서측 도로",dist:7.4,spd:29.6,time:15,rest:10,s:"고려제지",e:"진케미칼",sId:"",eId:"",sLL:[37.3268,126.7242],eLL:[37.3187,126.7168]},
-      {id:"WTSa10",road:"대부도 방면 도로",dist:8.9,spd:31.4,time:17,rest:10,s:"진케미칼",e:"선진솔루텍",sId:"",eId:"",sLL:[37.3187,126.7168],eLL:[37.3143,126.7104]},
-      {id:"WTSa11",road:"시화방조제 인근 도로",dist:8.2,spd:28.9,time:17,rest:10,s:"선진솔루텍",e:"경기산업",sId:"",eId:"",sLL:[37.3143,126.7104],eLL:[37.3119,126.7053]},
+      {id:"SH-L-BASE-01",road:"서울대학로~서해안로~봉황로~역전로",dist:3.7,spd:25,time:9,rest:10,s:"서울대 시흥캠퍼스",e:"정왕3공원",sId:"2240912601",eId:"2240078001",sLL:[37.3638,126.7179],eLL:[37.3496,126.7378]},
+      {id:"SH-L-BASE-02",road:"마유로443번길~오동마을로~죽율로~큰말길",dist:4.0,spd:15,time:16,rest:10,s:"정왕3공원",e:"시화중학교",sId:"2240078001",eId:"2240062900",sLL:[37.3496,126.7378],eLL:[37.3408,126.7560]},
+      {id:"SH-L-BASE-03",road:"역전로~정왕신길로~서해안로~정왕대로~번영로",dist:8.2,spd:20,time:25,rest:10,s:"시화중학교",e:"시화유천아파트",sId:"2240062900",eId:"2240058101",sLL:[37.3408,126.7560],eLL:[37.3361,126.7500]},
+      {id:"SH-L-BASE-04",road:"중심상가로~옥구공원로~번영로~민해로~산기대학로~서해안로~해송십리로",dist:13.0,spd:18,time:43,rest:10,s:"시화유천아파트",e:"아세아제지 시화공장",sId:"2240058101",eId:"2240358600",sLL:[37.3361,126.7500],eLL:[37.3509,126.7066]},
+      {id:"SH-L-BASE-05",road:"공단1대로~정왕천로~소망공원로~오이도로",dist:4.1,spd:22,time:11,rest:10,s:"아세아제지 시화공장",e:"한국자동차연구원 경기본부",sId:"2240358600",eId:"2240038803",sLL:[37.3509,126.7066],eLL:[37.3471,126.6964]},
+      {id:"SH-L-BASE-06",road:"경제로~정왕천로~공단2대로~서해안로~공단3대로",dist:12.5,spd:40,time:34,rest:10,s:"한국자동차연구원 경기본부",e:"경림스틸",sId:"2240038803",eId:"2240038803",sLL:[37.3471,126.6964],eLL:[37.3191,126.7175]},
     ]},
     b:{name:"M자 그리드",color:"#f59e0b",legs:[
-      {id:"WTSb1",road:"시화방조제 및 대부도 진입로",dist:10.0,spd:40.0,time:15,rest:10,s:"시화달전망대",e:"배다리선착장",sId:"",eId:"",sLL:[37.3182,126.7010],eLL:[37.2932,126.6584]},
-      {id:"WTSb2",road:"대부도~시화 연결도로 및 고속도로",dist:13.0,spd:26.0,time:30,rest:10,s:"배다리선착장",e:"DS단석",sId:"",eId:"",sLL:[37.2932,126.6584],eLL:[37.3237,126.7128]},
-      {id:"WTSb3",road:"시화공단 북측 도로",dist:5.3,spd:19.9,time:16,rest:10,s:"DS단석",e:"희망공원",sId:"",eId:"",sLL:[37.3237,126.7128],eLL:[37.3363,126.7278]},
-      {id:"WTSb4",road:"정왕~시화 간선도로",dist:6.2,spd:24.8,time:15,rest:10,s:"희망공원",e:"홈플러스 메가푸드마켓 시화점",sId:"",eId:"",sLL:[37.3363,126.7278],eLL:[37.3437,126.7315]},
-      {id:"WTSb5",road:"시화MTV 인근 도로",dist:6.4,spd:22.6,time:17,rest:10,s:"홈플러스 메가푸드마켓 시화점",e:"진명파워텍",sId:"",eId:"",sLL:[37.3437,126.7315],eLL:[37.3369,126.7171]},
-      {id:"WTSb6",road:"정왕 내부 간선도로",dist:5.0,spd:20.0,time:15,rest:10,s:"진명파워텍",e:"경기과학기술대학교",sId:"",eId:"",sLL:[37.3369,126.7171],eLL:[37.3480,126.7362]},
-      {id:"WTSb7",road:"배곧~산기대 연결도로",dist:5.5,spd:19.4,time:17,rest:10,s:"경기과학기술대학교",e:"정광",sId:"",eId:"",sLL:[37.3480,126.7362],eLL:[37.3502,126.7314]},
+      {id:"SH-M-BASE-01",road:"대부황금로~오이도로~서울대학로",dist:11.2,spd:28,time:24,rest:10,s:"시화달전망대",e:"서울대 시흥캠퍼스",sId:"2240879408",eId:"2240912601",sLL:[37.3128,126.6092],eLL:[37.3638,126.7179]},
+      {id:"SH-M-BASE-02",road:"서해안로~공단3대로~협력로~정왕대로28번길~정왕대로27번길",dist:8.6,spd:15,time:34,rest:10,s:"서울대 시흥캠퍼스",e:"정왕3동행정복지센터",sId:"2240912601",eId:"2240081202",sLL:[37.3638,126.7179],eLL:[37.3581,126.7256]},
+      {id:"SH-M-BASE-03",road:"정왕신길로~옥구천서로~공단3대로~희망공원로",dist:7.8,spd:22,time:21,rest:10,s:"정왕3동행정복지센터",e:"현대캐피탈인증중고차",sId:"2240081202",eId:"224006802",sLL:[37.3581,126.7256],eLL:[37.3441,126.7264]},
+      {id:"SH-M-BASE-04",road:"정왕대로144번길~정왕신길로~마유로~MTV25로~시화호수1로",dist:7.3,spd:32,time:14,rest:10,s:"현대캐피탈인증중고차",e:"시화호환경문화센터",sId:"224006802",eId:"2240589601",sLL:[37.3441,126.7264],eLL:[37.3164,126.6993]},
+      {id:"SH-M-BASE-05",road:"MTV24로~경기과기대로~정왕대로266번길~봉우재로",dist:5.4,spd:18,time:18,rest:10,s:"시화호환경문화센터",e:"군서미래국제학교",sId:"2240589601",eId:"2240067305",sLL:[37.3164,126.6993],eLL:[37.3460,126.7433]},
+      {id:"SH-M-BASE-06",road:"정왕신길로~정왕천로~수도권제2순환고속도로",dist:4.7,spd:65,time:4,rest:10,s:"군서미래국제학교",e:"쿠팡XRC10센터",sId:"2240067305",eId:"2240590300",sLL:[37.3460,126.7433],eLL:[37.3318,126.7471]},
     ]},
     c:{name:"링",color:"#10b981",legs:[
-      {id:"WTSc1",road:"시화공단 내부 순환로",dist:5.3,spd:19.9,time:16,rest:10,s:"중앙자동차",e:"시흥시중앙도서관",sId:"",eId:"",sLL:[37.3534,126.7288],eLL:[37.3731,126.7316]},
-      {id:"WTSc2",road:"정왕·죽율동 생활도로",dist:5.9,spd:22.1,time:16,rest:10,s:"시흥시중앙도서관",e:"현진테크",sId:"",eId:"",sLL:[37.3731,126.7316],eLL:[37.3628,126.7224]},
-      {id:"WTSc3",road:"공단 진입 이면도로",dist:4.1,spd:17.6,time:14,rest:10,s:"현진테크",e:"시화병원",sId:"",eId:"",sLL:[37.3628,126.7224],eLL:[37.3543,126.7244]},
-      {id:"WTSc4",road:"시화병원 순환 (대형 루프 구간)",dist:13.5,spd:23.8,time:34,rest:10,s:"시화병원",e:"시화병원",sId:"",eId:"",sLL:[37.3543,126.7244],eLL:[37.3543,126.7244]},
+      {id:"SH-RING-BASE-01",road:"산기대학로~공단1대로131번길~소망공원로~희망공원로~군자천로",dist:3.4,spd:18,time:11,rest:10,s:"현대캐피탈인증중고차",e:"중앙자동차",sId:"224006802",eId:"2240065600",sLL:[37.3441,126.7264],eLL:[37.3426,126.7303]},
+      {id:"SH-RING-BASE-02",road:"옥구공원로~옥구천동로~군자천로131번길~군자천로~산기대학로",dist:5.6,spd:14,time:24,rest:10,s:"중앙자동차",e:"문배철강시화SSC",sId:"2240065600",eId:"2240065000",sLL:[37.3426,126.7303],eLL:[37.3398,126.7306]},
+      {id:"SH-RING-BASE-03",road:"마유로~중심상가로~옥구천서로~경제로~마유로~산기대학로",dist:7.8,spd:22,time:21,rest:10,s:"문배철강시화SSC",e:"경기과학기술대학교",sId:"2240065000",eId:"2240061202",sLL:[37.3398,126.7306],eLL:[37.3386,126.7361]},
+      {id:"SH-RING-BASE-04",road:"경기과기대로~정왕대로~정왕대로28번길~협력로~공단2대로~산기대학로",dist:12.2,spd:16,time:46,rest:60,s:"경기과학기술대학교",e:"현대자동차 시흥출고센터",sId:"2240061202",eId:"2240057202",sLL:[37.3386,126.7361],eLL:[37.3356,126.7416]},
+      {id:"SH-RING-BASE-05",road:"만해로~번영로~역전로~큰말길~오동마을로",dist:4.9,spd:12,time:25,rest:10,s:"현대자동차 시흥출고센터",e:"정왕역",sId:"2240057202",eId:"2240078504",sLL:[37.3356,126.7416],eLL:[37.3518,126.7428]},
+      {id:"SH-RING-BASE-06",road:"역전로290번길~마유로443번길~봉화로~서해안로~서울대학로",dist:4.7,spd:20,time:14,rest:10,s:"정왕역",e:"서울대 시흥캠퍼스",sId:"2240078504",eId:"2240912601",sLL:[37.3518,126.7428],eLL:[37.3638,126.7179]},
+      {id:"SH-RING-BASE-07",road:"오이도로~대부황금로~거북섬로~MTV28로",dist:4.9,spd:28,time:16,rest:10,s:"서울대 시흥캠퍼스",e:"유진에스엠씨",sId:"2240912601",eId:"2240354902",sLL:[37.3638,126.7179],eLL:[37.3439,126.7242]},
+      {id:"SH-RING-BASE-08",road:"공단3대로~서해안로~서울대학로",dist:10.5,spd:35,time:17,rest:10,s:"유진에스엠씨",e:"서울대 시흥캠퍼스",sId:"2240354902",eId:"2240912601",sLL:[37.3439,126.7242],eLL:[37.3638,126.7179]},
     ]},
   },
 };
@@ -2065,12 +2063,13 @@ const map=L.map('map',{
   zoomSnap:0.5,zoomDelta:0.5,
   wheelPxPerZoomLevel:120
 });
-// 내비게이션용 밝고 대비 높은 베이스맵(CARTO Voyager). detectRetina로 HiDPI 태블릿에서 선명.
+// 내비게이션용 밝고 대비 높은 베이스맵(CARTO Voyager).
+// detectRetina는 라벨이 지나치게 작아져 제외(가독성 우선). 저사양 태블릿에서도 라벨이 큼직하게 보임.
 const BASE_TILES={
-  voyager:{url:'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    opts:{subdomains:'abcd',maxZoom:20,detectRetina:true,attribution:'© OpenStreetMap © CARTO',crossOrigin:true}},
+  voyager:{url:'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+    opts:{subdomains:'abcd',maxZoom:20,attribution:'© OpenStreetMap © CARTO',crossOrigin:true}},
   osm:{url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    opts:{maxZoom:19,detectRetina:true,attribution:'© OpenStreetMap',crossOrigin:true}}
+    opts:{maxZoom:19,attribution:'© OpenStreetMap',crossOrigin:true}}
 };
 let baseTileLayer=L.tileLayer(BASE_TILES.voyager.url,BASE_TILES.voyager.opts).addTo(map);
 baseTileLayer.on('tileerror',function onBaseTileError(){ // CARTO 지연/차단 시 OSM 자동 폴백
