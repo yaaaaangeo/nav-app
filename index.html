@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.3.3"/>
+<meta name="app-version" content="v3.3.4"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -1186,6 +1186,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-divider"></div>
   <div class="settings-item" onclick="document.getElementById('import-file-input').click();closeSettingsMenu()">📂 설정 가져오기</div>
   <div class="settings-item" onclick="exportSettings();closeSettingsMenu()">📤 설정 내보내기</div>
+  <div class="settings-item" onclick="resetToBuiltinRoutes()" style="color:var(--c12);">🔄 경로 기본값으로 초기화</div>
   <div class="settings-divider"></div>
   <div class="settings-item" onclick="toggleTheme();closeSettingsMenu()" id="menu-btn-theme">☀️ 밝은 화면 모드</div>
   <div class="settings-divider"></div>
@@ -5136,6 +5137,16 @@ function loadWaypointsFromStorage(){
     }
     console.log('✅ 저장된 경로 불러옴');
   }catch(e){console.warn('불러오기 실패:',e);}
+}
+
+// 저장된 경로 수정본(localStorage)을 지우고 앱 내장 최신 기본 경로로 되돌린다.
+// localStorage가 새 배포(index.html)를 덮어써서 옛 경로가 계속 뜰 때 사용.
+function resetToBuiltinRoutes(){
+  if(!confirm('이 기기에 저장된 경로 수정본을 지우고, 앱에 내장된 최신 기본 경로로 되돌립니다.\n\n· 내보내둔 JSON 파일은 그대로 남습니다.\n· 이 기기에서만 적용됩니다(다른 기기는 각각 초기화 필요).\n\n계속할까요?')) return;
+  try{ localStorage.removeItem('nav_custom_routes'); }catch(_){}
+  try{ localStorage.removeItem('nav_last_saved'); }catch(_){}
+  try{ localStorage.removeItem('nav_imported_settings_filename'); }catch(_){}
+  location.reload();
 }
 
 // ══════════════════════════════════════════════════════════
