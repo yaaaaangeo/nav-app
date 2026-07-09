@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.4.2"/>
+<meta name="app-version" content="v3.5.1"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -360,6 +360,14 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 /* 현재구간 카드 접기/펼치기 헤더 */
 #panel-card-wrap{flex-shrink:0;}
+
+/* 모바일 하단 시트 손잡이 (데스크톱에선 숨김) */
+#sheet-handle{display:none;flex-direction:column;gap:4px;padding:6px 12px 8px;background:var(--c20);border-bottom:1px solid var(--c1);cursor:pointer;user-select:none;position:sticky;top:0;z-index:6;}
+#sheet-grip{width:40px;height:4px;border-radius:2px;background:var(--c3);margin:0 auto;}
+#sheet-row{display:flex;align-items:center;gap:8px;}
+#sheet-title{flex:1;font-size:12px;font-weight:700;color:var(--c2);letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#sheet-play{flex:0 0 auto;padding:7px 14px;border:2px solid var(--c76);background:var(--c1);color:var(--c76);border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;}
+#sheet-play.running{color:var(--c77);border-color:var(--c77);}
 #panel-card-hdr{display:none;align-items:center;justify-content:space-between;height:30px;min-height:30px;padding:0 12px;background:var(--c20);border-bottom:1px solid var(--c1);cursor:pointer;user-select:none;}
 #panel-card-hdr-title{font-size:12px;font-weight:700;color:var(--c2);letter-spacing:.5px;}
 #btn-panel-card-toggle{background:none;border:none;color:var(--c2);font-size:11px;cursor:pointer;padding:0;}
@@ -408,6 +416,8 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #turn-unit{font-size:13px;color:var(--c8);margin-left:3px;}
 #turn-instr{font-size:16px;font-weight:700;color:var(--c59);margin-top:4px;}
 #turn-road{font-size:11px;color:var(--c60);margin-top:3px;white-space:normal;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+#turn-next{font-size:11px;color:var(--c7);margin-top:4px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.9;}
+#turn-next:empty{display:none;}
 
 /* GPS 상태 표시 */
 #gps-status{
@@ -731,28 +741,26 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #btn-done:hover{background:var(--c6);}
 
 @media(max-width:700px){
-  /* ── 레이아웃 ── */
-  /* grid 대신 flex column으로 전환 — 패널이 콘텐츠 높이만큼만 차지 */
-  #main{
-    display:flex;
-    flex-direction:column;
-    overflow-y:auto;
-    overflow-x:hidden;
-  }
-  /* 지도는 최소 38vh를 유지하고, 접힌 패널이 남긴 공간은 지도가 채움 */
-  #map-wrap{
-    flex:1 0 38vh;
-    height:auto;
-    min-height:38vh;
-  }
+  /* ── 레이아웃: 지도 전체화면 + 패널은 하단 시트(접었다 폈다) ── */
+  #main{ display:block; position:relative; overflow:hidden; }
+  #map-wrap{ position:absolute; inset:0; height:auto; min-height:0; z-index:1; }
   #panel{
-    flex:none;           /* ← 핵심: 남은 공간 채우지 않음 */
-    border-left:none;
-    border-top:2px solid var(--c21);
-    overflow:visible;
-    display:block;
-    height:auto;
+    position:absolute; left:0; right:0; bottom:0; width:100%;
+    max-height:66dvh;
+    border-left:none; border-top:1px solid var(--c21);
+    border-radius:16px 16px 0 0;
+    box-shadow:0 -6px 24px rgba(0,0,0,.32);
+    overflow-y:auto; -webkit-overflow-scrolling:touch;
+    display:block; height:auto;
+    z-index:1100;
+    /* 접힘: 손잡이(약 84px)만 남기고 아래로 내림 → 지도가 거의 풀스크린 */
+    transform:translateY(calc(100% - 84px));
+    transition:transform .28s ease;
   }
+  #panel.sheet-open{ transform:translateY(0); }
+  #sheet-handle{ display:flex; }
+  /* 내 위치 버튼: 하단 시트 peek 위로 */
+  #follow-btn{ bottom:150px; }
 
   /* 패널 내부 flex 자식들도 모두 auto 높이로 */
   #panel-card-wrap{flex:none;height:auto;}
@@ -801,14 +809,16 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #panel-resize-handle{display:none;}
   #steps-resize-handle{display:none;}
 
-  /* ── 경로 수정 바 + 전체 경로 안내: 서로 겹치지 않게 세로 배치 ── */
+  /* ── 경로 수정 바 + 전체 경로 안내: 하단 시트 peek(84px) 위에 배치 ── */
   #bottom-stack{
     position:absolute;
-    bottom:0;left:0;right:0;
+    bottom:88px;left:0;right:0;
     display:flex;
     flex-direction:column;
     align-items:stretch;
+    pointer-events:none;
   }
+  #bottom-stack > *{ pointer-events:auto; }
   #edit-bar{
     align-self:center;
     width:calc(100% - 16px);
@@ -1288,6 +1298,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
         <div><span id="turn-dist">—</span><span id="turn-unit"> m 앞</span></div>
         <div id="turn-instr">경로를 불러오는 중...</div>
         <div id="turn-road"></div>
+        <div id="turn-next"></div>
       </div>
     </div>
 
@@ -1348,6 +1359,13 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
   <!-- 우측 패널 -->
   <div id="panel">
+    <div id="sheet-handle" onclick="toggleSheet()">
+      <div id="sheet-grip"></div>
+      <div id="sheet-row">
+        <span id="sheet-title">구간 정보 · 지도 보기</span>
+        <button id="sheet-play" onclick="event.stopPropagation();togglePlay()">▶ 시작</button>
+      </div>
+    </div>
     <div id="panel-edit-block"></div>
     <div id="panel-resize-handle"></div>
     <div id="panel-card-wrap">
@@ -3243,6 +3261,23 @@ function getTurnRoadText(stepIdx){
   return parts.join(' · ');
 }
 
+// 현재 스텝 이후의 '다음 실제 회전'을 미리 보여준다(직진성 스텝은 건너뜀).
+// 좌회전 직후 우회전 같은 연속 기동을 운전자가 미리 대비할 수 있게 함.
+function getNextManeuverPreview(idx){
+  if(!Array.isArray(osrmSteps)||!osrmSteps.length) return '';
+  for(let i=idx+1;i<osrmSteps.length;i++){
+    const s=osrmSteps[i];
+    if(!s||!s.maneuver) continue;
+    if(s.maneuver.type==='arrive') return '🏁 다음: 목적지 도착';
+    const info=getManeuverInfo(s.maneuver.type,s.maneuver.modifier,s);
+    const t=info.text||'';
+    if(t.indexOf('직진')>=0||t==='계속 진행') continue; // 직진류는 건너뛰고 다음 회전 표시
+    const road=s.name?` ${s.name}`:'';
+    return `${info.icon} 다음:${road} ${t}`;
+  }
+  return '';
+}
+
 function getRouteSplitAtMeters(progressMeters){
   if(!currentRouteCoords||currentRouteCoords.length<2||routeCumulativeMeters.length<2) return null;
 
@@ -3415,23 +3450,31 @@ const MANEUVER_KO={
 };
 
 function getManeuverInfo(type, modifier, step){
-  // 회전 방향 결정.
-  // ★ OSRM이 좌/우회전을 명시하면 그 방향을 절대 직진으로 덮지 않는다.
-  //   bearing_before/after 기반 보정은 OSRM이 방향을 주지 않은 경우(직진/미지정)에만 보조로 사용.
+  // 회전 방향 결정 (하이브리드).
+  //  1) bearing_before/after 로 방향이 뚜렷하면(±25° 초과) 그 기하학적 방향을 우선 — 실제 도로 방향 반영.
+  //  2) bearing이 애매하면(±25° 이내) OSRM modifier의 좌/우를 존중 — 단 명시적 좌/우/유턴은 절대 직진으로 내리지 않음.
   let mod = modifier || 'straight';
-  const hasExplicitDir = /left|right|uturn/.test(mod);
-  if(step && step.maneuver && !hasExplicitDir){
+  if(step && step.maneuver &&
+     (type==='turn'||type==='off ramp'||type==='on ramp'||type==='fork'||type==='end of road'||type==='continue')){
     const before = step.maneuver.bearing_before;
     const after  = step.maneuver.bearing_after;
-    if(typeof before === 'number' && typeof after === 'number'){
+    const osrmLeft  = /left/.test(mod);
+    const osrmRight = /right/.test(mod);
+    const osrmUturn = /uturn/.test(mod);
+    if(typeof before==='number' && typeof after==='number'){
       let diff = ((after - before) + 360) % 360;
-      if(diff > 180) diff -= 360; // -180 ~ 180 (음수=좌, 양수=우)
-      if(type === 'turn' || type === 'off ramp' || type === 'on ramp' || type === 'fork'){
-        if(diff < -60)       mod = diff < -120 ? 'sharp left'  : 'left';
-        else if(diff > 60)   mod = diff >  120 ? 'sharp right' : 'right';
-        else if(diff < -15)  mod = 'slight left';
-        else if(diff >  15)  mod = 'slight right';
-        else                 mod = 'straight';
+      if(diff > 180) diff -= 360; // 음수=좌, 양수=우
+      if(osrmUturn && Math.abs(diff) >= 150){ // 유턴은 유턴으로 유지
+        mod = 'uturn';
+      } else if(diff < -25){         // 기하학적으로 좌회전 뚜렷
+        mod = diff < -120 ? 'sharp left' : (diff < -60 ? 'left' : 'slight left');
+      } else if(diff > 25){   // 우회전 뚜렷
+        mod = diff > 120 ? 'sharp right' : (diff > 60 ? 'right' : 'slight right');
+      } else {                // 애매 → OSRM 방향 존중(직진으로 안 내림)
+        if(osrmUturn) mod = 'uturn';
+        else if(osrmLeft)  mod = 'left';
+        else if(osrmRight) mod = 'right';
+        else mod = 'straight';
       }
     }
   }
@@ -3519,6 +3562,7 @@ function showNextStep(idx,curPos){
   document.getElementById('turn-unit').textContent=getDistUnitLabel(step.maneuver.type);
   document.getElementById('turn-instr').textContent=info.text;
   document.getElementById('turn-road').textContent=getTurnRoadText(idx);
+  document.getElementById('turn-next').textContent=getNextManeuverPreview(idx);
 
   // 출발 음성 (경로 로드 완료 시)
   if(isPlaying&&lastSpokenStep<0){
@@ -3593,6 +3637,7 @@ function updateTurnFromPosition(lat,lng,vehicleHeading=null,headingReliable=fals
   document.getElementById('turn-dist').textContent=d>=1000?(d/1000).toFixed(1)+'km':Math.round(d)+'m';
   document.getElementById('turn-unit').textContent=getDistUnitLabel(step.maneuver.type);
   document.getElementById('turn-road').textContent=getTurnRoadText(currentStepIdx);
+  document.getElementById('turn-next').textContent=getNextManeuverPreview(currentStepIdx);
 
   // 거리별 음성 안내 (500m / 200m / 50m)
   const SPEAK_DISTS=[500,200,50];
@@ -3684,6 +3729,16 @@ function toggleLegList(){
   setPanelCollapsed('leg-list-wrap','btn-leg-list-toggle',collapsed);
   savePanelState();
   refreshMapSize();
+}
+
+function toggleSheet(){
+  const p=document.getElementById('panel');
+  if(p) p.classList.toggle('sheet-open');
+}
+// 주행 시작 시 시트를 접어 지도를 넓게 보여줌(모바일).
+function collapseSheet(){
+  const p=document.getElementById('panel');
+  if(p) p.classList.remove('sheet-open');
 }
 
 function togglePanelCard(){
@@ -3954,6 +4009,8 @@ function renderCurLeg(){
 
   document.getElementById('btn-play').textContent=isPlaying?'⏸ 정지':'▶ 시작';
   document.getElementById('btn-play').className='ctrl-btn'+(isPlaying?' running':'');
+  const sp=document.getElementById('sheet-play');
+  if(sp){ sp.textContent=isPlaying?'⏸ 정지':'▶ 시작'; sp.className=isPlaying?'running':''; }
 }
 
 function updateHeader(){
@@ -4037,6 +4094,7 @@ function togglePlay(){
     manualMapPauseUntil=0;
     lastGpsSample=null;
     resetGpsMatchState(); // 필터·스냅 초기화(구간/세션 시작마다 깨끗하게)
+    collapseSheet();      // 주행 시작 → 하단 시트 접어 지도 넓게(모바일)
     legStartTime=new Date();
     legStartPos=getGPSPos()||[...legs[legIdx].sLL];
     lastSpokenStep=-1; lastWarnSpoken=false; timerWarn5Spoken=false;
