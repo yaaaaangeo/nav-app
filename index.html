@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.3.5"/>
+<meta name="app-version" content="v3.4.1"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -443,6 +443,19 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 #gps-acc-line{font-size:10px;color:var(--c2);margin-top:2px;}
 #gps-coord-line{font-size:9px;color:var(--c66);margin-top:1px;font-variant-numeric:tabular-nums;}
+
+/* 내 위치 따라가기 버튼 (지도 우하단 플로팅) */
+#follow-btn{
+  position:absolute; bottom:96px; right:14px; z-index:1001;
+  width:48px; height:48px; border-radius:50%;
+  border:1px solid var(--c4); background:var(--ov-bg); color:var(--c8);
+  font-size:24px; line-height:1; cursor:pointer;
+  box-shadow:0 2px 10px rgba(0,0,0,.28); backdrop-filter:blur(6px);
+  display:flex; align-items:center; justify-content:center;
+  transition:background .2s,color .2s,border-color .2s,transform .1s;
+}
+#follow-btn:active{ transform:scale(0.93); }
+#follow-btn.active{ background:var(--c6); color:#fff; border-color:var(--c6); }
 
 /* ── 수집 시스템 모니터링 패널 (지도 우하단) ── */
 #collector-panel{
@@ -1265,6 +1278,9 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div id="map-wrap">
     <div id="map"></div>
 
+    <!-- 내 위치로 이동 / 따라가기 토글 (실시간 내비 추종) -->
+    <button id="follow-btn" onclick="recenterAndFollow()" title="내 위치로 이동 / 따라가기" aria-label="내 위치 따라가기">◎</button>
+
     <!-- 턴바이턴 안내 오버레이 -->
     <div id="turn-overlay">
       <div id="turn-arrow-box"><span id="turn-arrow">⬆</span></div>
@@ -1879,7 +1895,7 @@ let watchId=null;
 // GPS 자동 추적 상태
 // 주행 중 실제 이동이 감지되면 GPS 위치를 지도 중심으로 따라간다.
 // 사용자가 지도를 직접 조작하면 일정 시간 동안 추적을 멈춘 뒤 자동 복귀한다.
-let gpsAutoFollow=true;
+let gpsAutoFollow=false; // 기본 꺼짐: 내 위치 버튼 또는 ▶시작으로 따라가기 켜짐
 let manualMapPauseUntil=0;
 let lastGpsSample=null;
 let mapViewSaveTimer=null;
@@ -1972,18 +1988,35 @@ const map=L.map('map',{
 });
 // 내비게이션용 밝고 대비 높은 베이스맵(CARTO Voyager).
 // detectRetina는 라벨이 지나치게 작아져 제외(가독성 우선). 저사양 태블릿에서도 라벨이 큼직하게 보임.
+// 베이스맵: VWorld(국토부 국가지도) → CARTO Voyager → OSM 순으로 자동 폴백.
+// 한국 도로·건물·산업단지 커버리지가 OSM보다 촘촘함. 지금은 무설정 TMS로 즉시 사용.
+// ★ 안정적 운영을 위해선 vworld.kr에서 무료 인증키 발급 + 도메인(yaaaaangeo.github.io) 등록 후
+//   아래 VWORLD_KEY에 넣으면 공식 WMTS 엔드포인트를 사용한다.
+const VWORLD_KEY=''; // 예: 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX'
 const BASE_TILES={
+  vworld: VWORLD_KEY
+    ? {url:`https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/Base/{z}/{y}/{x}.png`,
+       opts:{maxZoom:19,attribution:'© VWorld (국토지리정보원)',crossOrigin:true}}
+    : {url:'https://xdworld.vworld.kr/2d/Base/service/{z}/{x}/{y}.png',
+       opts:{maxZoom:19,attribution:'© VWorld (국토지리정보원)',crossOrigin:true}},
   voyager:{url:'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
     opts:{subdomains:'abcd',maxZoom:20,attribution:'© OpenStreetMap © CARTO',crossOrigin:true}},
   osm:{url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     opts:{maxZoom:19,attribution:'© OpenStreetMap',crossOrigin:true}}
 };
-let baseTileLayer=L.tileLayer(BASE_TILES.voyager.url,BASE_TILES.voyager.opts).addTo(map);
-baseTileLayer.on('tileerror',function onBaseTileError(){ // CARTO 지연/차단 시 OSM 자동 폴백
-  baseTileLayer.off('tileerror',onBaseTileError);
-  try{map.removeLayer(baseTileLayer);}catch(_){}
-  baseTileLayer=L.tileLayer(BASE_TILES.osm.url,BASE_TILES.osm.opts).addTo(map);
-});
+const BASE_ORDER=['vworld','voyager','osm'];
+let baseTileLayer=null, _baseIdx=0, _baseErrCount=0;
+function setBaseTile(idx){
+  _baseIdx=idx; _baseErrCount=0;
+  const t=BASE_TILES[BASE_ORDER[idx]];
+  if(baseTileLayer){ try{map.removeLayer(baseTileLayer);}catch(_){} }
+  baseTileLayer=L.tileLayer(t.url,t.opts).addTo(map);
+  baseTileLayer.on('tileerror',()=>{
+    // 앞 지도가 막히면(도메인/키/차단) 몇 장 실패 후 다음 후보로 자동 전환.
+    if(_baseIdx<BASE_ORDER.length-1 && ++_baseErrCount>=4) setBaseTile(_baseIdx+1);
+  });
+}
+setBaseTile(0);
 
 trafficEventLayer=L.layerGroup().addTo(map);
 
@@ -2678,6 +2711,41 @@ function pauseGpsFollowByUser(){
   manualMapPauseUntil=isPlaying
     ? Date.now()+GPS_FOLLOW_RESUME_MS
     : Number.POSITIVE_INFINITY;
+  updateFollowBtn();
+}
+
+// 룩어헤드: 진행방향 앞쪽을 지도 중심에 두어 차량이 화면 하단부에 오게 함(앞을 더 봄).
+function computeFollowTarget(lat,lng,heading){
+  try{
+    if(!Number.isFinite(heading)) return [lat,lng];
+    const sizeY=map.getSize().y;
+    const aheadPx=Math.min(sizeY*0.18,140); // 화면 세로 18%만큼 앞
+    const p=map.latLngToContainerPoint([lat,lng]);
+    const rad=heading*Math.PI/180;
+    const t=map.containerPointToLatLng([p.x+aheadPx*Math.sin(rad), p.y-aheadPx*Math.cos(rad)]);
+    return [t.lat,t.lng];
+  }catch(_){ return [lat,lng]; }
+}
+
+// 따라가기 버튼 상태(활성/비활성) 반영.
+function updateFollowBtn(){
+  const b=document.getElementById('follow-btn');
+  if(b) b.classList.toggle('active', !!gpsAutoFollow);
+}
+
+// 내 위치로 즉시 이동 + 따라가기 재개(주행용 줌으로 당김).
+function recenterAndFollow(){
+  gpsAutoFollow=true; manualMapPauseUntil=0;
+  const z=Math.max(map.getZoom(),16);
+  if(lastCarPos){
+    map.setView(computeFollowTarget(lastCarPos[0],lastCarPos[1],displayHeading), z, {animate:true});
+  } else if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      p=>{ map.setView([p.coords.latitude,p.coords.longitude], z, {animate:true}); },
+      ()=>{}, {enableHighAccuracy:true,timeout:8000,maximumAge:2000}
+    );
+  }
+  updateFollowBtn();
 }
 
 const mapContainer=map.getContainer();
@@ -4230,15 +4298,17 @@ function startGPS(){
     // 지나온 경로 진행률은 필터(비스냅) 위치로 계산
     updatePassedRoute(fLat,fLng,currentSpeed,elapsedSec);
 
-    // 지도 자동 추종(표시 위치 기준)
-    if(isPlaying&&gpsIsMoving){
-      if(now>=manualMapPauseUntil) gpsAutoFollow=true;
+    // 지도 자동 추종 — 따라가기 모드면 구간 시작 여부와 무관하게 내 위치를 따라감(룩어헤드 적용)
+    if(gpsIsMoving){
+      if(isPlaying && now>=manualMapPauseUntil) gpsAutoFollow=true; // 주행 중엔 조작 후 자동 재개
       if(gpsAutoFollow){
-        if(map.distance(map.getCenter(),[dLat,dLng])>=8){
-          map.panTo([dLat,dLng],{animate:true,duration:0.6,easeLinearity:0.25});
+        const tgt=computeFollowTarget(dLat,dLng,displayHeading);
+        if(map.distance(map.getCenter(),tgt)>=8){
+          map.panTo(tgt,{animate:true,duration:0.6,easeLinearity:0.25});
         }
       }
     }
+    updateFollowBtn();
 
     // 턴 안내(표시 위치·스무딩 방향 기준)
     updateTurnFromPosition(dLat,dLng,displayHeading,headingReliable||disp.snapped);
