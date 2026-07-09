@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.4.1"/>
+<meta name="app-version" content="v3.4.2"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -3415,14 +3415,17 @@ const MANEUVER_KO={
 };
 
 function getManeuverInfo(type, modifier, step){
-  // bearing_before/after 로 실제 회전 방향 보정
+  // 회전 방향 결정.
+  // ★ OSRM이 좌/우회전을 명시하면 그 방향을 절대 직진으로 덮지 않는다.
+  //   bearing_before/after 기반 보정은 OSRM이 방향을 주지 않은 경우(직진/미지정)에만 보조로 사용.
   let mod = modifier || 'straight';
-  if(step && step.maneuver){
+  const hasExplicitDir = /left|right|uturn/.test(mod);
+  if(step && step.maneuver && !hasExplicitDir){
     const before = step.maneuver.bearing_before;
     const after  = step.maneuver.bearing_after;
     if(typeof before === 'number' && typeof after === 'number'){
       let diff = ((after - before) + 360) % 360;
-      if(diff > 180) diff -= 360; // -180 ~ 180
+      if(diff > 180) diff -= 360; // -180 ~ 180 (음수=좌, 양수=우)
       if(type === 'turn' || type === 'off ramp' || type === 'on ramp' || type === 'fork'){
         if(diff < -60)       mod = diff < -120 ? 'sharp left'  : 'left';
         else if(diff > 60)   mod = diff >  120 ? 'sharp right' : 'right';
