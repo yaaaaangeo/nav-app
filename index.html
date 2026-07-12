@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.5.1"/>
+<meta name="app-version" content="v3.8.1"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -391,6 +391,22 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 /* ── 지도 래퍼 ── */
 #map-wrap{position:relative;overflow:hidden;}
 #map{width:100%;height:100%;}
+/* 헤딩업: 지도를 진행방향 반대로 회전 + 살짝 확대(회전 시 빈 모서리 가림) */
+#map.heading-up{transform-origin:center center;transform:scale(1.5) rotate(var(--map-rot,0deg));transition:transform .3s ease-out;}
+#map.heading-up .leaflet-control-container{display:none;} /* 회전 중 기울어진 줌버튼 숨김 */
+
+/* 내 위치 / 헤딩업 버튼 공통 */
+#headup-btn{
+  position:absolute; bottom:154px; right:14px; z-index:1001;
+  width:48px; height:48px; border-radius:50%;
+  border:1px solid var(--c4); background:var(--ov-bg); color:var(--c8);
+  font-size:22px; line-height:1; cursor:pointer;
+  box-shadow:0 2px 10px rgba(0,0,0,.28); backdrop-filter:blur(6px);
+  display:flex; align-items:center; justify-content:center;
+  transition:background .2s,color .2s,border-color .2s,transform .1s;
+}
+#headup-btn:active{ transform:scale(0.93); }
+#headup-btn.active{ background:var(--c6); color:#fff; border-color:var(--c6); }
 
 /* ── 턴바이턴 오버레이 (지도 위 상단) ── */
 #turn-overlay{
@@ -759,8 +775,9 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   }
   #panel.sheet-open{ transform:translateY(0); }
   #sheet-handle{ display:flex; }
-  /* 내 위치 버튼: 하단 시트 peek 위로 */
+  /* 내 위치/헤딩업 버튼: 하단 시트 peek 위로, 세로로 쌓기 */
   #follow-btn{ bottom:150px; }
+  #headup-btn{ bottom:208px; }
 
   /* 패널 내부 flex 자식들도 모두 auto 높이로 */
   #panel-card-wrap{flex:none;height:auto;}
@@ -1210,6 +1227,9 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-item" onclick="document.getElementById('import-file-input').click();closeSettingsMenu()">📂 설정 가져오기</div>
   <div class="settings-item" onclick="exportSettings();closeSettingsMenu()">📤 설정 내보내기</div>
   <div class="settings-item" onclick="resetToBuiltinRoutes()" style="color:var(--c12);">🔄 경로 기본값으로 초기화</div>
+  <div class="settings-item" id="wakelock-menu" onclick="toggleWakeLockSetting()">🔆 주행 중 화면 켜두기: 켜짐</div>
+  <div class="settings-item" id="tmap-menu" onclick="setTmapKey();closeSettingsMenu()">🧭 경로 엔진: TMAP 키 입력</div>
+  <div class="settings-item" onclick="bakeAllRoutesTmap()" style="color:var(--c12);">🔧 경로 굽기(관리자·TMAP 1회)</div>
   <div class="settings-divider"></div>
   <div class="settings-item" onclick="toggleTheme();closeSettingsMenu()" id="menu-btn-theme">☀️ 밝은 화면 모드</div>
   <div class="settings-divider"></div>
@@ -1290,6 +1310,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
     <!-- 내 위치로 이동 / 따라가기 토글 (실시간 내비 추종) -->
     <button id="follow-btn" onclick="recenterAndFollow()" title="내 위치로 이동 / 따라가기" aria-label="내 위치 따라가기">◎</button>
+    <button id="headup-btn" onclick="toggleHeadingUp()" title="진행방향 위로(헤딩업)" aria-label="헤딩업">🧭</button>
 
     <!-- 턴바이턴 안내 오버레이 -->
     <div id="turn-overlay">
@@ -1877,6 +1898,10 @@ const SCENARIOS={
 //  네이버 경로 기준 경유 좌표 (OSRM 경로 고정용)
 //  각 구간별 중간 GPS 좌표 → OSRM이 동일 경로를 따르게 함
 // ══════════════════════════════════════════════════════════
+// 미리 구워둔 경로(관리자가 TMAP으로 1회 계산 → 여기에 심음). legId → {coords,steps,duration}
+// 값이 있으면 런타임 API 호출 없이 이 경로를 그대로 사용(기사 기기는 키/프록시 불필요).
+const BAKED_ROUTES={};
+
 const WAYPOINTS={
   // 시흥: 손보정 경로 경유점(설정 내보내기 JSON에서 이관). 강남/판교는 향후 손보정 후 추가.
   'SH-L-BASE-01':[[37.366358,126.739141]],
@@ -2730,6 +2755,7 @@ function pauseGpsFollowByUser(){
     ? Date.now()+GPS_FOLLOW_RESUME_MS
     : Number.POSITIVE_INFINITY;
   updateFollowBtn();
+  applyMapRotation();
 }
 
 // 룩어헤드: 진행방향 앞쪽을 지도 중심에 두어 차량이 화면 하단부에 오게 함(앞을 더 봄).
@@ -2751,6 +2777,27 @@ function updateFollowBtn(){
   if(b) b.classList.toggle('active', !!gpsAutoFollow);
 }
 
+// ── 헤딩업(지도 회전) ──
+let headingUp=false;
+function toggleHeadingUp(){
+  headingUp=!headingUp;
+  const b=document.getElementById('headup-btn');
+  if(b) b.classList.toggle('active', headingUp);
+  if(headingUp){ gpsAutoFollow=true; updateFollowBtn(); } // 헤딩업 켜면 따라가기도 켬
+  applyMapRotation();
+}
+// 지도 회전 적용: 헤딩업 + 따라가기 상태일 때만 진행방향 반대로 회전, 아니면 북쪽 고정.
+function applyMapRotation(){
+  const el=map.getContainer();
+  if(headingUp && gpsAutoFollow){
+    el.classList.add('heading-up');
+    el.style.setProperty('--map-rot', (-(displayHeading||0)).toFixed(1)+'deg');
+  } else {
+    el.classList.remove('heading-up');
+    el.style.setProperty('--map-rot','0deg');
+  }
+}
+
 // 내 위치로 즉시 이동 + 따라가기 재개(주행용 줌으로 당김).
 function recenterAndFollow(){
   gpsAutoFollow=true; manualMapPauseUntil=0;
@@ -2764,6 +2811,7 @@ function recenterAndFollow(){
     );
   }
   updateFollowBtn();
+  applyMapRotation();
 }
 
 const mapContainer=map.getContainer();
@@ -2813,7 +2861,188 @@ async function osrmFetchWithRetry(url,outerSignal,attempts=3){
   throw lastErr||new Error('OSRM failed');
 }
 
+// 경로 계산 결과(currentRouteCoords/osrmSteps/osrmDuration 세팅 후)를 화면에 반영하는 공통부.
+// OSRM/TMAP 양쪽에서 재사용.
+function applyRouteToUI(sLL,eLL){
+  const coords=currentRouteCoords;
+  if(Array.isArray(coords)&&coords.length){
+    coords[0]=[sLL[1],sLL[0]];
+    coords[coords.length-1]=[eLL[1],eLL[0]];
+  }
+  drawOSRMRoute(currentRouteCoords);
+  try{
+    const routeLatLngs=coords.map(c=>[c[1],c[0]]);
+    map.fitBounds(L.latLngBounds(routeLatLngs),{padding:[48,48],maxZoom:16,animate:true});
+  }catch(_){}
+  resetGuidanceDistanceState();
+  buildStepRouteMeters();
+  currentStepIdx=0;
+  if(osrmSteps.length>1){
+    const gps=getGPSPos();
+    if(gps&&routeProgressInitialized){
+      for(let i=0;i<osrmSteps.length-1;i++){
+        const sm=osrmStepRouteMeters[i];
+        if(Number.isFinite(sm)&&sm>routeProgressMeters+10){ currentStepIdx=i; break; }
+        currentStepIdx=i+1;
+      }
+    }
+  }
+  if(osrmSteps.length>0) showNextStep(currentStepIdx,null);
+  showTurnOverlay(true);
+  updateCurStats();
+  renderStepsList();
+  renderTrafficOverlay();
+}
+
+// ── TMAP(티맵) 경로 API ── 한국 실데이터 기반 → 회전 정확. 폰 브라우저에서 직접 호출.
+function getTmapKey(){ return (localStorage.getItem('nav_tmap_key')||'').trim(); }
+function setTmapKey(){
+  const cur=getTmapKey();
+  const k=prompt('TMAP appKey를 입력하세요.\n(SK Open API에서 무료 발급, 이 기기에만 저장됩니다. 비우면 OSRM 사용)', cur);
+  if(k===null) return;
+  localStorage.setItem('nav_tmap_key', k.trim());
+  updateTmapMenuLabel();
+  alert(k.trim() ? 'TMAP 키 저장됨. 이제 한국 데이터 경로를 사용합니다.' : 'TMAP 키 삭제됨. OSRM을 사용합니다.');
+}
+function updateTmapMenuLabel(){
+  const el=document.getElementById('tmap-menu');
+  if(el) el.textContent = getTmapKey() ? '🧭 경로 엔진: TMAP(한국) ✓' : '🧭 경로 엔진: TMAP 키 입력';
+}
+// TMAP turnType → 앱의 maneuver(type/modifier)로 변환. bearing 없이 modifier를 직접 신뢰.
+function mapTmapTurn(tt){
+  switch(Number(tt)){
+    case 11: return {type:'continue', modifier:'straight'};
+    case 12: return {type:'turn', modifier:'left'};
+    case 13: return {type:'turn', modifier:'right'};
+    case 14: return {type:'turn', modifier:'uturn'};
+    case 16: return {type:'turn', modifier:'sharp left'};   // 8시 방향
+    case 17: return {type:'turn', modifier:'slight left'};  // 10시 방향
+    case 18: return {type:'turn', modifier:'slight right'}; // 오른쪽 앞
+    case 19: return {type:'turn', modifier:'sharp right'};  // 2시 방향
+    case 71: case 72: case 73: case 74: case 75:
+    case 121: case 122: case 123: case 124: case 125: case 126: case 127: case 128: case 129:
+      return {type:'roundabout', modifier:'straight'};      // 회전교차로/로터리
+    case 200: return {type:'arrive', modifier:'straight'};  // 목적지
+    case 201: return {type:'depart', modifier:'straight'};  // 출발지
+    default:  return {type:'continue', modifier:'straight'};
+  }
+}
+// TMAP FeatureCollection → {coords, steps, duration} 파싱(렌더/굽기 공용)
+function parseTmapFeatures(feats){
+  const coords=[]; const steps=[]; let totalTime=0;
+  for(const f of feats){
+    const g=f.geometry||{}; const p=f.properties||{};
+    if(g.type==='LineString' && Array.isArray(g.coordinates)){
+      for(const c of g.coordinates){ coords.push([c[0],c[1]]); }
+      if(Number.isFinite(p.time)) totalTime+=p.time;
+    } else if(g.type==='Point' && Array.isArray(g.coordinates)){
+      const tt=p.turnType;
+      if(tt===undefined||tt===null) continue;
+      const mv=mapTmapTurn(tt);
+      if(mv.type==='depart') continue;
+      let road=(p.nextRoadName||p.roadName||'').trim();
+      if(!road && typeof p.description==='string'){
+        const m=p.description.match(/^(.*?)\s*(에서|을|를|로|으로)?\s*(좌회전|우회전|유턴|직진)/);
+        if(m) road=(m[1]||'').trim();
+      }
+      steps.push({ name:road, distance:Number(p.distance)||0,
+        maneuver:{ type:mv.type, modifier:mv.modifier, location:[g.coordinates[0],g.coordinates[1]] } });
+    }
+  }
+  if(coords.length<2) throw new Error('TMAP 좌표 부족');
+  const cleanSteps=steps.filter((s,i,arr)=>{
+    if(s.maneuver.type==='arrive') return i===arr.length-1;
+    if(s.maneuver.type==='continue' && s.maneuver.modifier==='straight') return false;
+    return true;
+  });
+  return {coords, steps:cleanSteps, duration: totalTime||null};
+}
+
+// TMAP 호출 → 파싱 결과 반환(렌더/굽기 공용). 실패 시 throw.
+async function tmapRouteData(sLL,eLL,legId,signal){
+  const wps=WAYPOINTS[legId]||[];
+  const body={ startX:sLL[1],startY:sLL[0],endX:eLL[1],endY:eLL[0],
+    reqCoordType:'WGS84GEO',resCoordType:'WGS84GEO',searchOption:'0',trafficInfo:'N' };
+  if(wps.length) body.passList=wps.map(w=>`${w[1]},${w[0]}`).join('_');
+  const res=await fetch('https://apis.openapi.sk.com/tmap/routes?version=1&format=json',{
+    method:'POST', headers:{'Content-Type':'application/json','appKey':getTmapKey()},
+    body:JSON.stringify(body), signal:signal||undefined });
+  if(!res.ok) throw new Error('TMAP HTTP '+res.status);
+  const data=await res.json();
+  const feats=data&&data.features;
+  if(!Array.isArray(feats)||!feats.length) throw new Error('TMAP 응답 형식 예상과 다름');
+  return parseTmapFeatures(feats);
+}
+
+// 미리 구워둔 경로(BAKED_ROUTES) 적용 — 런타임 API 호출 없음, 키 불필요.
+function applyBakedRoute(legId,sLL,eLL){
+  const b=BAKED_ROUTES[legId];
+  if(!b||!Array.isArray(b.coords)||b.coords.length<2) return false;
+  clearOSRM();
+  currentRouteCoords=b.coords.map(c=>[c[0],c[1]]);
+  osrmDuration=b.duration||null;
+  osrmSteps=(b.steps||[]).map(s=>({ name:s.name, distance:s.distance,
+    maneuver:{ type:s.maneuver.type, modifier:s.maneuver.modifier, location:s.maneuver.location } }));
+  applyRouteToUI(sLL,eLL);
+  showRouteLoading(false);
+  return true;
+}
+
+async function fetchTmap(sLL,eLL,legId){
+  if(osrmAbortCtrl){ try{osrmAbortCtrl.abort();}catch(_){} }
+  osrmAbortCtrl=new AbortController();
+  showRouteLoading(true);
+  clearOSRM();
+  try{
+    const r=await tmapRouteData(sLL,eLL,legId,osrmAbortCtrl.signal);
+    currentRouteCoords=r.coords; osrmDuration=r.duration; osrmSteps=r.steps;
+    applyRouteToUI(sLL,eLL);
+    showRouteLoading(false);
+    return true;
+  }catch(e){
+    if(e.name==='AbortError') return true;
+    console.warn('TMAP 경로 실패 → OSRM 폴백:',e);
+    return false;
+  }
+}
+
+// ── 관리자용: 전체 구간을 TMAP으로 계산해 BAKED_ROUTES용 JSON으로 내보내기(1회 작업) ──
+async function bakeAllRoutesTmap(){
+  if(!getTmapKey()){ alert('먼저 ⚙️ → 경로 엔진에서 TMAP 키를 입력하세요.\n(굽는 용도로 관리자 기기에서만 필요)'); return; }
+  let total=0;
+  for(const loc of Object.keys(SCENARIOS)) for(const sc of ['a','b','c']){
+    const s=SCENARIOS[loc]&&SCENARIOS[loc][sc]; if(s&&s.legs) total+=s.legs.length;
+  }
+  if(!confirm(`전체 ${total}개 구간을 TMAP으로 계산해서 굽습니다.\n관리자 1회 작업이며 몇 분 걸립니다. 계속할까요?`)) return;
+  const out={}; const fails=[]; let n=0;
+  showRouteLoading(true);
+  for(const loc of Object.keys(SCENARIOS)) for(const sc of ['a','b','c']){
+    const s=SCENARIOS[loc]&&SCENARIOS[loc][sc]; if(!s||!s.legs) continue;
+    for(const lg of s.legs){
+      n++;
+      try{
+        const r=await tmapRouteData(lg.sLL,lg.eLL,lg.id,null);
+        out[lg.id]={coords:r.coords,steps:r.steps,duration:r.duration};
+      }catch(e){ fails.push(lg.id); console.warn('bake 실패',lg.id,e); }
+      await new Promise(res=>setTimeout(res,150)); // 쿼터 배려
+    }
+  }
+  showRouteLoading(false);
+  try{
+    const blob=new Blob([JSON.stringify(out)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download='baked_routes_'+new Date().toISOString().slice(0,10)+'.json'; a.click();
+  }catch(_){}
+  alert(`완료: ${Object.keys(out).length}/${total}개 구움`+(fails.length?`\n실패 ${fails.length}개: ${fails.join(', ')}`:'')+`\n\n이 JSON을 개발자에게 전달하면 앱 기본값으로 심습니다.`);
+}
+
 async function fetchOSRM(sLL,eLL,legId){
+  // 1순위: 미리 구워둔 경로(무 API, 키 불필요) → 2순위: TMAP 실시간(키 있을 때) → 3순위: OSRM
+  if(applyBakedRoute(legId,sLL,eLL)) return;
+  if(getTmapKey()){
+    const ok=await fetchTmap(sLL,eLL,legId);
+    if(ok) return;
+  }
   // 이전 요청 취소
   if(osrmAbortCtrl){ try{osrmAbortCtrl.abort();}catch(_){} }
   osrmAbortCtrl=new AbortController();
@@ -2847,12 +3076,6 @@ async function fetchOSRM(sLL,eLL,legId){
       coords[0]=[sLL[1],sLL[0]];
       coords[coords.length-1]=[eLL[1],eLL[0]];
       currentRouteCoords=coords;
-      drawOSRMRoute(currentRouteCoords);
-      // 현재 구간 출발~도착이 화면에 꼭 맞게 보이도록 지도 뷰 조정
-      try{
-        const routeLatLngs=coords.map(c=>[c[1],c[0]]);
-        map.fitBounds(L.latLngBounds(routeLatLngs),{padding:[48,48],maxZoom:16,animate:true});
-      }catch(_){}
       // 다중 waypoint → legs 배열 flatten
       // depart/중간arrive 모두 제거 — 실제 회전 지시 스텝만 남김
       const allSteps=route.legs.flatMap(l=>l.steps||[]);
@@ -2862,32 +3085,8 @@ async function fetchOSRM(sLL,eLL,legId){
           if(s.maneuver.type==='arrive') return i===arr.length-1; // 마지막 arrive만
           return true;
         })
-        // 도로명 변경이나 단순 직진 유지처럼 운전자 행동이 필요 없는
-        // 중간 스텝은 제외한다. 같은 문구가 반복되며 거리가 다시 커지는
-        // 현상을 막고, 다음 실제 회전·진출·도착까지의 거리를 안내한다.
         .filter(isActionableGuidanceStep);
-      resetGuidanceDistanceState();
-      buildStepRouteMeters();
-      // GPS 현재 위치 기준으로 이미 지나친 스텝 건너뛰고 올바른 스텝부터 시작
-      currentStepIdx=0;
-      if(osrmSteps.length>1){
-        const gps=getGPSPos();
-        if(gps&&routeProgressInitialized){
-          for(let i=0;i<osrmSteps.length-1;i++){
-            const sm=osrmStepRouteMeters[i];
-            if(Number.isFinite(sm)&&sm>routeProgressMeters+10){
-              currentStepIdx=i; break;
-            }
-            currentStepIdx=i+1;
-          }
-        }
-      }
-      if(osrmSteps.length>0) showNextStep(currentStepIdx,null);
-      showTurnOverlay(true);
-      updateCurStats();
-      renderStepsList();
-      // 현재 도로명 기준으로 최근 교통정보를 다시 입힌다.
-      renderTrafficOverlay();
+      applyRouteToUI(sLL,eLL);
     }
   }catch(e){
     if(e.name==='AbortError') return;
@@ -3450,38 +3649,12 @@ const MANEUVER_KO={
 };
 
 function getManeuverInfo(type, modifier, step){
-  // 회전 방향 결정 (하이브리드).
-  //  1) bearing_before/after 로 방향이 뚜렷하면(±25° 초과) 그 기하학적 방향을 우선 — 실제 도로 방향 반영.
-  //  2) bearing이 애매하면(±25° 이내) OSRM modifier의 좌/우를 존중 — 단 명시적 좌/우/유턴은 절대 직진으로 내리지 않음.
-  let mod = modifier || 'straight';
-  if(step && step.maneuver &&
-     (type==='turn'||type==='off ramp'||type==='on ramp'||type==='fork'||type==='end of road'||type==='continue')){
-    const before = step.maneuver.bearing_before;
-    const after  = step.maneuver.bearing_after;
-    const osrmLeft  = /left/.test(mod);
-    const osrmRight = /right/.test(mod);
-    const osrmUturn = /uturn/.test(mod);
-    if(typeof before==='number' && typeof after==='number'){
-      let diff = ((after - before) + 360) % 360;
-      if(diff > 180) diff -= 360; // 음수=좌, 양수=우
-      if(osrmUturn && Math.abs(diff) >= 150){ // 유턴은 유턴으로 유지
-        mod = 'uturn';
-      } else if(diff < -25){         // 기하학적으로 좌회전 뚜렷
-        mod = diff < -120 ? 'sharp left' : (diff < -60 ? 'left' : 'slight left');
-      } else if(diff > 25){   // 우회전 뚜렷
-        mod = diff > 120 ? 'sharp right' : (diff > 60 ? 'right' : 'slight right');
-      } else {                // 애매 → OSRM 방향 존중(직진으로 안 내림)
-        if(osrmUturn) mod = 'uturn';
-        else if(osrmLeft)  mod = 'left';
-        else if(osrmRight) mod = 'right';
-        else mod = 'straight';
-      }
-    }
-  }
+  // ★ OSRM이 준 회전 방향(modifier)을 그대로 신뢰 — 예전에 정확히 동작하던 방식.
+  //   bearing_before/after 로 방향을 재계산하던 로직은 좌/우회전을 직진으로 뭉개거나
+  //   뒤집는 문제가 있어 완전히 제거함. (배곧2로→서해안로 좌회전 오안내 원인)
+  const mod = modifier || 'straight';
   const base = MANEUVER_KO[type];
   if(!base) return {icon:'⬆', text:'계속 진행'};
-  // turn/fork처럼 modifier별 하위 객체가 있는 타입은 bearing 보정된 mod 우선 적용
-  // base.icon이 있더라도 하위 mod 키가 존재하면 mod로 분기해야 한다
   if(base[mod]) return base[mod];
   if(base['default']) return base['default'];
   if(typeof base.icon !== 'undefined') return base;
@@ -3739,6 +3912,37 @@ function toggleSheet(){
 function collapseSheet(){
   const p=document.getElementById('panel');
   if(p) p.classList.remove('sheet-open');
+}
+
+// ── 화면 항상 켜기 (Screen Wake Lock API) ──
+// 주행 중 폰 화면이 꺼지지 않게 유지. HTTPS·지원 브라우저(Android Chrome, iOS Safari 16.4+)에서 동작.
+let wakeLock=null;
+function wakeLockEnabled(){ return localStorage.getItem('nav_wakelock')!=='0'; } // 기본 켜짐
+async function requestWakeLock(){
+  if(!wakeLockEnabled() || !('wakeLock' in navigator)) return;
+  try{
+    wakeLock=await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release',()=>{ wakeLock=null; });
+  }catch(e){ console.warn('WakeLock 요청 실패:',e); wakeLock=null; }
+}
+async function releaseWakeLock(){
+  try{ if(wakeLock) await wakeLock.release(); }catch(_){}
+  wakeLock=null;
+}
+// 화면 복귀(탭 전환/잠금 해제) 시 주행 중이면 다시 획득
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible' && isPlaying && wakeLockEnabled() && !wakeLock) requestWakeLock();
+});
+function updateWakeLockMenuLabel(){
+  const el=document.getElementById('wakelock-menu');
+  if(el) el.textContent = wakeLockEnabled() ? '🔆 주행 중 화면 켜두기: 켜짐' : '🔆 주행 중 화면 켜두기: 꺼짐';
+}
+function toggleWakeLockSetting(){
+  const on=!wakeLockEnabled();
+  localStorage.setItem('nav_wakelock', on?'1':'0');
+  updateWakeLockMenuLabel();
+  if(on){ if(isPlaying) requestWakeLock(); }
+  else { releaseWakeLock(); }
 }
 
 function togglePanelCard(){
@@ -4087,6 +4291,7 @@ function togglePlay(){
     document.getElementById('btn-play').textContent='▶ 시작';
     document.getElementById('btn-play').className='ctrl-btn';
     finalizeLegSession(legIdx,getGPSPos());
+    releaseWakeLock(); // 정지 → 화면 켜두기 해제
     speak('주행을 정지합니다', true);
   } else {
     isPlaying=true; phase='drive'; setPhaseUI('drive');
@@ -4095,6 +4300,7 @@ function togglePlay(){
     lastGpsSample=null;
     resetGpsMatchState(); // 필터·스냅 초기화(구간/세션 시작마다 깨끗하게)
     collapseSheet();      // 주행 시작 → 하단 시트 접어 지도 넓게(모바일)
+    requestWakeLock();    // 주행 중 화면 켜두기
     legStartTime=new Date();
     legStartPos=getGPSPos()||[...legs[legIdx].sLL];
     lastSpokenStep=-1; lastWarnSpoken=false; timerWarn5Spoken=false;
@@ -4370,6 +4576,7 @@ function startGPS(){
       }
     }
     updateFollowBtn();
+    applyMapRotation();
 
     // 턴 안내(표시 위치·스무딩 방향 기준)
     updateTurnFromPosition(dLat,dLng,displayHeading,headingReliable||disp.snapped);
@@ -5509,6 +5716,8 @@ function exitEditMode(){
 // 초기화 — 저장된 경로 먼저 불러온 뒤 시나리오 로드
 loadWaypointsFromStorage();
 renderAppVersion();
+updateWakeLockMenuLabel();
+updateTmapMenuLabel();
 loadLastSaved();
 loadImportedFileName();
 updateTripLogCount();
