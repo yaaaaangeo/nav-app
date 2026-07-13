@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.8.1"/>
+<meta name="app-version" content="v3.8.2"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -3649,10 +3649,24 @@ const MANEUVER_KO={
 };
 
 function getManeuverInfo(type, modifier, step){
-  // ★ OSRM이 준 회전 방향(modifier)을 그대로 신뢰 — 예전에 정확히 동작하던 방식.
-  //   bearing_before/after 로 방향을 재계산하던 로직은 좌/우회전을 직진으로 뭉개거나
-  //   뒤집는 문제가 있어 완전히 제거함. (배곧2로→서해안로 좌회전 오안내 원인)
   const mod = modifier || 'straight';
+  // ★ 방향이 명시된 modifier(좌/우/유턴)는 타입과 무관하게 그 방향을 우선 표시.
+  //   OSRM은 '도로명이 바뀌는 좌/우회전'을 type:'turn'이 아니라 'new name','end of road',
+  //   'continue','fork' 등 + modifier:'left'/'right'로 준다. 이때 방향을 반드시 살려야 함.
+  //   (배곧2로→서해안로 좌회전이 '계속 직진'으로 뜨던 원인)
+  const DIR = {
+    'left':        {icon:'↰', text:'좌회전'},
+    'slight left': {icon:'↖', text:'좌측으로 진행'},
+    'sharp left':  {icon:'↙', text:'급좌회전'},
+    'right':       {icon:'↱', text:'우회전'},
+    'slight right':{icon:'↗', text:'우측으로 진행'},
+    'sharp right': {icon:'↘', text:'급우회전'},
+    'uturn':       {icon:'↩', text:'유턴'},
+  };
+  const noDirType = (type==='depart'||type==='arrive'||type==='roundabout'||
+                     type==='rotary'||type==='exit roundabout'||type==='roundabout turn');
+  if(DIR[mod] && !noDirType) return DIR[mod];
+  // 방향 modifier가 없거나(직진 등) 방향 무관 타입이면 타입별 기본값
   const base = MANEUVER_KO[type];
   if(!base) return {icon:'⬆', text:'계속 진행'};
   if(base[mod]) return base[mod];
