@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.10.0"/>
+<meta name="app-version" content="v3.11.0"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -1240,7 +1240,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.10.0</span>
+    <span id="app-version" title="애플리케이션 버전">v3.11.0</span>
   </div>
 </div>
 
@@ -1398,11 +1398,13 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       </div>
       <div id="panel-card-body">
         <div id="sc-select">
-          <select id="sc-sel" onchange="switchSc(this.value)">
-            <option value="a">시나리오 a — ㄹ자 그리드</option>
-            <option value="b">시나리오 b — M자 그리드</option>
-            <option value="c">시나리오 c — 링</option>
-          </select>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="sc-sel" onchange="switchSc(this.value)" style="flex:1;">
+              <option value="a">시나리오 a</option>
+            </select>
+            <button id="btn-add-sc" onclick="addScenario()" title="새 시나리오(그리드) 추가" style="flex-shrink:0;background:var(--c23);border:1px solid var(--c5);color:var(--c36);border-radius:7px;padding:7px 10px;font-size:13px;font-weight:700;cursor:pointer;">＋</button>
+            <button id="btn-edit-sc" onclick="editScenarioMeta()" title="시나리오 이름 변경 / 삭제" style="flex-shrink:0;background:var(--c23);border:1px solid var(--c5);color:var(--c36);border-radius:7px;padding:7px 9px;font-size:13px;cursor:pointer;">✎</button>
+          </div>
         </div>
 
         <div id="cur-card">
@@ -1470,12 +1472,16 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     <div id="leg-mgmt-btns">
       <button id="btn-add-leg" class="leg-mgmt-btn" onclick="toggleAddLegForm()">＋ 구간 추가</button>
       <button id="btn-del-leg" class="leg-mgmt-btn leg-del-btn" onclick="deleteCurrentLeg()">－ 구간 삭제</button>
+      <button id="btn-rename-leg" class="leg-mgmt-btn" onclick="renameCurrentLegId()">✎ ID 변경</button>
     </div>
     <div id="add-leg-form">
       <div style="font-size:10px;color:var(--c25);margin-bottom:8px;">지도에서 <b style="color:var(--c26)">출발</b>·<b style="color:var(--c11)">도착</b> 마커를 드래그해 위치를 설정하세요</div>
       <div class="alf-row">
         <div class="alf-field"><label>출발지 이름</label><input id="alf-s" placeholder="위치 확인 중..."/></div>
         <div class="alf-field"><label>도착지 이름</label><input id="alf-e" placeholder="도착 마커를 이동하세요"/></div>
+      </div>
+      <div class="alf-row">
+        <div class="alf-field" style="flex:1;"><label>세션 ID (비우면 자동)</label><input id="alf-id" placeholder="예: SH-ALLEY-BASE-01"/></div>
       </div>
       <div class="alf-row">
         <div class="alf-field"><label>거리 (자동)</label><div class="alf-auto" id="alf-dist">—</div></div>
@@ -4677,6 +4683,7 @@ function applyLocUI(l){
   if(btn) btn.classList.add('active');
   const naverBtn=document.getElementById('btn-naver-map');
   if(naverBtn) naverBtn.href=NAVER_MAP_URLS[l]||'';
+  renderScenarioOptions();
 }
 function switchLoc(l){
   stopTimer(); isPlaying=false; loc=l;
@@ -4685,6 +4692,69 @@ function switchLoc(l){
   saveCurrentView();
   startTrafficUpdates(l);
 }
+// ── 시나리오(그리드) 동적 관리 ──
+const SC_COLORS=['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16'];
+// 현재 지역의 시나리오 목록으로 드롭다운 채움
+function renderScenarioOptions(){
+  const sel=document.getElementById('sc-sel'); if(!sel||!SCENARIOS[loc]) return;
+  const keys=Object.keys(SCENARIOS[loc]);
+  sel.innerHTML=keys.map(k=>{
+    const nm=SCENARIOS[loc][k].name||k;
+    return `<option value="${k}">시나리오 ${k} — ${nm}</option>`;
+  }).join('');
+  if(keys.includes(scKey)) sel.value=scKey;
+}
+// 슬롯이 없으면 생성(불러오기/원격/추가 공용). meta={name,color}
+function ensureScenario(locKey,scKey,meta){
+  if(!SCENARIOS[locKey]) return false;
+  if(!SCENARIOS[locKey][scKey]){
+    SCENARIOS[locKey][scKey]={
+      name:(meta&&meta.name)||('시나리오 '+scKey),
+      color:(meta&&meta.color)||SC_COLORS[Object.keys(SCENARIOS[locKey]).length%SC_COLORS.length],
+      legs:[]
+    };
+  }else if(meta){
+    if(meta.name) SCENARIOS[locKey][scKey].name=meta.name;
+    if(meta.color) SCENARIOS[locKey][scKey].color=meta.color;
+  }
+  return true;
+}
+// 새 시나리오 추가: 다음 알파벳 키(a,b,c,d…) 자동 배정
+function addScenario(){
+  const name=(prompt('새 시나리오 이름을 입력하세요.\n(예: 골목 좌우회전 코스)','')||'').trim();
+  if(!name) return;
+  const keys=Object.keys(SCENARIOS[loc]||{});
+  let k=null;
+  for(let i=0;i<26;i++){ const c=String.fromCharCode(97+i); if(!keys.includes(c)){ k=c; break; } }
+  if(!k){ alert('시나리오 슬롯이 가득 찼습니다(a~z).'); return; }
+  ensureScenario(loc,k,{name});
+  saveWaypointsToStorage();
+  renderScenarioOptions();
+  switchSc(k);
+  alert(`시나리오 "${name}"(${k}) 추가됨.\n구간 추가로 경로를 만든 뒤, ⚙️ 경로 내보내기 → routes.json 업로드하면 모든 기기에 반영됩니다.`);
+}
+// 시나리오 이름 변경 / 삭제
+function editScenarioMeta(){
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc) return;
+  const keys=Object.keys(SCENARIOS[loc]);
+  const act=prompt(`시나리오 "${sc.name||scKey}" (${scKey})\n\n새 이름을 입력하면 이름 변경.\n삭제하려면 "삭제" 라고 입력.`, sc.name||'');
+  if(act===null) return;
+  if(act.trim()==='삭제'){
+    if(keys.length<=1){ alert('마지막 시나리오는 삭제할 수 없습니다.'); return; }
+    if(!confirm(`시나리오 "${sc.name||scKey}"를 삭제할까요? 이 시나리오의 모든 구간이 사라집니다.`)) return;
+    delete SCENARIOS[loc][scKey];
+    scKey=Object.keys(SCENARIOS[loc])[0];
+    saveWaypointsToStorage();
+    renderScenarioOptions();
+    switchSc(scKey);
+    return;
+  }
+  const nm=act.trim(); if(!nm) return;
+  sc.name=nm;
+  saveWaypointsToStorage();
+  renderScenarioOptions();
+}
+
 function switchSc(k){ stopTimer(); isPlaying=false; scKey=k; loadScenario(); saveCurrentView(); startTrafficUpdates(loc); }
 
 // ══════════════════════════════════════════════════════════
@@ -4938,11 +5008,28 @@ function addNewLeg(){
   if(!alfSLL||!alfELL){ alert('출발·도착 마커를 지도에서 이동해 위치를 설정하세요.'); return; }
 
   const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc) return;
+  const customId=(document.getElementById('alf-id')?document.getElementById('alf-id').value.trim():'');
   const prefix=sc.legs[0]?sc.legs[0].id.replace(/\d+$/,''):'NEW';
-  const newId=prefix+(sc.legs.length+1);
+  const newId=customId||(prefix+(sc.legs.length+1));
+  if(sc.legs.some(l=>l.id===newId)){ alert('이미 같은 세션 ID가 있습니다: '+newId); return; }
   sc.legs.push({id:newId,s,e,sLL:[...alfSLL],eLL:[...alfELL],dist,spd,time,rest:0});
 
   cancelAddLeg();
+  saveWaypointsToStorage();
+  loadScenario();
+  saveCurrentView();
+}
+
+// 현재 구간의 세션 ID(leg id) 변경 — waypoints 키도 함께 이동
+function renameCurrentLegId(){
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc||!sc.legs.length) return;
+  const cur=sc.legs[legIdx]; if(!cur) return;
+  const nv=(prompt(`세션 ID 변경\n현재: ${cur.id}`, cur.id)||'').trim();
+  if(!nv||nv===cur.id) return;
+  if(sc.legs.some(l=>l.id===nv)){ alert('이미 같은 세션 ID가 있습니다: '+nv); return; }
+  // waypoints 키 이관
+  if(WAYPOINTS[cur.id]){ WAYPOINTS[nv]=WAYPOINTS[cur.id]; delete WAYPOINTS[cur.id]; }
+  cur.id=nv;
   saveWaypointsToStorage();
   loadScenario();
   saveCurrentView();
@@ -5476,11 +5563,12 @@ function clearTodayTripLog(){
 
 function saveWaypointsToStorage(){
   try{
-    const data={appVersion:builtinAppVersion(), waypoints:WAYPOINTS, legCoords:{}, customLegs:{}};
+    const data={appVersion:builtinAppVersion(), waypoints:WAYPOINTS, legCoords:{}, customLegs:{}, scMeta:{}};
     Object.keys(SCENARIOS).forEach(locKey=>{
       Object.keys(SCENARIOS[locKey]).forEach(scKey=>{
         const sc=SCENARIOS[locKey][scKey];
         if(!sc.legs) return;
+        data.scMeta[`${locKey}-${scKey}`]={name:sc.name||'',color:sc.color||''};
         // 전체 legs 배열 스냅샷 (추가/삭제 포함)
         data.customLegs[`${locKey}-${scKey}`]=sc.legs.map(lg=>({
           id:lg.id,s:lg.s,e:lg.e,
@@ -5520,13 +5608,16 @@ function loadWaypointsFromStorage(){
       return;
     }
     if(data.waypoints) Object.assign(WAYPOINTS,data.waypoints);
-    // 전체 legs 배열 복원 (추가/삭제된 구간 포함)
+    // 전체 legs 배열 복원 (추가/삭제된 구간 + 새 시나리오 포함)
     if(data.customLegs){
-      Object.keys(SCENARIOS).forEach(locKey=>{
-        Object.keys(SCENARIOS[locKey]).forEach(scKey=>{
-          const saved=data.customLegs[`${locKey}-${scKey}`];
-          if(saved&&saved.length) SCENARIOS[locKey][scKey].legs=saved;
-        });
+      Object.keys(data.customLegs).forEach(key=>{
+        const idx=key.lastIndexOf('-'); if(idx<0) return;
+        const locKey=key.slice(0,idx), scKey=key.slice(idx+1);
+        if(!SCENARIOS[locKey]) return;
+        const saved=data.customLegs[key];
+        if(!Array.isArray(saved)||!saved.length) return;
+        ensureScenario(locKey,scKey,data.scMeta&&data.scMeta[key]);
+        SCENARIOS[locKey][scKey].legs=saved;
       });
     } else if(data.legCoords){
       // 구버전 호환
@@ -5569,11 +5660,13 @@ function exportRoutes(){
     note:"nav-app 경로 원본. 저장소 루트에 routes.json으로 올리면 모든 기기에 반영됨.",
     waypoints:WAYPOINTS,
     customLegs:{},
+    scMeta:{},
   };
   Object.keys(SCENARIOS).forEach(locKey=>{
     Object.keys(SCENARIOS[locKey]).forEach(scK=>{
       const sc=SCENARIOS[locKey][scK];
       if(!sc.legs) return;
+      data.scMeta[`${locKey}-${scK}`]={name:sc.name||'',color:sc.color||''};
       data.customLegs[`${locKey}-${scK}`]=sc.legs.map(lg=>{
         const o={id:lg.id,s:lg.s,e:lg.e,
                  sLL:[...lg.sLL],eLL:[...lg.eLL],
@@ -5843,18 +5936,21 @@ async function fetchRemoteRoutes(){
         &&Array.isArray(lg.eLL)&&lg.eLL.length===2
         &&Number.isFinite(lg.sLL[0])&&Number.isFinite(lg.sLL[1])
         &&Number.isFinite(lg.eLL[0])&&Number.isFinite(lg.eLL[1]);
-      Object.keys(SCENARIOS).forEach(locKey=>{
-        Object.keys(SCENARIOS[locKey]).forEach(scK=>{
-          const saved=data.customLegs[`${locKey}-${scK}`];
-          if(!Array.isArray(saved)||!saved.length) return;
-          const valid=saved.filter(isValidLeg);
-          if(valid.length) SCENARIOS[locKey][scK].legs=valid;
-        });
+      Object.keys(data.customLegs).forEach(key=>{
+        const idx=key.lastIndexOf('-'); if(idx<0) return;
+        const locKey=key.slice(0,idx), scK=key.slice(idx+1);
+        if(!SCENARIOS[locKey]) return;                 // 지역은 기존 3곳만
+        const saved=data.customLegs[key];
+        if(!Array.isArray(saved)||!saved.length) return;
+        const valid=saved.filter(isValidLeg);
+        if(!valid.length) return;
+        ensureScenario(locKey,scK,data.scMeta&&data.scMeta[key]); // 없으면 새 시나리오 생성
+        SCENARIOS[locKey][scK].legs=valid;
       });
       changed=true;
     }
     if(changed){
-      try{ loadScenario(); }catch(_){}      // 현재 화면 갱신
+      try{ renderScenarioOptions(); loadScenario(); }catch(_){}      // 현재 화면 갱신
       console.log('routes.json 적용됨(원격 경로 사용)');
     }
   }catch(e){
