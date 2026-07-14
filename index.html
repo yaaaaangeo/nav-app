@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.8.2"/>
+<meta name="app-version" content="v3.9.0"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -577,7 +577,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 .stat-u{font-size:10px;color:var(--c2);margin-top:1px;}
 
 /* 타이머 */
-#timer-box{background:var(--c73);border:1px solid var(--c74);border-radius:9px;padding:10px;text-align:center;margin-bottom:10px;}
+#timer-box{display:none;background:var(--c73);border:1px solid var(--c74);border-radius:9px;padding:10px;text-align:center;margin-bottom:10px;}
 #timer-label{font-size:10px;color:var(--c25);margin-bottom:3px;letter-spacing:.05em;}
 #timer-val{font-size:32px;font-weight:700;color:var(--c26);font-variant-numeric:tabular-nums;}
 #timer-phase{font-size:10px;margin-top:2px;}
@@ -1228,6 +1228,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-item" onclick="exportSettings();closeSettingsMenu()">📤 설정 내보내기</div>
   <div class="settings-item" onclick="resetToBuiltinRoutes()" style="color:var(--c12);">🔄 경로 기본값으로 초기화</div>
   <div class="settings-item" id="wakelock-menu" onclick="toggleWakeLockSetting()">🔆 주행 중 화면 켜두기: 켜짐</div>
+  <div class="settings-item" id="guidance-menu" onclick="toggleGuidance()">🗣️ 길 안내(턴 안내): 켜짐</div>
   <div class="settings-item" id="tmap-menu" onclick="setTmapKey();closeSettingsMenu()">🧭 경로 엔진: TMAP 키 입력</div>
   <div class="settings-item" onclick="bakeAllRoutesTmap()" style="color:var(--c12);">🔧 경로 굽기(관리자·TMAP 1회)</div>
   <div class="settings-divider"></div>
@@ -1238,7 +1239,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v4.0.5</span>
+    <span id="app-version" title="애플리케이션 버전">v3.9.0</span>
   </div>
 </div>
 
@@ -3826,9 +3827,9 @@ function updateTurnFromPosition(lat,lng,vehicleHeading=null,headingReliable=fals
   document.getElementById('turn-road').textContent=getTurnRoadText(currentStepIdx);
   document.getElementById('turn-next').textContent=getNextManeuverPreview(currentStepIdx);
 
-  // 거리별 음성 안내 (500m / 200m / 50m)
+  // 거리별 음성 안내 (500m / 200m / 50m) — 길 안내 꺼져있으면 음성도 생략
   const SPEAK_DISTS=[500,200,50];
-  for(const sd of SPEAK_DISTS){
+  if(guidanceOn()) for(const sd of SPEAK_DISTS){
     const key=`${currentStepIdx}_${sd}`;
     if(d<=sd+25&&d>=sd-25&&lastSpokenStep!==key){
       lastSpokenStep=key;
@@ -3839,8 +3840,23 @@ function updateTurnFromPosition(lat,lng,vehicleHeading=null,headingReliable=fals
   }
 }
 
+// 길 안내(턴 안내) 켜짐 여부. 꺼두면 턴 카드/음성 없이 '경로선만' 안내.
+function guidanceOn(){ return localStorage.getItem('nav_guidance')!=='0'; } // 기본 켜짐
 function showTurnOverlay(show){
-  document.getElementById('turn-overlay').classList.toggle('show',show);
+  const el=document.getElementById('turn-overlay');
+  if(!el) return;
+  el.classList.toggle('show', !!show && guidanceOn());
+}
+function updateGuidanceMenuLabel(){
+  const el=document.getElementById('guidance-menu');
+  if(el) el.textContent = guidanceOn() ? '🗣️ 길 안내(턴 안내): 켜짐' : '🗣️ 길 안내(턴 안내): 꺼짐';
+}
+function toggleGuidance(){
+  const on=!guidanceOn();
+  localStorage.setItem('nav_guidance', on?'1':'0');
+  updateGuidanceMenuLabel();
+  if(on){ if(osrmSteps&&osrmSteps.length) showTurnOverlay(true); }
+  else { showTurnOverlay(false); }
 }
 
 const PANEL_STATE_STORAGE_KEY='nav-panel-state-v1';
@@ -5095,12 +5111,14 @@ function saveEditedRoute(){
   renderLegList(); // 목록 갱신
 }
 
-// 화면 상단 버전 표시
+// 화면 상단 버전 표시 — meta app-version(실제 배포 버전)을 그대로 반영.
 function renderAppVersion(){
-  // span에 하드코딩된 값을 그대로 사용 — HTML에서 직접 숫자를 바꾸면 반영됨
   const el=document.getElementById('app-version');
   if(!el) return;
-  el.title='애플리케이션 버전: '+el.textContent;
+  const m=document.querySelector('meta[name="app-version"]');
+  const v=(m&&m.getAttribute('content'))||el.textContent||'';
+  el.textContent=v;
+  el.title='애플리케이션 버전: '+v;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -5732,6 +5750,7 @@ loadWaypointsFromStorage();
 renderAppVersion();
 updateWakeLockMenuLabel();
 updateTmapMenuLabel();
+updateGuidanceMenuLabel();
 loadLastSaved();
 loadImportedFileName();
 updateTripLogCount();
@@ -5767,6 +5786,46 @@ window.addEventListener('resize',refreshMapSize);
   if(scSelEl) scSelEl.value=scKey;
   loadScenario(savedView||undefined);
   startTrafficUpdates(loc);
+  fetchRemoteRoutes(); // 저장소의 routes.json이 있으면 최신 경로로 덮어씀(코드 수정 불필요)
+}
+
+// ── 원격 경로 로드 ──
+// 저장소 루트의 routes.json(앱에서 내보낸 설정 형식)을 불러와 경로 원본으로 사용.
+// 파일이 있으면 내장 기본값·localStorage보다 우선 → "JSON만 교체하면 모든 기기 반영".
+// 파일이 없으면 조용히 무시(내장 기본값 사용). 경로(waypoints/customLegs)만 반영, 주행기록 등은 건드리지 않음.
+async function fetchRemoteRoutes(){
+  try{
+    const res=await fetch('./routes.json?ts='+Date.now(),{cache:'no-store'});
+    if(!res.ok) return;
+    const data=await res.json();
+    let changed=false;
+    if(data.waypoints && typeof data.waypoints==='object'){
+      Object.assign(WAYPOINTS,data.waypoints); changed=true;
+    }
+    if(data.customLegs && typeof data.customLegs==='object'){
+      const isValidLeg=lg=>lg&&typeof lg==='object'
+        &&typeof lg.id==='string'
+        &&Array.isArray(lg.sLL)&&lg.sLL.length===2
+        &&Array.isArray(lg.eLL)&&lg.eLL.length===2
+        &&Number.isFinite(lg.sLL[0])&&Number.isFinite(lg.sLL[1])
+        &&Number.isFinite(lg.eLL[0])&&Number.isFinite(lg.eLL[1]);
+      Object.keys(SCENARIOS).forEach(locKey=>{
+        Object.keys(SCENARIOS[locKey]).forEach(scK=>{
+          const saved=data.customLegs[`${locKey}-${scK}`];
+          if(!Array.isArray(saved)||!saved.length) return;
+          const valid=saved.filter(isValidLeg);
+          if(valid.length) SCENARIOS[locKey][scK].legs=valid;
+        });
+      });
+      changed=true;
+    }
+    if(changed){
+      try{ loadScenario(); }catch(_){}      // 현재 화면 갱신
+      console.log('routes.json 적용됨(원격 경로 사용)');
+    }
+  }catch(e){
+    console.warn('routes.json 없음/실패 → 내장 기본값 사용:',e);
+  }
 }
 
 // ══════════════════════════════════════════════════════════
