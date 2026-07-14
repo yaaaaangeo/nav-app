@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.9.0"/>
+<meta name="app-version" content="v3.10.0"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -1225,6 +1225,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-item" id="menu-btn-sc-save" onclick="saveScEdit();closeSettingsMenu()" style="display:none">💾 시나리오 저장</div>
   <div class="settings-divider"></div>
   <div class="settings-item" onclick="document.getElementById('import-file-input').click();closeSettingsMenu()">📂 설정 가져오기</div>
+  <div class="settings-item" onclick="exportRoutes();closeSettingsMenu()" style="color:var(--c6);font-weight:700;">🧭 경로 내보내기 (routes.json)</div>
   <div class="settings-item" onclick="exportSettings();closeSettingsMenu()">📤 설정 내보내기</div>
   <div class="settings-item" onclick="resetToBuiltinRoutes()" style="color:var(--c12);">🔄 경로 기본값으로 초기화</div>
   <div class="settings-item" id="wakelock-menu" onclick="toggleWakeLockSetting()">🔆 주행 중 화면 켜두기: 켜짐</div>
@@ -1239,7 +1240,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.9.0</span>
+    <span id="app-version" title="애플리케이션 버전">v3.10.0</span>
   </div>
 </div>
 
@@ -5559,6 +5560,39 @@ function resetToBuiltinRoutes(){
 //   Claude가 새 버전의 navigation.html을 줄 때마다 localStorage가
 //   초기화되므로, 이 파일로 직접 옮겨 적용한다.)
 // ══════════════════════════════════════════════════════════
+// ── 경로 내보내기: 저장소에 바로 올릴 routes.json 형식으로 저장 ──
+// 파일명 고정(routes.json), 경로에 필요한 필드만(주행기록/뷰상태 제외).
+// 도로명·sId·eId는 값이 있으면 함께 보존 → 이름만 바꿀 필요 없이 그대로 업로드.
+function exportRoutes(){
+  const data={
+    exportedAt:new Date().toISOString(),
+    note:"nav-app 경로 원본. 저장소 루트에 routes.json으로 올리면 모든 기기에 반영됨.",
+    waypoints:WAYPOINTS,
+    customLegs:{},
+  };
+  Object.keys(SCENARIOS).forEach(locKey=>{
+    Object.keys(SCENARIOS[locKey]).forEach(scK=>{
+      const sc=SCENARIOS[locKey][scK];
+      if(!sc.legs) return;
+      data.customLegs[`${locKey}-${scK}`]=sc.legs.map(lg=>{
+        const o={id:lg.id,s:lg.s,e:lg.e,
+                 sLL:[...lg.sLL],eLL:[...lg.eLL],
+                 dist:lg.dist,spd:lg.spd,time:lg.time,rest:lg.rest||0};
+        if(lg.road!=null && lg.road!=='') o.road=lg.road;
+        if(lg.sId!=null && lg.sId!=='') o.sId=lg.sId;
+        if(lg.eId!=null && lg.eId!=='') o.eId=lg.eId;
+        return o;
+      });
+    });
+  });
+  const blob=new Blob([JSON.stringify(data,null,1)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='routes.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function exportSettings(){
   const data={
     exportedAt:new Date().toISOString(),
