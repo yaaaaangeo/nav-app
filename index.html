@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.11.1"/>
+<meta name="app-version" content="v3.11.2"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -1046,6 +1046,10 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   .settings-item{font-size:12px;padding:9px 14px;}
 }
 
+#ask-modal{display:none;position:fixed;inset:0;z-index:13000;background:rgba(0,0,0,.78);align-items:center;justify-content:center;padding:18px;}
+#ask-modal.show{display:flex;}
+#ask-box{width:min(460px,100%);background:var(--c131);border:1px solid var(--c55);border-radius:13px;padding:17px;box-shadow:0 12px 45px rgba(0,0,0,.6);}
+#ask-title{font-size:14px;font-weight:800;color:var(--c134);}
 #traffic-modal{display:none;position:fixed;inset:0;z-index:12000;background:rgba(0,0,0,.78);align-items:center;justify-content:center;padding:18px;}
 #traffic-modal.show{display:flex;}
 #traffic-modal-box{width:min(520px,100%);background:var(--c131);border:1px solid var(--c55);border-radius:13px;padding:17px;box-shadow:0 12px 45px rgba(0,0,0,.6);}
@@ -1240,7 +1244,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.11.1</span>
+    <span id="app-version" title="애플리케이션 버전">v3.11.2</span>
   </div>
 </div>
 
@@ -1492,6 +1496,20 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
         <button id="btn-alf-cancel" onclick="cancelAddLeg()" style="flex:1;background:var(--c1);color:var(--c27);border:2px solid var(--c29);border-radius:7px;padding:10px;font-size:12px;font-weight:700;cursor:pointer;">← 뒤로가기</button>
         <button id="btn-alf-ok" onclick="addNewLeg()" style="flex:2;background:var(--c1);color:var(--c16);border:2px solid var(--c16);border-radius:7px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;">구간 추가</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<div id="ask-modal" onclick="if(event.target===this) askClose(null)">
+  <div id="ask-box">
+    <div id="ask-title">입력</div>
+    <div id="ask-desc" style="font-size:11px;color:var(--c25);margin:6px 0 8px;white-space:pre-line;"></div>
+    <input id="ask-input" autocomplete="off"
+      style="width:100%;background:var(--c133);border:1px solid var(--c55);color:var(--c134);border-radius:7px;padding:9px 10px;font-size:13px;outline:none;"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();askClose(document.getElementById('ask-input').value);}"/>
+    <div style="display:flex;gap:7px;margin-top:11px;justify-content:flex-end;">
+      <button class="traffic-modal-btn" onclick="askClose(null)">취소</button>
+      <button class="traffic-modal-btn" onclick="askClose(document.getElementById('ask-input').value)">확인</button>
     </div>
   </div>
 </div>
@@ -2904,13 +2922,13 @@ function applyRouteToUI(sLL,eLL){
 
 // ── TMAP(티맵) 경로 API ── 한국 실데이터 기반 → 회전 정확. 폰 브라우저에서 직접 호출.
 function getTmapKey(){ return (localStorage.getItem('nav_tmap_key')||'').trim(); }
-function setTmapKey(){
+async function setTmapKey(){
   const cur=getTmapKey();
-  const k=prompt('TMAP appKey를 입력하세요.\n(SK Open API에서 무료 발급, 이 기기에만 저장됩니다. 비우면 OSRM 사용)', cur);
+  const k=await askInput('TMAP appKey','SK Open API에서 무료 발급. 이 기기에만 저장됩니다.\n비우면 OSRM을 사용합니다.', cur);
   if(k===null) return;
   localStorage.setItem('nav_tmap_key', k.trim());
   updateTmapMenuLabel();
-  alert(k.trim() ? 'TMAP 키 저장됨. 이제 한국 데이터 경로를 사용합니다.' : 'TMAP 키 삭제됨. OSRM을 사용합니다.');
+  notify(k.trim() ? 'TMAP 키 저장됨 — 한국 데이터 경로 사용' : 'TMAP 키 삭제됨 — OSRM 사용');
 }
 function updateTmapMenuLabel(){
   const el=document.getElementById('tmap-menu');
@@ -4735,42 +4753,79 @@ function ensureScenario(locKey,scK,meta){
   }
   return true;
 }
+// ── 앱 내 입력 모달 (브라우저 prompt()가 차단돼도 동작) ──
+let _askResolve=null;
+function askInput(title,desc,defVal){
+  return new Promise(resolve=>{
+    const m=document.getElementById('ask-modal');
+    if(!m){ resolve(null); return; }
+    document.getElementById('ask-title').textContent=title||'입력';
+    document.getElementById('ask-desc').textContent=desc||'';
+    const inp=document.getElementById('ask-input');
+    inp.value=defVal||'';
+    _askResolve=resolve;
+    m.classList.add('show');
+    setTimeout(()=>{ try{inp.focus();inp.select();}catch(_){} },50);
+  });
+}
+function askClose(val){
+  const m=document.getElementById('ask-modal');
+  if(m) m.classList.remove('show');
+  const r=_askResolve; _askResolve=null;
+  if(r) r(val===null?null:String(val));
+}
+// 알림도 모달로(대화상자 차단 대비) — 짧은 토스트
+function notify(msg){
+  let t=document.getElementById('nav-toast');
+  if(!t){
+    t=document.createElement('div'); t.id='nav-toast';
+    t.style.cssText='position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:14000;background:rgba(20,20,24,.94);color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:9px;padding:10px 14px;font-size:12px;max-width:82vw;text-align:center;white-space:pre-line;box-shadow:0 6px 24px rgba(0,0,0,.5);';
+    document.body.appendChild(t);
+  }
+  t.textContent=msg; t.style.display='block';
+  clearTimeout(t._h); t._h=setTimeout(()=>{t.style.display='none';},3200);
+}
+
 // 새 시나리오 추가: 사용 중이 아닌 알파벳 키(a,b,c,d…) 자동 배정
-function addScenario(){
-  const name=(prompt('새 시나리오 이름을 입력하세요.\n(예: 골목 좌우회전 코스)','')||'').trim();
-  if(!name) return;
+async function addScenario(){
+  const raw=await askInput('새 시나리오 추가','시나리오 이름을 입력하세요.\n(예: 골목 좌우회전 코스)','');
+  if(raw===null) return;
+  const name=raw.trim();
+  if(!name){ notify('이름을 입력해야 합니다.'); return; }
   const used=Object.keys(SCENARIOS[loc]||{}); // center/zoom 등과도 충돌 방지
   let k=null;
   for(let i=0;i<26;i++){ const c=String.fromCharCode(97+i); if(!used.includes(c)){ k=c; break; } }
-  if(!k){ alert('시나리오 슬롯이 가득 찼습니다(a~z).'); return; }
+  if(!k){ notify('시나리오 슬롯이 가득 찼습니다(a~z).'); return; }
   ensureScenario(loc,k,{name});
   saveWaypointsToStorage();
   renderScenarioOptions();
   switchSc(k);
   // 빈 시나리오 → 바로 구간을 추가할 수 있게 수정 모드로 전환
   try{ if(typeof scEditMode!=='undefined' && !scEditMode && typeof toggleScEditMode==='function') toggleScEditMode(); }catch(_){}
-  alert(`시나리오 "${name}"(${k}) 추가됨.\n＋ 구간 추가로 경로를 만든 뒤, ⚙️ 경로 내보내기 → routes.json 업로드하면 모든 기기에 반영됩니다.`);
+  notify(`시나리오 "${name}" (${k}) 추가됨.\n＋ 구간 추가로 경로를 만드세요.`);
 }
 // 시나리오 이름 변경 / 삭제
-function editScenarioMeta(){
+async function editScenarioMeta(){
   const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc) return;
   const keys=scenarioKeys(loc);
-  const act=prompt(`시나리오 "${sc.name||scKey}" (${scKey})\n\n새 이름을 입력하면 이름 변경.\n삭제하려면 "삭제" 라고 입력.`, sc.name||'');
+  const act=await askInput(`시나리오 ${scKey} 편집`,`새 이름을 입력하면 이름 변경.\n삭제하려면 "삭제" 라고 입력.`, sc.name||'');
   if(act===null) return;
   if(act.trim()==='삭제'){
-    if(keys.length<=1){ alert('마지막 시나리오는 삭제할 수 없습니다.'); return; }
+    if(keys.length<=1){ notify('마지막 시나리오는 삭제할 수 없습니다.'); return; }
     if(!confirm(`시나리오 "${sc.name||scKey}"를 삭제할까요? 이 시나리오의 모든 구간이 사라집니다.`)) return;
     delete SCENARIOS[loc][scKey];
     scKey=scenarioKeys(loc)[0];   // ★ center/zoom이 아닌 실제 시나리오로만 이동
     saveWaypointsToStorage();
     renderScenarioOptions();
     switchSc(scKey);
+    notify('시나리오 삭제됨');
     return;
   }
   const nm=act.trim(); if(!nm) return;
   sc.name=nm;
   saveWaypointsToStorage();
   renderScenarioOptions();
+  notify('이름 변경됨: '+nm);
 }
 
 function switchSc(k){ stopTimer(); isPlaying=false; scKey=k; loadScenario(); saveCurrentView(); startTrafficUpdates(loc); }
@@ -5039,18 +5094,21 @@ function addNewLeg(){
 }
 
 // 현재 구간의 세션 ID(leg id) 변경 — waypoints 키도 함께 이동
-function renameCurrentLegId(){
+async function renameCurrentLegId(){
   const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc||!sc.legs.length) return;
   const cur=sc.legs[legIdx]; if(!cur) return;
-  const nv=(prompt(`세션 ID 변경\n현재: ${cur.id}`, cur.id)||'').trim();
+  const raw=await askInput('세션 ID 변경',`현재: ${cur.id}`, cur.id);
+  if(raw===null) return;
+  const nv=raw.trim();
   if(!nv||nv===cur.id) return;
-  if(sc.legs.some(l=>l.id===nv)){ alert('이미 같은 세션 ID가 있습니다: '+nv); return; }
+  if(sc.legs.some(l=>l.id===nv)){ notify('이미 같은 세션 ID가 있습니다: '+nv); return; }
   // waypoints 키 이관
   if(WAYPOINTS[cur.id]){ WAYPOINTS[nv]=WAYPOINTS[cur.id]; delete WAYPOINTS[cur.id]; }
   cur.id=nv;
   saveWaypointsToStorage();
   loadScenario();
   saveCurrentView();
+  notify('세션 ID 변경됨: '+nv);
 }
 
 // ── 구간 삭제
