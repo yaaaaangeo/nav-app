@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.11.2"/>
+<meta name="app-version" content="v3.11.3"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -1244,7 +1244,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.11.2</span>
+    <span id="app-version" title="애플리케이션 버전">v3.11.3</span>
   </div>
 </div>
 
@@ -4341,6 +4341,11 @@ function updateTimerDisplay(sec){
 //  재생 제어
 // ══════════════════════════════════════════════════════════
 function togglePlay(){
+  // 빈 시나리오(구간 0개)에서 시작을 누르면 legs[legIdx]가 없어 오류 → UI 전체가 멈춘다.
+  if(!isPlaying && !legs[legIdx]){
+    notify('이 시나리오에는 구간이 없습니다.\n＋ 구간 추가로 먼저 경로를 만드세요.');
+    return;
+  }
   if(isPlaying){
     isPlaying=false; stopTimer();
     gpsAutoFollow=false;
