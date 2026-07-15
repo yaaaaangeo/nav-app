@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.11.0"/>
+<meta name="app-version" content="v3.11.1"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -1240,7 +1240,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.11.0</span>
+    <span id="app-version" title="애플리케이션 버전">v3.11.1</span>
   </div>
 </div>
 
@@ -4098,7 +4098,14 @@ function loadScenario(restore){
   clearOSRM();
   showTurnOverlay(false);
   const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey];
-  if(!sc){ console.warn('loadScenario: 유효하지 않은 loc/scKey',loc,scKey); return; }
+  // center/zoom 같은 메타 키나 legs 없는 값이 들어오면 실제 시나리오로 되돌린다(전체 UI 멈춤 방지).
+  if(!sc || !Array.isArray(sc.legs)){
+    const fallback=(typeof scenarioKeys==='function')?scenarioKeys(loc)[0]:null;
+    console.warn('loadScenario: 유효하지 않은 loc/scKey',loc,scKey,'→',fallback);
+    if(fallback && fallback!==scKey){ scKey=fallback; renderScenarioOptions(); return loadScenario(restore); }
+    legs=[];
+    return;
+  }
   legs=sc.legs;
   let idx=0;
   if(restore&&legs.length){
@@ -4694,10 +4701,19 @@ function switchLoc(l){
 }
 // ── 시나리오(그리드) 동적 관리 ──
 const SC_COLORS=['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16'];
+// SCENARIOS[지역] 안에는 center/zoom 같은 메타도 있으므로, legs를 가진 실제 시나리오만 걸러낸다.
+function isScenarioKey(locKey,k){
+  const v=SCENARIOS[locKey]&&SCENARIOS[locKey][k];
+  return !!(v && typeof v==='object' && !Array.isArray(v) && Array.isArray(v.legs));
+}
+function scenarioKeys(locKey){
+  if(!SCENARIOS[locKey]) return [];
+  return Object.keys(SCENARIOS[locKey]).filter(k=>isScenarioKey(locKey,k));
+}
 // 현재 지역의 시나리오 목록으로 드롭다운 채움
 function renderScenarioOptions(){
   const sel=document.getElementById('sc-sel'); if(!sel||!SCENARIOS[loc]) return;
-  const keys=Object.keys(SCENARIOS[loc]);
+  const keys=scenarioKeys(loc);
   sel.innerHTML=keys.map(k=>{
     const nm=SCENARIOS[loc][k].name||k;
     return `<option value="${k}">시나리오 ${k} — ${nm}</option>`;
@@ -4705,45 +4721,47 @@ function renderScenarioOptions(){
   if(keys.includes(scKey)) sel.value=scKey;
 }
 // 슬롯이 없으면 생성(불러오기/원격/추가 공용). meta={name,color}
-function ensureScenario(locKey,scKey,meta){
+function ensureScenario(locKey,scK,meta){
   if(!SCENARIOS[locKey]) return false;
-  if(!SCENARIOS[locKey][scKey]){
-    SCENARIOS[locKey][scKey]={
-      name:(meta&&meta.name)||('시나리오 '+scKey),
-      color:(meta&&meta.color)||SC_COLORS[Object.keys(SCENARIOS[locKey]).length%SC_COLORS.length],
+  if(!isScenarioKey(locKey,scK)){
+    SCENARIOS[locKey][scK]={
+      name:(meta&&meta.name)||('시나리오 '+scK),
+      color:(meta&&meta.color)||SC_COLORS[scenarioKeys(locKey).length%SC_COLORS.length],
       legs:[]
     };
   }else if(meta){
-    if(meta.name) SCENARIOS[locKey][scKey].name=meta.name;
-    if(meta.color) SCENARIOS[locKey][scKey].color=meta.color;
+    if(meta.name) SCENARIOS[locKey][scK].name=meta.name;
+    if(meta.color) SCENARIOS[locKey][scK].color=meta.color;
   }
   return true;
 }
-// 새 시나리오 추가: 다음 알파벳 키(a,b,c,d…) 자동 배정
+// 새 시나리오 추가: 사용 중이 아닌 알파벳 키(a,b,c,d…) 자동 배정
 function addScenario(){
   const name=(prompt('새 시나리오 이름을 입력하세요.\n(예: 골목 좌우회전 코스)','')||'').trim();
   if(!name) return;
-  const keys=Object.keys(SCENARIOS[loc]||{});
+  const used=Object.keys(SCENARIOS[loc]||{}); // center/zoom 등과도 충돌 방지
   let k=null;
-  for(let i=0;i<26;i++){ const c=String.fromCharCode(97+i); if(!keys.includes(c)){ k=c; break; } }
+  for(let i=0;i<26;i++){ const c=String.fromCharCode(97+i); if(!used.includes(c)){ k=c; break; } }
   if(!k){ alert('시나리오 슬롯이 가득 찼습니다(a~z).'); return; }
   ensureScenario(loc,k,{name});
   saveWaypointsToStorage();
   renderScenarioOptions();
   switchSc(k);
-  alert(`시나리오 "${name}"(${k}) 추가됨.\n구간 추가로 경로를 만든 뒤, ⚙️ 경로 내보내기 → routes.json 업로드하면 모든 기기에 반영됩니다.`);
+  // 빈 시나리오 → 바로 구간을 추가할 수 있게 수정 모드로 전환
+  try{ if(typeof scEditMode!=='undefined' && !scEditMode && typeof toggleScEditMode==='function') toggleScEditMode(); }catch(_){}
+  alert(`시나리오 "${name}"(${k}) 추가됨.\n＋ 구간 추가로 경로를 만든 뒤, ⚙️ 경로 내보내기 → routes.json 업로드하면 모든 기기에 반영됩니다.`);
 }
 // 시나리오 이름 변경 / 삭제
 function editScenarioMeta(){
   const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc) return;
-  const keys=Object.keys(SCENARIOS[loc]);
+  const keys=scenarioKeys(loc);
   const act=prompt(`시나리오 "${sc.name||scKey}" (${scKey})\n\n새 이름을 입력하면 이름 변경.\n삭제하려면 "삭제" 라고 입력.`, sc.name||'');
   if(act===null) return;
   if(act.trim()==='삭제'){
     if(keys.length<=1){ alert('마지막 시나리오는 삭제할 수 없습니다.'); return; }
     if(!confirm(`시나리오 "${sc.name||scKey}"를 삭제할까요? 이 시나리오의 모든 구간이 사라집니다.`)) return;
     delete SCENARIOS[loc][scKey];
-    scKey=Object.keys(SCENARIOS[loc])[0];
+    scKey=scenarioKeys(loc)[0];   // ★ center/zoom이 아닌 실제 시나리오로만 이동
     saveWaypointsToStorage();
     renderScenarioOptions();
     switchSc(scKey);
