@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.11.3"/>
+<meta name="app-version" content="v3.12.0"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -391,6 +391,15 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 /* ── 지도 래퍼 ── */
 #map-wrap{position:relative;overflow:hidden;}
 #map{width:100%;height:100%;}
+/* 섹터 그리기 툴바 */
+#sector-draw-bar{display:none;position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:1200;
+  background:rgba(20,20,24,.94);border:1px solid rgba(255,255,255,.18);border-radius:10px;
+  padding:8px 10px;gap:7px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.45);}
+#sector-draw-bar.show{display:flex;}
+#sector-draw-bar span{color:#fff;font-size:12px;font-weight:700;margin-right:2px;white-space:nowrap;}
+#sector-draw-bar button{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);color:#fff;
+  border-radius:7px;padding:6px 9px;font-size:12px;cursor:pointer;white-space:nowrap;}
+#sector-draw-bar button.primary{background:#f59e0b;border-color:#f59e0b;color:#1a1a1a;font-weight:700;}
 /* 헤딩업: 지도를 진행방향 반대로 회전 + 살짝 확대(회전 시 빈 모서리 가림) */
 #map.heading-up{transform-origin:center center;transform:scale(1.5) rotate(var(--map-rot,0deg));transition:transform .3s ease-out;}
 #map.heading-up .leaflet-control-container{display:none;} /* 회전 중 기울어진 줌버튼 숨김 */
@@ -1234,6 +1243,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-item" onclick="resetToBuiltinRoutes()" style="color:var(--c12);">🔄 경로 기본값으로 초기화</div>
   <div class="settings-item" id="wakelock-menu" onclick="toggleWakeLockSetting()">🔆 주행 중 화면 켜두기: 켜짐</div>
   <div class="settings-item" id="guidance-menu" onclick="toggleGuidance()">🗣️ 길 안내(턴 안내): 켜짐</div>
+  <div class="settings-item" onclick="redrawSector();closeSettingsMenu()">▣ 구역 다시 그리기(섹터)</div>
   <div class="settings-item" id="tmap-menu" onclick="setTmapKey();closeSettingsMenu()">🧭 경로 엔진: TMAP 키 입력</div>
   <div class="settings-item" onclick="bakeAllRoutesTmap()" style="color:var(--c12);">🔧 경로 굽기(관리자·TMAP 1회)</div>
   <div class="settings-divider"></div>
@@ -1244,7 +1254,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.11.3</span>
+    <span id="app-version" title="애플리케이션 버전">v3.12.0</span>
   </div>
 </div>
 
@@ -1313,6 +1323,14 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <!-- 지도 + 오버레이 -->
   <div id="map-wrap">
     <div id="map"></div>
+
+    <!-- 섹터 그리기 툴바 -->
+    <div id="sector-draw-bar">
+      <span id="sector-pt-count">꼭짓점 0개</span>
+      <button onclick="undoSectorPoint()">↩ 취소</button>
+      <button onclick="finishSectorDraw()" class="primary">✓ 완료</button>
+      <button onclick="cancelSectorDraw()">✕ 닫기</button>
+    </div>
 
     <!-- 내 위치로 이동 / 따라가기 토글 (실시간 내비 추종) -->
     <button id="follow-btn" onclick="recenterAndFollow()" title="내 위치로 이동 / 따라가기" aria-label="내 위치 따라가기">◎</button>
@@ -1407,6 +1425,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
               <option value="a">시나리오 a</option>
             </select>
             <button id="btn-add-sc" onclick="addScenario()" title="새 시나리오(그리드) 추가" style="flex-shrink:0;background:var(--c23);border:1px solid var(--c5);color:var(--c36);border-radius:7px;padding:7px 10px;font-size:13px;font-weight:700;cursor:pointer;">＋</button>
+            <button id="btn-add-sector" onclick="addSector()" title="새 섹터(자유주행 구역) 추가" style="flex-shrink:0;background:var(--c23);border:1px solid var(--c5);color:var(--c36);border-radius:7px;padding:7px 10px;font-size:13px;cursor:pointer;">▣</button>
             <button id="btn-edit-sc" onclick="editScenarioMeta()" title="시나리오 이름 변경 / 삭제" style="flex-shrink:0;background:var(--c23);border:1px solid var(--c5);color:var(--c36);border-radius:7px;padding:7px 9px;font-size:13px;cursor:pointer;">✎</button>
           </div>
         </div>
@@ -4145,6 +4164,8 @@ function loadScenario(restore){
   renderLegList();
   renderCurLeg();
   updateHeader();
+  clearSectorTrail();
+  renderSector();   // 섹터 시나리오면 구역 다각형 표시(+화면 맞춤)
   document.getElementById('warn').style.display='none';
 }
 
@@ -4251,7 +4272,24 @@ function reorderLeg(fromIdx,toIdx){
 }
 
 function renderCurLeg(){
-  const lg=legs[legIdx]; if(!lg) return;
+  const lg=legs[legIdx];
+  if(!lg){
+    const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
+    const sec=currentSector();
+    if(sec){
+      set('cur-id','SECTOR');
+      set('cur-badge','자유주행 구역');
+      set('cur-start',sec.name||'구역');
+      set('cur-end',`꼭짓점 ${sec.sector.length}개 · 구역 내 자유 주행`);
+      return;
+    }
+    // 빈 시나리오(새로 만든 경우) — 이전 시나리오 정보가 남지 않게 비운다.
+    set('cur-id','—');
+    set('cur-badge','구간 없음');
+    set('cur-start','구간을 추가하세요');
+    set('cur-end','＋ 구간 추가');
+    return;
+  }
   // 시나리오 수정 모드 중 다른 구간으로 이동해도 편집 모드는 유지 —
   // 편집 입력값만 새 구간 기준으로 갱신 ("저장"을 눌러야만 모드 종료)
   if(scEditMode){
@@ -4341,6 +4379,32 @@ function updateTimerDisplay(sec){
 //  재생 제어
 // ══════════════════════════════════════════════════════════
 function togglePlay(){
+  // ── 섹터(자유주행) 시나리오: 경로 안내 없이 구역 안을 자유롭게 주행 ──
+  const sec=currentSector();
+  if(sec){
+    if(isPlaying){
+      isPlaying=false; stopTimer();
+      gpsAutoFollow=false;
+      manualMapPauseUntil=Number.POSITIVE_INFINITY;
+      document.getElementById('btn-play').textContent='▶ 시작';
+      document.getElementById('btn-play').className='ctrl-btn';
+      document.getElementById('warn').style.display='none';
+      releaseWakeLock();
+      speak('자유주행을 종료합니다', true);
+    }else{
+      isPlaying=true; phase='drive'; setPhaseUI('drive');
+      gpsAutoFollow=true; manualMapPauseUntil=0;
+      clearSectorTrail();
+      showTurnOverlay(false);   // 턴 안내 없음
+      collapseSheet();
+      requestWakeLock();
+      startGPS();
+      document.getElementById('btn-play').textContent='⏸ 정지';
+      document.getElementById('btn-play').className='ctrl-btn running';
+      speak(`${sec.name||'구역'} 자유주행을 시작합니다. 구역 안을 자유롭게 주행하세요`, true);
+    }
+    return;
+  }
   // 빈 시나리오(구간 0개)에서 시작을 누르면 legs[legIdx]가 없어 오류 → UI 전체가 멈춘다.
   if(!isPlaying && !legs[legIdx]){
     notify('이 시나리오에는 구간이 없습니다.\n＋ 구간 추가로 먼저 경로를 만드세요.');
@@ -4645,6 +4709,31 @@ function startGPS(){
     updateFollowBtn();
     applyMapRotation();
 
+    // ── 섹터 자유주행: 지나온 길 색칠 + 구역 이탈 경고 (턴 안내 없음) ──
+    const _sec=currentSector();
+    if(_sec){
+      if(isPlaying){
+        const last=sectorTrailPts[sectorTrailPts.length-1];
+        if(!last || map.distance(last,[dLat,dLng])>=8){
+          sectorTrailPts.push([dLat,dLng]);
+          if(!sectorTrailLayer) sectorTrailLayer=L.polyline(sectorTrailPts,{color:'#22c55e',weight:7,opacity:0.75}).addTo(map);
+          else sectorTrailLayer.setLatLngs(sectorTrailPts);
+        }
+        const inside=pointInPolygon([dLat,dLng],_sec.sector);
+        const warnEl=document.getElementById('warn');
+        if(!inside){
+          if(warnEl){ warnEl.textContent='⚠ 구역을 벗어났습니다 — 구역 안으로 돌아가세요'; warnEl.style.display='block'; }
+          if(!sectorOutsideSpoken){ sectorOutsideSpoken=true; speak('구역을 벗어났습니다',true); }
+        }else{
+          if(warnEl) warnEl.style.display='none';
+          sectorOutsideSpoken=false;
+        }
+      }
+      carHeading=displayHeading;
+      lastCarPos=[fLat,fLng];
+      return; // 섹터는 턴 안내·구간 진행 로직을 타지 않음
+    }
+
     // 턴 안내(표시 위치·스무딩 방향 기준)
     updateTurnFromPosition(dLat,dLng,displayHeading,headingReliable||disp.snapped);
 
@@ -4756,7 +4845,120 @@ function ensureScenario(locKey,scK,meta){
     if(meta.name) SCENARIOS[locKey][scK].name=meta.name;
     if(meta.color) SCENARIOS[locKey][scK].color=meta.color;
   }
+  // 섹터(자유주행 구역) 다각형 — 있으면 함께 보존
+  if(meta && Array.isArray(meta.sector) && meta.sector.length>=3){
+    SCENARIOS[locKey][scK].sector=meta.sector.map(p=>[p[0],p[1]]);
+  }
   return true;
+}
+
+// ══════════════════════════════════════════════════════════
+//  섹터(자유주행 구역) — 코스 안내 없이 지정 구역을 자유롭게 훑는 방식
+// ══════════════════════════════════════════════════════════
+let sectorDrawMode=false, sectorDraftPts=[], sectorDraftLayer=null, sectorDraftMarkers=[];
+let sectorLayer=null, sectorTrailLayer=null, sectorTrailPts=[], sectorOutsideSpoken=false;
+
+function isSectorScenario(sc){ return !!(sc && Array.isArray(sc.sector) && sc.sector.length>=3); }
+function currentSector(){ const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; return isSectorScenario(sc)?sc:null; }
+
+// 점이 다각형 내부인지 (ray casting)
+function pointInPolygon(pt,poly){
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const yi=poly[i][0],xi=poly[i][1],yj=poly[j][0],xj=poly[j][1];
+    if(((yi>pt[0])!==(yj>pt[0])) && (pt[1] < (xj-xi)*(pt[0]-yi)/((yj-yi)||1e-12)+xi)) inside=!inside;
+  }
+  return inside;
+}
+
+// 확정된 섹터를 지도에 표시
+function renderSector(){
+  if(sectorLayer){ try{map.removeLayer(sectorLayer);}catch(_){} sectorLayer=null; }
+  const sc=currentSector(); if(!sc) return;
+  sectorLayer=L.polygon(sc.sector,{color:sc.color||'#f59e0b',weight:3,fillOpacity:0.10,dashArray:'6,6'}).addTo(map);
+  try{ map.fitBounds(sectorLayer.getBounds(),{padding:[40,40],animate:false}); }catch(_){}
+}
+function clearSectorTrail(){
+  if(sectorTrailLayer){ try{map.removeLayer(sectorTrailLayer);}catch(_){} sectorTrailLayer=null; }
+  sectorTrailPts=[]; sectorOutsideSpoken=false;
+}
+
+// ── 섹터 그리기 ──
+function addSector(){
+  askInput('새 섹터 추가','자유주행 구역 이름을 입력하세요.\n(예: 시흥 골목 A구역)','').then(raw=>{
+    if(raw===null) return;
+    const name=raw.trim();
+    if(!name){ notify('이름을 입력해야 합니다.'); return; }
+    const used=Object.keys(SCENARIOS[loc]||{});
+    let k=null;
+    for(let i=0;i<26;i++){ const c=String.fromCharCode(97+i); if(!used.includes(c)){ k=c; break; } }
+    if(!k){ notify('시나리오 슬롯이 가득 찼습니다(a~z).'); return; }
+    ensureScenario(loc,k,{name});
+    saveWaypointsToStorage();
+    renderScenarioOptions();
+    switchSc(k);
+    startSectorDraw();
+  });
+}
+function startSectorDraw(){
+  if(scEditMode) exitScEditMode(false);
+  sectorDrawMode=true; sectorDraftPts=[];
+  clearSectorDraft();
+  const bar=document.getElementById('sector-draw-bar'); if(bar) bar.classList.add('show');
+  map.on('click',onSectorMapClick);
+  notify('지도를 탭해서 구역 꼭짓점을 찍으세요.\n3개 이상 찍고 "완료"를 누르면 저장됩니다.');
+}
+function onSectorMapClick(e){
+  if(!sectorDrawMode) return;
+  sectorDraftPts.push([e.latlng.lat,e.latlng.lng]);
+  drawSectorDraft();
+}
+function drawSectorDraft(){
+  if(sectorDraftLayer){ try{map.removeLayer(sectorDraftLayer);}catch(_){} sectorDraftLayer=null; }
+  sectorDraftMarkers.forEach(m=>{try{map.removeLayer(m);}catch(_){}}); sectorDraftMarkers=[];
+  if(sectorDraftPts.length>=2){
+    sectorDraftLayer=(sectorDraftPts.length>=3)
+      ? L.polygon(sectorDraftPts,{color:'#f59e0b',weight:3,fillOpacity:0.12,dashArray:'6,6'}).addTo(map)
+      : L.polyline(sectorDraftPts,{color:'#f59e0b',weight:3,dashArray:'6,6'}).addTo(map);
+  }
+  sectorDraftPts.forEach(p=>{
+    sectorDraftMarkers.push(L.circleMarker(p,{radius:6,color:'#fff',weight:2,fillColor:'#f59e0b',fillOpacity:1}).addTo(map));
+  });
+  const cnt=document.getElementById('sector-pt-count');
+  if(cnt) cnt.textContent=`꼭짓점 ${sectorDraftPts.length}개`;
+}
+function clearSectorDraft(){
+  if(sectorDraftLayer){ try{map.removeLayer(sectorDraftLayer);}catch(_){} sectorDraftLayer=null; }
+  sectorDraftMarkers.forEach(m=>{try{map.removeLayer(m);}catch(_){}}); sectorDraftMarkers=[];
+  const cnt=document.getElementById('sector-pt-count'); if(cnt) cnt.textContent='꼭짓점 0개';
+}
+function undoSectorPoint(){ sectorDraftPts.pop(); drawSectorDraft(); }
+function cancelSectorDraw(){
+  sectorDrawMode=false; sectorDraftPts=[];
+  clearSectorDraft();
+  map.off('click',onSectorMapClick);
+  const bar=document.getElementById('sector-draw-bar'); if(bar) bar.classList.remove('show');
+  renderSector();
+}
+function finishSectorDraw(){
+  if(sectorDraftPts.length<3){ notify('꼭짓점을 3개 이상 찍어야 구역이 됩니다.'); return; }
+  const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey];
+  if(!sc){ cancelSectorDraw(); return; }
+  sc.sector=sectorDraftPts.map(p=>[p[0],p[1]]);
+  sectorDrawMode=false; sectorDraftPts=[];
+  clearSectorDraft();
+  map.off('click',onSectorMapClick);
+  const bar=document.getElementById('sector-draw-bar'); if(bar) bar.classList.remove('show');
+  saveWaypointsToStorage();
+  renderSector();
+  renderCurLeg();
+  notify('구역이 저장되었습니다.\n⚙️ 경로 내보내기 → routes.json 업로드하면 모든 기기에 반영됩니다.');
+}
+// 기존 섹터 다시 그리기
+function redrawSector(){
+  const sc=currentSector();
+  if(!sc){ notify('이 시나리오에는 구역이 없습니다.'); return; }
+  startSectorDraw();
 }
 // ── 앱 내 입력 모달 (브라우저 prompt()가 차단돼도 동작) ──
 let _askResolve=null;
@@ -4913,18 +5115,20 @@ function toggleScEditMode(){
   else enterScEditMode();
 }
 function enterScEditMode(){
-  if(!legs[legIdx]) return;
+  // ★ 새로 만든 시나리오는 구간이 0개다. 예전엔 여기서 return 해버려서
+  //   수정 모드에 진입하지 못했고, '＋ 구간 추가' 버튼이 표시되지 않아
+  //   "아무 버튼도 안 먹는" 상태가 됐다. 구간이 없어도 진입을 허용한다.
   if(editMode) return; // 경로 수정 중엔 비활성
   scEditMode=true;
-  const lg=legs[legIdx];
+  const lg=legs[legIdx]; // 빈 시나리오면 undefined
   document.getElementById('btn-sc-edit').classList.add('active');
   document.getElementById('btn-edit').disabled=true;
   document.getElementById('hdr').classList.add('sc-editing');
   // 구간 추가/삭제 버튼 표시
   document.getElementById('leg-mgmt-btns').classList.add('show');
   // 출발/도착 이름 입력값 채운 뒤 CSS 클래스로 표시 전환
-  document.getElementById('si-start').value=lg.s;
-  document.getElementById('si-end').value=lg.e;
+  document.getElementById('si-start').value=lg?lg.s:'';
+  document.getElementById('si-end').value=lg?lg.e:'';
   document.getElementById('cur-card').classList.add('sc-editing');
   const menuSave=document.getElementById('menu-btn-sc-save');
   if(menuSave) menuSave.style.display='block';
@@ -5118,7 +5322,7 @@ async function renameCurrentLegId(){
 
 // ── 구간 삭제
 function deleteCurrentLeg(){
-  if(!legs[legIdx]){ alert('삭제할 구간이 없습니다.'); return; }
+  if(!legs[legIdx]){ notify('삭제할 구간이 없습니다.'); return; }
   const lg=legs[legIdx];
   if(!confirm(`"${lg.id}: ${lg.s} → ${lg.e}" 구간을 삭제할까요?`)) return;
   const sc=SCENARIOS[loc]&&SCENARIOS[loc][scKey]; if(!sc) return;
@@ -5649,7 +5853,7 @@ function saveWaypointsToStorage(){
       Object.keys(SCENARIOS[locKey]).forEach(scKey=>{
         const sc=SCENARIOS[locKey][scKey];
         if(!sc.legs) return;
-        data.scMeta[`${locKey}-${scKey}`]={name:sc.name||'',color:sc.color||''};
+        data.scMeta[`${locKey}-${scKey}`]={name:sc.name||'',color:sc.color||'',sector:Array.isArray(sc.sector)?sc.sector:undefined};
         // 전체 legs 배열 스냅샷 (추가/삭제 포함)
         data.customLegs[`${locKey}-${scKey}`]=sc.legs.map(lg=>({
           id:lg.id,s:lg.s,e:lg.e,
@@ -5689,16 +5893,20 @@ function loadWaypointsFromStorage(){
       return;
     }
     if(data.waypoints) Object.assign(WAYPOINTS,data.waypoints);
-    // 전체 legs 배열 복원 (추가/삭제된 구간 + 새 시나리오 포함)
+    // 전체 legs 배열 복원 (추가/삭제된 구간 + 새 시나리오 + 섹터 시나리오 포함)
     if(data.customLegs){
-      Object.keys(data.customLegs).forEach(key=>{
+      const keys=new Set([...Object.keys(data.customLegs||{}),...Object.keys(data.scMeta||{})]);
+      keys.forEach(key=>{
         const idx=key.lastIndexOf('-'); if(idx<0) return;
         const locKey=key.slice(0,idx), scKey=key.slice(idx+1);
         if(!SCENARIOS[locKey]) return;
+        const meta=data.scMeta&&data.scMeta[key];
         const saved=data.customLegs[key];
-        if(!Array.isArray(saved)||!saved.length) return;
-        ensureScenario(locKey,scKey,data.scMeta&&data.scMeta[key]);
-        SCENARIOS[locKey][scKey].legs=saved;
+        const hasLegs=Array.isArray(saved)&&saved.length;
+        const hasSector=meta&&Array.isArray(meta.sector)&&meta.sector.length>=3;
+        if(!hasLegs&&!hasSector) return;
+        ensureScenario(locKey,scKey,meta);
+        if(hasLegs) SCENARIOS[locKey][scKey].legs=saved;
       });
     } else if(data.legCoords){
       // 구버전 호환
@@ -5747,7 +5955,7 @@ function exportRoutes(){
     Object.keys(SCENARIOS[locKey]).forEach(scK=>{
       const sc=SCENARIOS[locKey][scK];
       if(!sc.legs) return;
-      data.scMeta[`${locKey}-${scK}`]={name:sc.name||'',color:sc.color||''};
+      data.scMeta[`${locKey}-${scK}`]={name:sc.name||'',color:sc.color||'',sector:Array.isArray(sc.sector)?sc.sector:undefined};
       data.customLegs[`${locKey}-${scK}`]=sc.legs.map(lg=>{
         const o={id:lg.id,s:lg.s,e:lg.e,
                  sLL:[...lg.sLL],eLL:[...lg.eLL],
@@ -6027,6 +6235,15 @@ async function fetchRemoteRoutes(){
         if(!valid.length) return;
         ensureScenario(locKey,scK,data.scMeta&&data.scMeta[key]); // 없으면 새 시나리오 생성
         SCENARIOS[locKey][scK].legs=valid;
+      });
+      // 섹터(자유주행 구역)만 있는 시나리오 — 구간이 없어 위 루프에서 걸러지므로 별도 처리
+      Object.keys(data.scMeta||{}).forEach(key=>{
+        const m=data.scMeta[key];
+        if(!m||!Array.isArray(m.sector)||m.sector.length<3) return;
+        const idx=key.lastIndexOf('-'); if(idx<0) return;
+        const locKey=key.slice(0,idx), scK=key.slice(idx+1);
+        if(!SCENARIOS[locKey]) return;
+        ensureScenario(locKey,scK,m);
       });
       changed=true;
     }
