@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.13.0"/>
+<meta name="app-version" content="v3.13.1"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -4226,7 +4226,6 @@ function renderLegList(){
       <div class="leg-id">${lg.id}</div>
       <div class="leg-info">
         <div class="leg-se">${lg.s} → ${lg.e}</div>
-        <div class="leg-meta">${lg.dist}km · ${lg.time>0?(lg.dist/lg.time*60).toFixed(1):'—'}km/h · ${lg.time}분</div>
       </div>
       ${done?'<div class="leg-check">✓</div>':''}`;
     div.onclick=()=>jumpToLeg(i);
