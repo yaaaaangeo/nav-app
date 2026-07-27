@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.13.1"/>
+<meta name="app-version" content="v3.13.2"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -1244,7 +1244,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-item" id="wakelock-menu" onclick="toggleWakeLockSetting()">🔆 주행 중 화면 켜두기: 켜짐</div>
   <div class="settings-item" id="guidance-menu" onclick="toggleGuidance()">🗣️ 길 안내(턴 안내): 켜짐</div>
   <div class="settings-item" onclick="redrawSector();closeSettingsMenu()">▣ 구역 다시 그리기(섹터)</div>
-  <div class="settings-item" onclick="fetchSectorRoads();closeSettingsMenu()" style="color:var(--c6);">🛣 구역 내 길 불러오기(관리자 1회)</div>
+  <div class="settings-item" onclick="fetchSectorRoads();closeSettingsMenu()" style="font-weight:700;">🛣 구역 내 길 불러오기(관리자 1회)</div>
   <div class="settings-item" id="sector-roads-menu" onclick="toggleSectorRoads()">🛣 구역 내 길 표시: 켜짐</div>
   <div class="settings-item" id="tmap-menu" onclick="setTmapKey();closeSettingsMenu()">🧭 경로 엔진: TMAP 키 입력</div>
   <div class="settings-item" onclick="bakeAllRoutesTmap()" style="color:var(--c12);">🔧 경로 굽기(관리자·TMAP 1회)</div>
@@ -1256,7 +1256,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.13.0</span>
+    <span id="app-version" title="애플리케이션 버전">v3.13.2</span>
   </div>
 </div>
 
@@ -4226,6 +4226,7 @@ function renderLegList(){
       <div class="leg-id">${lg.id}</div>
       <div class="leg-info">
         <div class="leg-se">${lg.s} → ${lg.e}</div>
+        <div class="leg-meta">${lg.dist}km · ${lg.time>0?(lg.dist/lg.time*60).toFixed(1):'—'}km/h · ${lg.time}분</div>
       </div>
       ${done?'<div class="leg-check">✓</div>':''}`;
     div.onclick=()=>jumpToLeg(i);
@@ -4281,7 +4282,8 @@ function renderCurLeg(){
       set('cur-id','SECTOR');
       set('cur-badge','자유주행 구역');
       set('cur-start',sec.name||'구역');
-      set('cur-end',`꼭짓점 ${sec.sector.length}개 · 구역 내 자유 주행`);
+      const rd=Array.isArray(sec.roads)?sec.roads.length:0;
+      set('cur-end',rd?`구역 내 길 ${rd}개 표시 · 자유 주행`:`꼭짓점 ${sec.sector.length}개 · ⚙️길 불러오기 필요`);
       return;
     }
     // 빈 시나리오(새로 만든 경우) — 이전 시나리오 정보가 남지 않게 비운다.
@@ -4913,35 +4915,45 @@ async function fetchSectorRoads(){
   const sc=currentSector();
   if(!sc){ notify('먼저 ▣ 로 구역(섹터)을 만들어 주세요.'); return; }
   const poly=sc.sector.map(p=>`${(+p[0]).toFixed(6)} ${(+p[1]).toFixed(6)}`).join(' ');
-  // 보행자 전용·계단·자전거도로 등 차량 주행 불가 도로는 제외
-  const excl='^(footway|path|steps|cycleway|pedestrian|bridleway|track|construction|proposed|raceway|corridor|elevator|platform)$';
-  const q=`[out:json][timeout:90];way["highway"]["highway"!~"${excl}"]["area"!="yes"](poly:"${poly}");out geom;`;
-  notify('구역 내 도로를 불러오는 중...\n(관리자 1회 작업, 잠시 걸립니다)');
-  const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
-  for(const ep of endpoints){
-    try{
-      const res=await fetch(ep,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
-        body:'data='+encodeURIComponent(q)});
-      if(!res.ok) throw new Error('HTTP '+res.status);
-      const data=await res.json();
-      const roads=[];
-      (data.elements||[]).forEach(el=>{
-        if(el.type!=='way'||!Array.isArray(el.geometry)) return;
-        const pts=el.geometry.map(g=>[+(+g.lat).toFixed(5),+(+g.lon).toFixed(5)]); // 약 1m 정밀도로 축약
-        if(pts.length>=2) roads.push(pts);
-      });
-      if(!roads.length){ notify('구역 안에서 도로를 찾지 못했습니다.\n구역을 더 넓게 그려보세요.'); return; }
-      // 총 연장 계산(참고용)
-      let km=0;
-      roads.forEach(r=>{ for(let i=0;i<r.length-1;i++){ try{ km+=map.distance(r[i],r[i+1]); }catch(_){} } });
-      sc.roads=roads;
-      saveWaypointsToStorage();
-      renderSectorRoads();
-      notify(`도로 ${roads.length}개 · 총 ${(km/1000).toFixed(1)}km 불러옴.\n⚙️ 경로 내보내기 → routes.json 업로드하면 기사 기기에도 표시됩니다.`);
-      return;
-    }catch(e){ console.warn('Overpass 실패:',ep,e); }
-  }
-  notify('도로 불러오기 실패 — 네트워크 확인 후 다시 시도해 주세요.');
+  // 단순 쿼리로 모든 highway를 받고, 차량 주행 불가 유형은 아래에서 JS로 거른다(서버 정규식 이슈 회피).
+  const q=`[out:json][timeout:60];way["highway"](poly:"${poly}");out geom;`;
+  const EXCL=new Set(['footway','path','steps','cycleway','pedestrian','bridleway','construction','proposed','raceway','corridor','elevator','platform','track']);
+  const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+
+  askInput('구역 내 길 불러오기',`"${sc.name||'구역'}" 안의 주행 가능한 도로를 OSM에서 불러옵니다.\n관리자 1회 작업이며 10~40초 걸릴 수 있어요. 시작할까요?\n(확인=시작 / 취소)`, '시작').then(async ok=>{
+    if(ok===null) return;
+    let lastErr='';
+    for(const ep of endpoints){
+      try{
+        const ctrl=new AbortController();
+        const to=setTimeout(()=>ctrl.abort(),60000);
+        const res=await fetch(ep,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+          body:'data='+encodeURIComponent(q), signal:ctrl.signal});
+        clearTimeout(to);
+        if(!res.ok){ lastErr='HTTP '+res.status; continue; }
+        const data=await res.json();
+        const roads=[];
+        (data.elements||[]).forEach(el=>{
+          if(el.type!=='way'||!Array.isArray(el.geometry)) return;
+          const hw=el.tags&&el.tags.highway;
+          if(hw && EXCL.has(hw)) return;         // 보행자·계단·자전거도로 등 제외
+          const pts=el.geometry.map(g=>[+(+g.lat).toFixed(5),+(+g.lon).toFixed(5)]);
+          if(pts.length>=2) roads.push(pts);
+        });
+        if(!roads.length){ notify('구역 안에서 도로를 찾지 못했습니다.\n구역을 더 넓게 그리거나 다시 시도해 주세요.'); return; }
+        let km=0; roads.forEach(r=>{ for(let i=0;i<r.length-1;i++){ try{ km+=map.distance(r[i],r[i+1]); }catch(_){} } });
+        sc.roads=roads;
+        saveWaypointsToStorage();
+        renderSectorRoads();
+        renderCurLeg();
+        // 결과를 확실히 보이게(모달)
+        askInput('✅ 도로 불러오기 완료',`"${sc.name||'구역'}"\n도로 ${roads.length}개 · 총 ${(km/1000).toFixed(1)}km 불러왔습니다.\n\n지도에 파란 선으로 표시됩니다.\n⚙️ → 경로 내보내기 로 routes.json 저장 후 업로드하면 기사 기기에도 나옵니다.`, '확인').then(()=>{});
+        return;
+      }catch(e){ lastErr=(e&&e.name==='AbortError')?'시간 초과(60초)':(e&&e.message)||String(e); console.warn('Overpass 실패:',ep,e); }
+    }
+    // 전부 실패 → 실제 에러를 모달로 표시
+    askInput('❌ 도로 불러오기 실패',`모든 서버 시도 실패.\n마지막 오류: ${lastErr}\n\n네트워크(모바일 데이터/와이파이) 확인 후 다시 시도하거나,\n이 메시지를 개발자에게 알려주세요.`, '확인').then(()=>{});
+  });
 }
 function clearSectorTrail(){
   if(sectorTrailLayer){ try{map.removeLayer(sectorTrailLayer);}catch(_){} sectorTrailLayer=null; }
