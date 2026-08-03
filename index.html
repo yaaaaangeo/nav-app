@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.15.0"/>
+<meta name="app-version" content="v3.16.0"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -1257,7 +1257,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.15.0</span>
+    <span id="app-version" title="애플리케이션 버전">v3.16.0</span>
   </div>
 </div>
 
@@ -4968,7 +4968,13 @@ function renderSectorRoads(){
     const t=roadType(r);
     if(t==='service' && !includeServiceRoads()) return;   // 단지 내 도로 숨김
     const minor=(t==='residential'||t==='living_street'||t==='unclassified'||t==='service');
-    lines.push(L.polyline(c,{color:'#2563eb',weight:minor?4:6,opacity:minor?0.45:0.6,lineCap:'round'}));
+    const ln=L.polyline(c,{color:'#2563eb',weight:minor?4:6,opacity:minor?0.45:0.6,lineCap:'round'});
+    // HD맵 도로면 탭했을 때 LINK_ID·도로명 표시(수집 라벨링용)
+    if(r && !Array.isArray(r) && (r.id||r.nm)){
+      ln.bindPopup(`<b>${r.nm||'(도로명 없음)'}</b><br>LINK_ID: <code>${r.id||'-'}</code>`+
+                   (r.ln?`<br>차선: ${r.ln}`:''));
+    }
+    lines.push(ln);
   });
   if(!lines.length) return;
   sectorRoadsLayer=L.layerGroup(lines).addTo(map);
@@ -4994,7 +5000,49 @@ function toggleSectorRoads(){
   updateSectorRoadsMenuLabel();
   renderSectorRoads();
 }
-// 구역 다각형 안의 도로를 OSM(Overpass)에서 불러와 저장
+// ── HD맵 도로 데이터(hd_roads.json) ──
+// 저장소에 hd_roads.json이 있으면, 섹터를 그렸을 때 OSM 대신 이 데이터에서 잘라 쓴다.
+// (표준노드링크 기반 = LINK_ID 보존, 정확, 오프라인·즉시)
+let HD_ROADS=null, hdRoadsTried=false;
+async function loadHdRoads(){
+  if(HD_ROADS||hdRoadsTried) return HD_ROADS;
+  hdRoadsTried=true;
+  try{
+    const res=await fetch('./hd_roads.json?ts='+Date.now(),{cache:'no-store'});
+    if(!res.ok) return null;
+    const d=await res.json();
+    const sets=d.roadSets||{};
+    HD_ROADS=[].concat.apply([],Object.keys(sets).map(k=>sets[k]||[]));
+    console.log('hd_roads.json 로드됨:',HD_ROADS.length,'개 링크');
+    return HD_ROADS;
+  }catch(e){ console.warn('hd_roads.json 없음 → OSM 사용:',e); return null; }
+}
+// 섹터 다각형으로 HD맵 도로를 잘라낸다(구역 안쪽만).
+function cutRoadsFromHd(sc){
+  if(!HD_ROADS||!HD_ROADS.length) return null;
+  const poly=sc.sector;
+  let minLa=Infinity,maxLa=-Infinity,minLo=Infinity,maxLo=-Infinity;
+  poly.forEach(p=>{ minLa=Math.min(minLa,p[0]); maxLa=Math.max(maxLa,p[0]);
+                    minLo=Math.min(minLo,p[1]); maxLo=Math.max(maxLo,p[1]); });
+  const out=[];
+  HD_ROADS.forEach(r=>{
+    const c=r.c; if(!Array.isArray(c)||c.length<2) return;
+    // bbox로 빠르게 걸러내기
+    let ok=false;
+    for(let i=0;i<c.length;i++){
+      if(c[i][0]>=minLa-0.002&&c[i][0]<=maxLa+0.002&&c[i][1]>=minLo-0.002&&c[i][1]<=maxLo+0.002){ ok=true; break; }
+    }
+    if(!ok) return;
+    clipPathToPolygon(c,poly).forEach(seg=>{
+      out.push({t:((r.ln&&r.ln<=1)?'residential':''),
+                c:seg.map(p=>[+(+p[0]).toFixed(5),+(+p[1]).toFixed(5)]),
+                id:r.id||'', nm:r.nm||'', ln:r.ln||0});
+    });
+  });
+  return out;
+}
+
+// 구역 다각형 안의 도로를 불러와 저장 (HD맵 우선 → 없으면 OSM)
 async function fetchSectorRoads(){
   const sc=currentSector();
   if(!sc){ notify('먼저 ▣ 로 구역(섹터)을 만들어 주세요.'); return; }
@@ -5004,8 +5052,23 @@ async function fetchSectorRoads(){
   const EXCL=new Set(['footway','path','steps','cycleway','pedestrian','bridleway','construction','proposed','raceway','corridor','elevator','platform','track']);
   const endpoints=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
 
-  askInput('구역 내 길 불러오기',`"${sc.name||'구역'}" 안의 주행 가능한 도로를 OSM에서 불러옵니다.\n관리자 1회 작업이며 10~40초 걸릴 수 있어요. 시작할까요?\n(확인=시작 / 취소)`, '시작').then(async ok=>{
+  askInput('구역 내 길 불러오기',`"${sc.name||'구역'}" 안의 주행 가능한 도로를 불러옵니다.\n시작할까요?\n(확인=시작 / 취소)`, '시작').then(async ok=>{
     if(ok===null) return;
+
+    // ① HD맵 데이터가 있으면 거기서 잘라 쓴다(즉시·정확·LINK_ID 보존)
+    await loadHdRoads();
+    const hd=cutRoadsFromHd(sc);
+    if(hd && hd.length){
+      let hkm=0; hd.forEach(r=>{ const c=r.c; for(let i=0;i<c.length-1;i++){ try{ hkm+=map.distance(c[i],c[i+1]); }catch(_){} } });
+      sc.roads=hd; sc.roadsClipped=true;
+      saveWaypointsToStorage();
+      renderSectorRoads();
+      renderCurLeg();
+      askInput('✅ HD맵에서 도로 잘라옴',`"${sc.name||'구역'}"\n도로 ${hd.length}개 · 총 ${(hkm/1000).toFixed(1)}km\n\nHD맵(표준노드링크) 기준이라 LINK_ID가 함께 저장됩니다.\n⚙️ → 경로 내보내기 로 routes.json 저장 후 업로드하세요.`, '확인').then(()=>{});
+      return;
+    }
+
+    // ② HD맵 범위 밖이면 OSM(Overpass)으로 폴백
     let lastErr='';
     for(const ep of endpoints){
       try{
