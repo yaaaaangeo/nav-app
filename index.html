@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.18.0"/>
+<meta name="app-version" content="v3.18.1"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -366,8 +366,6 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #sheet-grip{width:40px;height:4px;border-radius:2px;background:var(--c3);margin:0 auto;}
 #sheet-row{display:flex;align-items:center;gap:8px;}
 #sheet-title{flex:1;font-size:12px;font-weight:700;color:var(--c2);letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-#sheet-play{flex:0 0 auto;padding:7px 14px;border:2px solid var(--c76);background:var(--c1);color:var(--c76);border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;}
-#sheet-play.running{color:var(--c77);border-color:var(--c77);}
 #panel-card-hdr{display:none;align-items:center;justify-content:space-between;height:30px;min-height:30px;padding:0 12px;background:var(--c20);border-bottom:1px solid var(--c1);cursor:pointer;user-select:none;}
 #panel-card-hdr-title{font-size:12px;font-weight:700;color:var(--c2);letter-spacing:.5px;}
 #btn-panel-card-toggle{background:none;border:none;color:var(--c2);font-size:11px;cursor:pointer;padding:0;}
@@ -754,10 +752,13 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 .leg-meta{font-size:11px;color:var(--c50);margin-top:2px;}
 .leg-check{color:var(--c51);font-size:16px;flex-shrink:0;}
 
-/* 전체 경로 안내 — bottom-stack 안에서 flex 아이템 */
+/* 전체 경로 안내 — bottom-stack 안에서 flex 아이템.
+   구간 정보 시트(#panel)와 같은 톤(var(--c20))·둥근 모서리·그림자로 통일 */
 #steps-panel{
-  background:var(--ov-bg2);backdrop-filter:blur(8px);
-  border-top:1px solid var(--c4);
+  background:var(--c20);
+  border:1px solid var(--c21);
+  border-radius:14px 14px 0 0;
+  box-shadow:0 -4px 18px rgba(0,0,0,.28);
   height:200px;min-height:60px;max-height:60vh;
   display:flex;flex-direction:column;overflow:hidden;
 }
@@ -1473,7 +1474,6 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       <div id="sheet-grip"></div>
       <div id="sheet-row">
         <span id="sheet-title">구간 정보 · 지도 보기</span>
-        <button id="sheet-play" onclick="event.stopPropagation();togglePlay()">▶ 시작</button>
       </div>
     </div>
     <div id="panel-edit-block"></div>
@@ -4391,8 +4391,6 @@ function renderCurLeg(){
 
   document.getElementById('btn-play').textContent=isPlaying?'⏸ 정지':'▶ 시작';
   document.getElementById('btn-play').className='ctrl-btn'+(isPlaying?' running':'');
-  const sp=document.getElementById('sheet-play');
-  if(sp){ sp.textContent=isPlaying?'⏸ 정지':'▶ 시작'; sp.className=isPlaying?'running':''; }
 }
 
 function updateHeader(){
