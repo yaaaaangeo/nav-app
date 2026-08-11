@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.18.2"/>
+<meta name="app-version" content="v3.18.3"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -657,11 +657,6 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   background:transparent;z-index:10;
 }
 #panel-resize-handle:hover,#panel-resize-handle.dragging{background:var(--c45);}
-#steps-resize-handle{
-  height:6px;cursor:ns-resize;background:var(--c4);
-  display:flex;align-items:center;justify-content:center;flex-shrink:0;
-}
-#steps-resize-handle::after{content:'';width:32px;height:3px;background:var(--c28);border-radius:2px;}
 
 /* 경고 */
 #warn{display:none;background:var(--c86);border:1px solid var(--c12);border-radius:7px;padding:8px 12px;font-size:12px;color:var(--c15);font-weight:600;text-align:center;margin-top:8px;animation:blink .7s infinite alternate;}
@@ -752,22 +747,22 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 .leg-meta{font-size:11px;color:var(--c50);margin-top:2px;}
 .leg-check{color:var(--c51);font-size:16px;flex-shrink:0;}
 
-/* 전체 경로 안내 — bottom-stack 안에서 flex 아이템.
-   구간 정보 시트(#panel)와 같은 톤(var(--c20))·둥근 모서리·그림자로 통일 */
+/* 전체 경로 안내 — 구간 정보 시트(#panel) 안의 접이식 섹션(현재 구간·구간 목록과 동일한 톤/구조) */
 #steps-panel{
-  background:var(--c20);
-  border-top:1px solid var(--c21);
+  display:flex;flex-direction:column;
+  flex-shrink:0;
   height:200px;min-height:60px;max-height:60vh;
-  display:flex;flex-direction:column;overflow:hidden;
+  overflow:hidden;
 }
 #steps-panel.collapsed{height:30px!important;min-height:30px!important;max-height:30px!important;}
-#steps-panel.collapsed #steps-resize-handle,
 #steps-panel.collapsed #steps-list{display:none!important;}
 #steps-hdr{
   display:flex;align-items:center;justify-content:space-between;
-  height:30px;min-height:30px;padding:0 12px;font-size:12px;font-weight:700;color:var(--c2);
-  letter-spacing:.5px;flex-shrink:0;
+  height:30px;min-height:30px;padding:0 12px;
+  background:var(--c20);border-bottom:1px solid var(--c1);border-top:1px solid var(--c1);
+  cursor:pointer;flex-shrink:0;user-select:none;
 }
+#steps-hdr-title{font-size:12px;font-weight:700;color:var(--c2);letter-spacing:.5px;}
 #btn-steps-toggle{background:none;border:none;color:var(--c2);font-size:11px;cursor:pointer;padding:0;}
 #steps-list{overflow-y:auto;flex:1;}
 #steps-list::-webkit-scrollbar{width:4px;}
@@ -814,9 +809,12 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #panel-card-wrap{flex:none;height:auto;}
   #panel-card-body{overflow:visible;height:auto;}
   #leg-list-wrap{flex:none;height:auto;}
+  #steps-panel{flex:none;height:auto;}
   #panel-card-wrap.collapsed,
-  #leg-list-wrap.collapsed{flex:0 0 30px!important;height:30px!important;min-height:30px!important;max-height:30px!important;}
+  #leg-list-wrap.collapsed,
+  #steps-panel.collapsed{flex:0 0 30px!important;height:30px!important;min-height:30px!important;max-height:30px!important;}
   #leg-list{flex:none;max-height:40vh;overflow-y:auto;}
+  #steps-list{flex:none;max-height:40vh;overflow-y:auto;}
 
   /* ── 헤더 ── */
   #hdr{padding:5px 8px;gap:4px;}
@@ -855,9 +853,8 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
   /* ── 리사이즈 핸들 숨김 ── */
   #panel-resize-handle{display:none;}
-  #steps-resize-handle{display:none;}
 
-  /* ── 경로 수정 바 + 전체 경로 안내: 하단 시트 peek(84px) 바로 위에 이어붙임(틈 없음) ── */
+  /* ── 경로 수정 바: 하단 시트 peek(84px) 바로 위에 배치 ── */
   #bottom-stack{
     position:absolute;
     bottom:84px;left:0;right:0;
@@ -896,16 +893,6 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     padding:8px 12px;
     font-size:11px;
   }
-  #steps-panel{
-    position:relative;
-    bottom:auto;left:auto;right:auto;
-    width:100%;
-    height:30px!important;
-    flex:0 0 30px;
-    max-height:40vh;
-    z-index:1003;
-  }
-  #steps-panel:not(.collapsed){height:200px!important;flex-basis:200px;}
 
   /* ── 턴바이턴 ── */
   #turn-overlay{top:6px;left:6px;right:6px;padding:10px 12px;}
@@ -954,8 +941,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #btn-wp-add,#btn-wp-del{padding:5px 8px;font-size:10px;}
   #edit-hint{min-width:0;font-size:9px;overflow:hidden;text-overflow:ellipsis;}
   #btn-save-route{padding:6px 10px;font-size:10px;}
-  #steps-panel{position:relative;bottom:auto;left:auto;right:auto;width:100%;height:36px!important;flex:0 0 36px;}
-  #steps-panel:not(.collapsed){height:150px!important;flex-basis:150px;}
+  #steps-panel{max-height:150px;}
   #leg-list{max-height:22vh;overflow-y:auto;}
   #leg-list-wrap{flex:none;}
 }
@@ -1310,7 +1296,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.18.2</span>
+    <span id="app-version" title="애플리케이션 버전">v3.18.3</span>
   </div>
   </div>
   <div id="settings-scroll-hint">더 있어요 ↓</div>
@@ -1414,12 +1400,6 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
         <span id="edit-hint">드래그로 위치 이동 가능</span>
         <button id="btn-save-route" onclick="saveEditedRoute()">💾 저장</button>
       </div>
-      <!-- 전체 경로 안내 -->
-      <div id="steps-panel">
-        <div id="steps-resize-handle"></div>
-        <div id="steps-hdr">전체 경로 안내 <button id="btn-steps-toggle" onclick="toggleStepsPanel()">접기 ▼</button></div>
-        <div id="steps-list"></div>
-      </div>
     </div>
 
     <!-- 교통정보 팝업 (숨김) -->
@@ -1476,6 +1456,16 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     </div>
     <div id="panel-edit-block"></div>
     <div id="panel-resize-handle"></div>
+
+    <!-- 전체 경로 안내 (현재 구간·구간 목록과 같은 시트 안의 접이식 섹션) -->
+    <div id="steps-panel">
+      <div id="steps-hdr" onclick="toggleStepsPanel()">
+        <span id="steps-hdr-title">전체 경로 안내</span>
+        <button id="btn-steps-toggle">접기 ▼</button>
+      </div>
+      <div id="steps-list"></div>
+    </div>
+
     <div id="panel-card-wrap">
       <div id="panel-card-hdr" onclick="togglePanelCard()">
         <span id="panel-card-hdr-title">현재 구간</span>
@@ -6498,34 +6488,6 @@ function exitEditMode(){
   document.addEventListener('touchmove',onPanelMove,{passive:false});
   document.addEventListener('mouseup',onPanelEnd);
   document.addEventListener('touchend',onPanelEnd);
-
-  // 경로 안내 패널 ↑ 핸들 드래그 (mouse + touch)
-  let stepsDragging=false, stepsStartY=0, stepsStartH=0;
-  const stepsHandle=document.getElementById('steps-resize-handle');
-  const onStepsStart=e=>{
-    if(document.getElementById('steps-panel').classList.contains('collapsed')) return;
-    stepsDragging=true; stepsStartY=clientY(e);
-    stepsStartH=document.getElementById('steps-panel').offsetHeight;
-    document.body.style.userSelect='none';
-    e.preventDefault();
-  };
-  const onStepsMove=e=>{
-    if(!stepsDragging) return;
-    const delta=stepsStartY-clientY(e); // 위로 드래그 = 더 크게
-    const newH=Math.max(60,Math.min(window.innerHeight*0.65,stepsStartH+delta));
-    document.getElementById('steps-panel').style.height=newH+'px';
-  };
-  const onStepsEnd=()=>{
-    if(!stepsDragging) return;
-    stepsDragging=false;
-    document.body.style.userSelect='';
-  };
-  stepsHandle.addEventListener('mousedown',onStepsStart);
-  stepsHandle.addEventListener('touchstart',onStepsStart,{passive:false});
-  document.addEventListener('mousemove',onStepsMove);
-  document.addEventListener('touchmove',onStepsMove,{passive:false});
-  document.addEventListener('mouseup',onStepsEnd);
-  document.addEventListener('touchend',onStepsEnd);
 })();
 
 // 초기화 — 저장된 경로 먼저 불러온 뒤 시나리오 로드
