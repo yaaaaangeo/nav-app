@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.16.0"/>
+<meta name="app-version" content="v3.17.0"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -580,7 +580,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 #cur-arrow{display:flex;align-items:center;gap:6px;margin-bottom:10px;}
 .place-tag{background:var(--c70);border:1px solid var(--c40);border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;color:var(--c41);flex:1;text-align:center;}
 .arrow-icon{color:var(--c9);font-size:18px;flex-shrink:0;}
-#cur-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;}
+#cur-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;}
 .stat{background:var(--c71);border:1px solid var(--c72);border-radius:7px;padding:8px 6px;text-align:center;}
 .stat-v{font-size:17px;font-weight:700;color:var(--c0);}
 .stat-u{font-size:10px;color:var(--c2);margin-top:1px;}
@@ -1457,10 +1457,6 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
             <div class="stat">
               <div class="stat-v" id="sv-dist-v">—</div>
               <div class="stat-u">km</div><div class="stat-u" style="color:var(--c50)">거리(실제경로)</div>
-            </div>
-            <div class="stat">
-              <div class="stat-v" id="sv-spd-v">—</div>
-              <div class="stat-u">km/h</div><div class="stat-u" style="color:var(--c50)">목표속도</div>
             </div>
             <div class="stat">
               <div class="stat-v" id="sv-time-v">—</div>
@@ -3644,11 +3640,9 @@ function updateCurStats(){
 
   // 출발/도착 링크 평균속도로 예상시간 계산, 없으면 0
   const itsSpd=getItsLegAvgSpeed();
-  const displaySpd=itsSpd?Math.round(itsSpd):0;
   const etaMin=itsSpd&&itsSpd>0?Math.round(lg.dist/itsSpd*60):0;
 
   document.getElementById('sv-dist-v').textContent=lg.dist.toFixed(1);
-  document.getElementById('sv-spd-v').textContent=displaySpd;
   document.getElementById('sv-time-v').textContent=etaMin;
 
   // 주행 중이든 아니든 ITS 예상시간으로 타이머 동기화
@@ -4227,7 +4221,6 @@ function renderLegList(){
       <div class="leg-id">${lg.id}</div>
       <div class="leg-info">
         <div class="leg-se">${lg.s} → ${lg.e}</div>
-        <div class="leg-meta">${lg.dist}km · ${lg.time>0?(lg.dist/lg.time*60).toFixed(1):'—'}km/h · ${lg.time}분</div>
       </div>
       ${done?'<div class="leg-check">✓</div>':''}`;
     div.onclick=()=>jumpToLeg(i);
@@ -4307,12 +4300,11 @@ function renderCurLeg(){
   document.getElementById('cur-start').textContent=lg.s;
   document.getElementById('cur-end').textContent=lg.e;
 
-  // 거리·목표속도·현재예상의 정확한 값은 경로 로딩 후 updateCurStats()에서 갱신됨.
-  // 여기서는 경로 fetch 전 임시 표시값(현재예상 기준 — 타이머와 동일하게).
+  // 거리·예상시간의 정확한 값은 경로 로딩 후 updateCurStats()에서 갱신됨.
+  // 여기서는 경로 fetch 전이라 임시로 0 표시 (계산된 값이 잠깐 떴다 바뀌는 걸 방지).
   const etaMin0=getCurrentEtaMin();
-  document.getElementById('sv-dist-v').textContent=lg.dist.toFixed(1);
-  document.getElementById('sv-spd-v').textContent=(lg.time>0?(lg.dist/lg.time*60):0).toFixed(1);
-  document.getElementById('sv-time-v').textContent=etaMin0;
+  document.getElementById('sv-dist-v').textContent='0';
+  document.getElementById('sv-time-v').textContent='0';
   setPhaseUI('drive');
   updateTimerDisplay(etaMin0*60);
 
