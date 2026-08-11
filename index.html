@@ -12,6 +12,35 @@
 <link rel="apple-touch-icon" href="./icons/icon-180.png"/>
 <link rel="icon" href="./icons/icon-32.png"/>
 <title>자율주행 데이터 취득 네비게이션 v3 (TMAP)</title>
+
+<!-- ══════════════════════════════════════════════════════════════
+     TMAP JS SDK v2 동기 로드
+     SDK가 내부적으로 document.write()를 사용하기 때문에, 파싱이 끝난 뒤
+     동적으로 삽입하면 브라우저가 write를 차단해 초기화에 실패한다.
+     따라서 저장된 appKey를 읽어 파싱 중에 스크립트 태그를 직접 써 넣는다.
+     ══════════════════════════════════════════════════════════════ -->
+<script>
+(function(){
+  try{
+    var raw = localStorage.getItem('tmap-appkey');
+    var key = '';
+    if (raw){
+      try { key = JSON.parse(raw); } catch(e){ key = raw; }   // 따옴표 유무 모두 허용
+    }
+    var q = new URLSearchParams(location.search).get('appKey');
+    if (q){
+      key = q.trim();
+      localStorage.setItem('tmap-appkey', JSON.stringify(key));
+    }
+    if (key){
+      document.write(
+        '<scr' + 'ipt src="https://apis.openapi.sk.com/tmap/jsv2?version=1&appKey=' +
+        encodeURIComponent(key) + '"><\/scr' + 'ipt>'
+      );
+    }
+  }catch(e){ /* 키가 없으면 설정 화면에서 입력받는다 */ }
+})();
+</script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{
@@ -873,28 +902,18 @@ function isActionable(step){
 /* ══════════════════════════════════════════════════════════════
    TMAP JS SDK 로드 + 지도 초기화
    ══════════════════════════════════════════════════════════════ */
-function loadTmapSdk(key){
+/**
+ * SDK는 <head>의 동기 스크립트가 이미 로드했다.
+ * 여기서는 Tmapv2 객체가 준비될 때까지만 기다린다.
+ */
+function loadTmapSdk(){
   return new Promise((resolve, reject) => {
-    if (window.Tmapv2 && window.Tmapv2.Map) { sdkReady = true; return resolve(); }
-    let settled = false;
-    const done = fn => (...a) => { if (settled) return; settled = true; clearTimeout(guard); fn(...a); };
-    resolve = done(resolve); reject = done(reject);
-    const guard = setTimeout(() => reject(new Error('SDK 응답 없음')), 20000);
-
-    const s = document.createElement('script');
-    s.src = TMAP.sdk + encodeURIComponent(key);
-    s.async = true;
-    s.onload = () => {
-      // SDK가 내부적으로 비동기 초기화하는 경우가 있어 짧게 폴링한다.
-      let tries = 0;
-      (function wait(){
-        if (window.Tmapv2 && window.Tmapv2.Map) { sdkReady = true; return resolve(); }
-        if (++tries > 60) return reject(new Error('SDK 초기화 시간 초과'));
-        setTimeout(wait, 100);
-      })();
-    };
-    s.onerror = () => reject(new Error('SDK 스크립트를 불러오지 못했습니다'));
-    document.head.appendChild(s);
+    let tries = 0;
+    (function wait(){
+      if (window.Tmapv2 && window.Tmapv2.Map){ sdkReady = true; return resolve(); }
+      if (++tries > 150) return reject(new Error('SDK 로드 실패 — appKey 또는 등록 도메인을 확인하세요'));
+      setTimeout(wait, 100);
+    })();
   });
 }
 
@@ -1813,7 +1832,7 @@ async function enterApp(){
   startGps();
 
   try {
-    await loadTmapSdk(appKey);
+    await loadTmapSdk();
     initMap();
   } catch (e){
     console.warn('TMAP SDK 로드 실패:', e && e.message);
@@ -1837,7 +1856,8 @@ function bindEvents(){
     appKey = k;
     lsSet(K.appkey, k);
     $('setup-err').textContent = '';
-    showLogin();
+    // SDK는 문서 파싱 시점에만 로드할 수 있으므로 키 저장 후 새로고침한다.
+    location.replace(location.pathname);
   };
   $('appkey-input').onkeydown = e => { if (e.key === 'Enter') $('setup-submit').click(); };
 
