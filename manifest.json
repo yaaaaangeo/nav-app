@@ -1,7 +1,7 @@
 {
-  "name": "자율주행 데이터 취득 네비게이션",
-  "short_name": "데이터취득",
-  "description": "자율주행 데이터 취득용 내비게이션 — 시나리오별 구간 안내, 턴바이턴, 주행기록",
+  "name": "자율주행 데이터 취득 네비게이션 (TMAP)",
+  "short_name": "데이터취득 v3",
+  "description": "자율주행 데이터 취득용 내비게이션 Ver.3 — TMAP 지도·경로안내 기반 구간 안내, 턴바이턴, 주행기록",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

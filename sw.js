@@ -1,9 +1,5 @@
-const CACHE_NAME = 'nav-app-v20260618-version-only-v1';
-const APP_SHELL = [
-  './',
-  './index.html',
-  './manifest.json'
-];
+const CACHE_NAME = 'nav-app-v3-tmap-20260811';
+const APP_SHELL = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
@@ -16,11 +12,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const names = await caches.keys();
-    await Promise.all(
-      names
-        .filter(name => name !== CACHE_NAME)
-        .map(name => caches.delete(name))
-    );
+    await Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)));
     await self.clients.claim();
   })());
 });
@@ -31,7 +23,10 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(request.url);
 
-  // Always try the network first for page navigation so a new index.html is visible immediately.
+  // TMAP API / SDK 응답은 절대 캐시하지 않는다 (경로·교통정보는 항상 최신이어야 함).
+  if (url.hostname.endsWith('openapi.sk.com')) return;
+
+  // 페이지 이동은 네트워크 우선 — 새 index.html이 즉시 반영되도록.
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       try {
@@ -48,19 +43,18 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Same-origin static files: return cache quickly and refresh it in the background.
+  // 동일 출처 정적 파일은 캐시 우선 + 백그라운드 갱신.
   if (url.origin === self.location.origin) {
     event.respondWith((async () => {
       const cached = await caches.match(request);
-      const networkPromise = fetch(request).then(async response => {
-        if (response && response.ok) {
+      const network = fetch(request).then(async res => {
+        if (res && res.ok) {
           const cache = await caches.open(CACHE_NAME);
-          await cache.put(request, response.clone());
+          await cache.put(request, res.clone());
         }
-        return response;
+        return res;
       }).catch(() => null);
-
-      return cached || (await networkPromise) || Response.error();
+      return cached || (await network) || Response.error();
     })());
   }
 });
