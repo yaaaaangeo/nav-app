@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.17.0"/>
+<meta name="app-version" content="v3.18.0"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -478,6 +478,29 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 #gps-acc-line{font-size:10px;color:var(--c2);margin-top:2px;}
 #gps-coord-line{font-size:9px;color:var(--c66);margin-top:1px;font-variant-numeric:tabular-nums;}
+
+/* 새로고침 후 주행 복원 상태 — 항상 화면 상단 중앙에서 눈에 띄게 */
+#restore-status{
+  position:fixed;top:10px;left:50%;transform:translateX(-50%);
+  z-index:19500;display:none;
+  background:rgba(20,20,24,.94);border:1px solid rgba(255,255,255,.18);
+  border-radius:20px;padding:7px 14px;
+  font-size:12px;font-weight:700;color:#fff;
+  box-shadow:0 6px 20px rgba(0,0,0,.5);
+  white-space:nowrap;max-width:88vw;
+  display:flex;align-items:center;gap:7px;
+}
+#restore-status.show{display:flex;}
+#restore-status-dot{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#999;
+}
+#restore-status.pending #restore-status-dot{background:#f5a623;animation:restore-pulse 1s infinite;}
+#restore-status.pending{border-color:rgba(245,166,35,.55);}
+#restore-status.done #restore-status-dot{background:#2ecc71;}
+#restore-status.done{border-color:rgba(46,204,113,.55);}
+#restore-status.warn #restore-status-dot{background:#ff5555;animation:restore-pulse 1s infinite;}
+#restore-status.warn{border-color:rgba(255,85,85,.55);}
+@keyframes restore-pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
 
 /* 내 위치 따라가기 버튼 (지도 우하단 플로팅) */
 #follow-btn{
@@ -1025,9 +1048,39 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   box-shadow:0 8px 32px rgba(0,0,0,.7);
   z-index:20000;
   overflow:hidden;
-  padding:5px 0;
+  padding:0;
 }
 #settings-menu.show{display:block;}
+
+.settings-scroll{
+  max-height:min(78vh,560px);
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  padding:5px 0;
+}
+/* 스크롤 가능함을 항상 눈에 보이게 — 얇지만 또렷한 스크롤바 */
+.settings-scroll::-webkit-scrollbar{width:6px;}
+.settings-scroll::-webkit-scrollbar-thumb{background:var(--c9);border-radius:3px;}
+.settings-scroll::-webkit-scrollbar-track{background:transparent;}
+.settings-scroll{scrollbar-width:thin;scrollbar-color:var(--c9) transparent;}
+
+/* 아래에 더 있을 때만 보이는 안내 배지 — JS가 스크롤 위치 따라 show/hide */
+#settings-scroll-hint{
+  display:none;
+  text-align:center;
+  font-size:11px;
+  color:var(--c19);
+  background:var(--c126);
+  padding:5px 0 7px;
+  border-top:1px solid var(--c127);
+  animation:scrollHintBounce 1.3s ease-in-out infinite;
+}
+#settings-scroll-hint.show{display:block;}
+@keyframes scrollHintBounce{
+  0%,100%{transform:translateY(0);opacity:.75;}
+  50%{transform:translateY(3px);opacity:1;}
+}
 
 .settings-item{
   padding:10px 16px;
@@ -1226,6 +1279,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
 
 <!-- 설정 드롭다운 메뉴 (body 레벨 — hdr overflow 영향 안 받음) -->
 <div id="settings-menu">
+  <div class="settings-scroll">
   <div class="settings-item" onclick="window.open('https://map.naver.com/p/?c=127.032,37.498,14,0,0,0,dh','_blank');closeSettingsMenu()">🗺️ 네이버 지도</div>
   <div class="settings-item" onclick="openTrafficConfig();closeSettingsMenu()">🚦 교통 설정</div>
   <div class="settings-item" onclick="openCollectorConfig();closeSettingsMenu()" id="menu-btn-collector">📡 수집 시스템 설정</div>
@@ -1259,6 +1313,8 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
     <!-- ★버전 -->
     <span id="app-version" title="애플리케이션 버전">v3.16.0</span>
   </div>
+  </div>
+  <div id="settings-scroll-hint">더 있어요 ↓</div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════
@@ -1396,6 +1452,12 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
       <div><span id="gps-dot"></span><span id="gps-main-line">GPS 수신 중...</span></div>
       <div id="gps-acc-line">정확도 확인 중</div>
       <div id="gps-coord-line"></div>
+    </div>
+
+    <!-- 새로고침 복원 상태 표시 -->
+    <div id="restore-status">
+      <span id="restore-status-dot"></span>
+      <span id="restore-status-text"></span>
     </div>
 
     <!-- 경로 로딩 -->
@@ -1799,7 +1861,25 @@ function toggleSettingsMenu(){
     menu.classList.add('show');
     btn.classList.add('open');
     setTimeout(()=>document.addEventListener('click', _closeOnOutside), 0);
+    setupSettingsScrollHint();
   }
+}
+// 설정 메뉴가 스크롤 가능한데(항목이 화면보다 길어서) 사용자가 못 알아채는 문제 방지:
+// 아래로 더 내용이 있으면 "더 있어요 ↓" 배지를 보여주고, 끝까지 스크롤하면 숨긴다.
+let _settingsScrollBound=false;
+function setupSettingsScrollHint(){
+  const scrollEl=document.querySelector('#settings-menu .settings-scroll');
+  const hintEl=document.getElementById('settings-scroll-hint');
+  if(!scrollEl||!hintEl) return;
+  const update=()=>{
+    const more=(scrollEl.scrollHeight-scrollEl.scrollTop-scrollEl.clientHeight)>4;
+    hintEl.classList.toggle('show',more);
+  };
+  if(!_settingsScrollBound){
+    scrollEl.addEventListener('scroll',update,{passive:true});
+    _settingsScrollBound=true;
+  }
+  requestAnimationFrame(update); // 메뉴가 렌더링/위치잡힌 뒤 높이 계산
 }
 function closeSettingsMenu(){
   document.getElementById('settings-menu').classList.remove('show');
@@ -4261,6 +4341,7 @@ function reorderLeg(fromIdx,toIdx){
   legs.forEach((lg,i)=>{ if(doneLegs.has(lg)) doneSet.add(i); });
 
   saveWaypointsToStorage();
+  saveCurrentView();
   renderLegList();
   const badgeEl=document.getElementById('cur-badge');
   if(badgeEl) badgeEl.textContent=`${legIdx+1} / ${legs.length} 구간`;
@@ -4330,6 +4411,7 @@ function startTimer(sec){
     timerSec--;
     updateTimerDisplay(timerSec);
     if(timerSec<=0){ if(phase==='drive') startRestPhase(); else advanceLeg(); }
+    else if(timerSec%5===0) saveDriveState(); // 5초마다 남은 시간 자동저장(새로고침 대비)
   },1000);
 }
 
@@ -4342,6 +4424,7 @@ function startRestPhase(){
   timerWarn5Spoken=false;
   speak('휴식 시간입니다. 안전한 곳에 정차하세요', true);
   startTimer(lg.rest*60);
+  saveDriveState();
 }
 
 function setPhaseUI(p){
@@ -4388,6 +4471,7 @@ function togglePlay(){
       document.getElementById('warn').style.display='none';
       releaseWakeLock();
       speak('자유주행을 종료합니다', true);
+      saveDriveState();
     }else{
       isPlaying=true; phase='drive'; setPhaseUI('drive');
       gpsAutoFollow=true; manualMapPauseUntil=0;
@@ -4399,6 +4483,7 @@ function togglePlay(){
       document.getElementById('btn-play').textContent='⏸ 정지';
       document.getElementById('btn-play').className='ctrl-btn running';
       speak(`${sec.name||'구역'} 자유주행을 시작합니다. 구역 안을 자유롭게 주행하세요`, true);
+      saveDriveState();
     }
     return;
   }
@@ -4421,6 +4506,7 @@ function togglePlay(){
     finalizeLegSession(legIdx,getGPSPos());
     releaseWakeLock(); // 정지 → 화면 켜두기 해제
     speak('주행을 정지합니다', true);
+    saveDriveState();
   } else {
     isPlaying=true; phase='drive'; setPhaseUI('drive');
     gpsAutoFollow=true;
@@ -4440,6 +4526,7 @@ function togglePlay(){
     startGPS();
     const lg=legs[legIdx];
     fetchOSRM(lg.sLL,lg.eLL,lg.id);
+    saveDriveState();
   }
 }
 
@@ -4447,7 +4534,7 @@ function advanceLeg(){
   stopTimer(); doneSet.add(legIdx);
   finalizeLegSession(legIdx,getGPSPos());
   legIdx++;
-  if(legIdx>=legs.length){ isPlaying=false; speak('모든 구간을 완료했습니다. 수고하셨습니다!',true); showDone(); return; }
+  if(legIdx>=legs.length){ isPlaying=false; speak('모든 구간을 완료했습니다. 수고하셨습니다!',true); showDone(); saveDriveState(); return; }
   phase='drive';
   legStartTime=new Date();
   legStartPos=getGPSPos()||[...legs[legIdx].sLL];
@@ -4512,6 +4599,7 @@ function updateGpsStatus(accuracy, coords, level){
     mainEl.textContent='GPS 신호 없음';
     accEl.textContent='수신 대기 중...';
     coordEl.textContent='';
+    if(restoringDrive) showRestoreStatus('GPS 신호 대기 중… (이전 주행 복원 진행 중)','warn');
     return;
   }
   const acc=Math.round(accuracy||0);
@@ -4527,6 +4615,11 @@ function updateGpsStatus(accuracy, coords, level){
   }
   accEl.textContent='정확도 ±'+acc+'m';
   if(coords) coordEl.textContent=coords[0].toFixed(5)+', '+coords[1].toFixed(5);
+  if(restoringDrive){
+    restoringDrive=false;
+    showRestoreStatus('이전 주행을 이어갑니다 · GPS 정상 수신','done');
+    hideRestoreStatus(4000);
+  }
 }
 
 let gpsLostTimer=null; // startGPS 스코프 밖으로 이동 — stopGPS에서도 정리 가능
@@ -5283,7 +5376,56 @@ function saveCurrentView(){
     if(location.hash!==hash) history.replaceState(null,'',hash);
   }catch(e){}
   try{ localStorage.setItem('nav_current_view',json); }catch(e){}
+  saveDriveState();
 }
+
+// ══════════════════════════════════════════════════════════
+//  주행 상태 자동저장 (완료 체크 + 재생/타이머/단계)
+//  새로고침 시에도 끊김 없이 이어가기 위한 용도.
+// ══════════════════════════════════════════════════════════
+function saveDriveState(){
+  const lg=legs[legIdx];
+  const legId=lg?lg.id:'';
+  const data={
+    loc,scKey,legId,legIdx,
+    done:[...doneSet],
+    isPlaying,phase,timerSec,
+    legStartTime:legStartTime?legStartTime.toISOString():null,
+    legStartPos:legStartPos||null,
+    lastSpokenStep,lastWarnSpoken,timerWarn5Spoken,
+    ts:Date.now()
+  };
+  try{ localStorage.setItem('nav_drive_state',JSON.stringify(data)); }catch(e){}
+}
+function loadDriveState(){
+  try{
+    const raw=localStorage.getItem('nav_drive_state');
+    return raw?JSON.parse(raw):null;
+  }catch(e){ return null; }
+}
+function clearDriveState(){
+  try{ localStorage.removeItem('nav_drive_state'); }catch(e){}
+}
+
+// ══════════════════════════════════════════════════════════
+//  복원 상태 화면 표시 — 새로고침 후 이전 주행을 이어가는 중인지
+//  한눈에 보이도록 상단에 배지로 표시한다.
+// ══════════════════════════════════════════════════════════
+let restoringDrive=false; // GPS 재획득 대기 중이면 true (updateGpsStatus에서 감시)
+function showRestoreStatus(text,cls){
+  const el=document.getElementById('restore-status');
+  if(!el) return;
+  el.className='show '+(cls||'');
+  document.getElementById('restore-status-text').textContent=text;
+  clearTimeout(el._hideTimer);
+}
+function hideRestoreStatus(delayMs){
+  const el=document.getElementById('restore-status');
+  if(!el) return;
+  clearTimeout(el._hideTimer);
+  el._hideTimer=setTimeout(()=>{ el.classList.remove('show'); }, delayMs||0);
+}
+
 function loadCurrentView(){
   if(location.hash&&location.hash.length>1){
     try{
@@ -6434,6 +6576,58 @@ window.addEventListener('resize',refreshMapSize);
   loadScenario(savedView||undefined);
   startTrafficUpdates(loc);
   fetchRemoteRoutes(); // 저장소의 routes.json이 있으면 최신 경로로 덮어씀(코드 수정 불필요)
+}
+
+// ══════════════════════════════════════════════════════════
+//  주행 상태 복원 (새로고침 대응) — 완료 체크 + 재생/타이머/단계.
+//  loadScenario() 직후, 같은 위치·시나리오·구간일 때만 적용.
+//  isPlaying이었으면 GPS를 자동 재획득하며 이어서 주행.
+// ══════════════════════════════════════════════════════════
+{
+  const ds=loadDriveState();
+  const curLegId=legs[legIdx]?legs[legIdx].id:'';
+  if(ds && ds.loc===loc && ds.scKey===scKey){
+    // 완료 체크는 시나리오가 같으면 항상 복원(구간 순서가 바뀌어도 인덱스는 legs 길이 내로 제한)
+    if(Array.isArray(ds.done)){
+      doneSet=new Set(ds.done.filter(i=>Number.isInteger(i)&&i>=0&&i<legs.length));
+    }
+    // 재생 중이던 구간이 지금 로드된 구간과 같을 때만 재생/타이머 상태까지 복원
+    const legMatches = ds.legId && curLegId && ds.legId===curLegId;
+    if(legMatches){
+      phase = (ds.phase==='rest') ? 'rest' : 'drive';
+      lastSpokenStep = Number.isFinite(ds.lastSpokenStep) ? ds.lastSpokenStep : -1;
+      lastWarnSpoken = !!ds.lastWarnSpoken;
+      timerWarn5Spoken = !!ds.timerWarn5Spoken;
+      legStartTime = ds.legStartTime ? new Date(ds.legStartTime) : null;
+      legStartPos = ds.legStartPos || null;
+      if(ds.isPlaying){
+        isPlaying=true;
+        gpsAutoFollow=true; manualMapPauseUntil=0;
+        resetGpsMatchState(); // 진행률(GPS 스냅)은 재획득되는 실제 위치로 새로 계산
+        collapseSheet();
+        requestWakeLock();
+        restoringDrive=true; // ← updateGpsStatus에서 첫 GPS 수신 시 배지를 '복원 완료'로 전환
+        showRestoreStatus('이전 주행 복원 중… GPS 재획득 대기','pending');
+        startGPS(); // ← 자동 GPS 재획득
+        document.getElementById('btn-play').textContent='⏸ 정지';
+        document.getElementById('btn-play').className='ctrl-btn running';
+        document.getElementById('warn').style.display='none';
+        if(currentSector()){
+          // 섹터(자유주행)는 타이머 없이 GPS만 이어서 추적
+        }else{
+          setPhaseUI(phase);
+          const restoredSec=Number.isFinite(ds.timerSec)?Math.max(1,ds.timerSec):getCurrentEtaMin()*60;
+          startTimer(restoredSec);
+        }
+      }else if(doneSet.size>0){
+        // 재생 중은 아니었지만 완료 체크는 복원됨 — 짧게 알려주고 자동으로 사라짐
+        showRestoreStatus('기록 복원됨','done');
+        hideRestoreStatus(3000);
+      }
+    }
+    renderLegList();
+    updateHeader();
+  }
 }
 
 // ── 원격 경로 로드 ──
