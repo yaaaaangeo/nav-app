@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
 <title>자율주행 데이터 취득 네비게이션</title>
-<meta name="app-version" content="v3.18.1"/>
+<meta name="app-version" content="v3.18.2"/>
 <script>
 // 라이트모드 깜빡임(FOUC) 방지: CSS 적용 전에 저장된 테마를 먼저 세팅
 (function(){
@@ -756,9 +756,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
    구간 정보 시트(#panel)와 같은 톤(var(--c20))·둥근 모서리·그림자로 통일 */
 #steps-panel{
   background:var(--c20);
-  border:1px solid var(--c21);
-  border-radius:14px 14px 0 0;
-  box-shadow:0 -4px 18px rgba(0,0,0,.28);
+  border-top:1px solid var(--c21);
   height:200px;min-height:60px;max-height:60vh;
   display:flex;flex-direction:column;overflow:hidden;
 }
@@ -859,10 +857,10 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   #panel-resize-handle{display:none;}
   #steps-resize-handle{display:none;}
 
-  /* ── 경로 수정 바 + 전체 경로 안내: 하단 시트 peek(84px) 위에 배치 ── */
+  /* ── 경로 수정 바 + 전체 경로 안내: 하단 시트 peek(84px) 바로 위에 이어붙임(틈 없음) ── */
   #bottom-stack{
     position:absolute;
-    bottom:88px;left:0;right:0;
+    bottom:84px;left:0;right:0;
     display:flex;
     flex-direction:column;
     align-items:stretch;
@@ -1312,7 +1310,7 @@ body{font-family:'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;back
   <div class="settings-meta">
     <span id="imported-file-name" class="empty">가져온 설정: 없음</span>
     <!-- ★버전 -->
-    <span id="app-version" title="애플리케이션 버전">v3.16.0</span>
+    <span id="app-version" title="애플리케이션 버전">v3.18.2</span>
   </div>
   </div>
   <div id="settings-scroll-hint">더 있어요 ↓</div>
