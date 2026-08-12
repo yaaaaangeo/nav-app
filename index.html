@@ -214,12 +214,6 @@ input,select{font-family:inherit;}
 .stat b{display:block;font-size:16px;font-weight:800;letter-spacing:-.02em;}
 .stat i{font-style:normal;font-size:10px;color:var(--dim);font-weight:700;}
 
-#timer-card{margin-top:9px;text-align:center;}
-#timer-phase{font-size:11px;font-weight:800;color:var(--sub);letter-spacing:.05em;}
-#timer-val{font-size:34px;font-weight:800;letter-spacing:-.03em;line-height:1.15;font-variant-numeric:tabular-nums;}
-#timer-val.warn{color:var(--danger);animation:blink 1s infinite;}
-#timer-val.rest{color:var(--ok);}
-
 #controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:9px;}
 .ctl{padding:11px 4px;border-radius:11px;background:var(--card2);border:1px solid var(--line);font-size:13px;font-weight:700;}
 .ctl.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
@@ -408,11 +402,6 @@ input,select{font-family:inherit;}
             <div class="stat"><b id="st-eta">—</b><i id="st-eta-label">예상 (분)</i></div>
             <div class="stat"><b id="st-plan">—</b><i>계획 (분)</i></div>
           </div>
-        </div>
-
-        <div class="card" id="timer-card">
-          <div id="timer-phase">주행 타이머</div>
-          <div id="timer-val">00:00</div>
         </div>
 
         <div id="controls">
@@ -723,8 +712,7 @@ let loc = '강남', scKey = 'a';
 let legs = [], legIdx = 0;
 const doneSet = new Set();
 
-let isPlaying = false, phase = 'drive';
-let timerSec = 0, timerInterval = null, timerWarned = false;
+let isPlaying = false;
 let legStartTime = null, legStartPos = null;
 
 /* 지도 객체 */
@@ -1100,6 +1088,7 @@ async function fetchTmapRoute(sLL, eLL, legId){
     endName      : '도착',
     searchOption : '0',      // 0 = 교통최적 + 추천
     trafficInfo  : 'Y',
+    sort         : 'index',  // 경로 조각을 순서대로 받는다 — 빠지면 선이 뒤엉킨다
   });
   if (wps.length) body.set('passList', wps.map(w => w[1] + ',' + w[0]).join('_'));
 
@@ -1142,7 +1131,16 @@ async function fetchTmapRoute(sLL, eLL, legId){
 }
 
 /** GeoJSON FeatureCollection → routeCoords / routeSteps */
-function parseTmapRoute(features, sLL, eLL){
+function parseTmapRoute(rawFeatures, sLL, eLL){
+  // 응답 조각은 반드시 index 순으로 이어 붙여야 한다.
+  // 순서가 섞이면 경로선이 앞뒤로 튀며 같은 길이 여러 번 그려진다.
+  const features = rawFeatures.slice().sort((a, b) => {
+    const ai = Number(a && a.properties && a.properties.index);
+    const bi = Number(b && b.properties && b.properties.index);
+    if (!isFinite(ai) || !isFinite(bi)) return 0;
+    return ai - bi;
+  });
+
   const coords = [];
   const steps  = [];
   let cum = 0;
@@ -1176,11 +1174,17 @@ function parseTmapRoute(features, sLL, eLL){
     }
   }
 
-  // 출발/도착 핀까지 선이 정확히 이어지도록 양 끝 좌표를 고정
+  // 출발/도착 핀까지 선을 이어 붙이되, 핀이 도로에서 멀리 떨어져 있으면 잇지 않는다.
+  // (TMAP이 가까운 도로로 스냅한 경우까지 직선으로 연결하면
+  //  실제로는 주행하지 않는 선이 하나 더 그려진다.)
+  const SNAP_JOIN_MAX_M = 150;
   if (coords.length){
-    if (haversine(coords[0][0], coords[0][1], sLL[0], sLL[1]) > 1) coords.unshift([sLL[0], sLL[1]]);
+    const gapS = haversine(coords[0][0], coords[0][1], sLL[0], sLL[1]);
+    if (gapS > 1 && gapS <= SNAP_JOIN_MAX_M) coords.unshift([sLL[0], sLL[1]]);
+
     const l = coords[coords.length - 1];
-    if (haversine(l[0], l[1], eLL[0], eLL[1]) > 1) coords.push([eLL[0], eLL[1]]);
+    const gapE = haversine(l[0], l[1], eLL[0], eLL[1]);
+    if (gapE > 1 && gapE <= SNAP_JOIN_MAX_M) coords.push([eLL[0], eLL[1]]);
   }
 
   routeCoords = coords;
@@ -1367,7 +1371,7 @@ function updateProgress(lat, lng){
 
 function checkArrival(lat, lng){
   const leg = legs[legIdx];
-  if (!leg || !isPlaying || phase !== 'drive') return;
+  if (!leg || !isPlaying) return;
   const d = haversine(lat, lng, leg.eLL[0], leg.eLL[1]);
   if (d <= ARRIVAL_DISTANCE_M){
     speak('목적지에 도착했습니다', true);
@@ -1406,8 +1410,7 @@ function loadScenario(newLoc, newSc, keepIdx){
   scKey = keys.includes(newSc) ? newSc : (keys[0] || 'a');
   legs = (SCENARIOS[loc][scKey].legs || []).map(l => Object.assign({}, l));
   if (!keepIdx){ legIdx = 0; doneSet.clear(); }
-  stopTimer();
-  isPlaying = false; phase = 'drive';
+  isPlaying = false;
   renderChips();
   renderLegs();
   applyLeg();
@@ -1428,9 +1431,6 @@ function applyLeg(){
   $('st-plan').textContent = leg.time != null ? leg.time : '—';
   $('st-eta-label').textContent = '예상 (분)';
 
-  timerSec = (leg.time || 0) * 60;
-  timerWarned = false;
-  renderTimer();
   renderLegs();
 
   clearSectorLayers();
@@ -1446,12 +1446,8 @@ function applySector(){
 
   clearRoute();
   showTurn(false);
-  timerSec = 0;
-  timerWarned = false;
-  phase = 'drive';
 
   renderSectorInfo();
-  renderTimer();
   renderLegs();
   renderControls();
 
@@ -1506,80 +1502,26 @@ function completeLeg(auto){
   recordLeg();
   doneSet.add(legIdx);
 
-  const leg = legs[legIdx];
-  if (leg.rest && auto){
-    phase = 'rest';
-    timerSec = leg.rest * 60;
-    timerWarned = false;
-    speak('휴식 시간입니다');
-    renderTimer();
-    renderLegs();
-    return;
-  }
   nextLeg();
 }
 
 function nextLeg(){
   if (legIdx >= legs.length - 1){
-    isPlaying = false; stopTimer();
+    isPlaying = false;
     speak('모든 구간을 완료했습니다', true);
     toast('🎉 시나리오 완료');
     renderControls();
     return;
   }
   legIdx++;
-  phase = 'drive';
   legStartTime = null; legStartPos = null;
   applyLeg();
   if (isPlaying){
     legStartTime = new Date();
     legStartPos = lastPos ? lastPos.slice() : null;
-    startTimer();
     speak('다음 구간 ' + (legs[legIdx].s || '') + ' 에서 ' + (legs[legIdx].e || '') + ' 로 출발합니다');
   }
   renderControls();
-}
-
-/* ══════════════════════════════════════════════════════════════
-   타이머
-   ══════════════════════════════════════════════════════════════ */
-function startTimer(){
-  stopTimer();
-  timerInterval = setInterval(() => {
-    timerSec--;
-    if (phase === 'drive' && !timerWarned && timerSec <= 300 && timerSec > 0){
-      timerWarned = true;
-      speak('주행 시간이 5분 남았습니다');
-    }
-    if (timerSec <= 0){
-      if (phase === 'rest'){ nextLeg(); return; }
-      timerSec = 0; stopTimer();
-      speak('계획 주행 시간이 끝났습니다');
-    }
-    renderTimer();
-  }, 1000);
-}
-
-/** 구역 주행 타이머 — 계획 시간이 없으므로 경과 시간을 센다. */
-function startSectorTimer(){
-  stopTimer();
-  timerInterval = setInterval(() => { timerSec++; renderTimer(); }, 1000);
-}
-
-function stopTimer(){
-  if (timerInterval){ clearInterval(timerInterval); timerInterval = null; }
-}
-
-function renderTimer(){
-  const v = $('timer-val');
-  v.textContent = fmtClock(timerSec);
-  if (currentSector()){
-    v.className = '';
-    $('timer-phase').textContent = '구역 주행 경과';
-    return;
-  }
-  v.className = phase === 'rest' ? 'rest' : (timerSec <= 300 && timerSec > 0 && isPlaying ? 'warn' : '');
-  $('timer-phase').textContent = phase === 'rest' ? '휴식 타이머' : '주행 타이머';
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -2188,7 +2130,7 @@ function renderLegs(){
       '</div>';
     d.onclick = () => {
       if (i === legIdx) return;
-      legIdx = i; phase = 'drive';
+      legIdx = i;
       legStartTime = null; legStartPos = null;
       applyLeg(); renderControls();
     };
@@ -2247,18 +2189,13 @@ function togglePlay(){
       legStartPos = lastPos ? lastPos.slice() : null;
     }
     if (sector){
-      // 구역 주행은 경과 시간을 위로 센다.
-      timerSec = 0;
-      startSectorTimer();
       speak((sector.name || '구역') + ' 자유주행을 시작합니다', true);
     } else {
-      startTimer();
       const leg = legs[legIdx];
       speak((leg && leg.e ? leg.e : '목적지') + ' 방면으로 출발합니다', true);
     }
     setFollow(true);
   } else {
-    stopTimer();
     if (sector && sectorTrailPts.length > 1){
       recordLeg();                       // 구역 주행 실적을 기록으로 남긴다
       toast('구역 주행 ' + sectorTrailKm().toFixed(1) + 'km 기록됨', 2200);
@@ -2268,7 +2205,6 @@ function togglePlay(){
     speak('일시정지합니다', true);
   }
   renderControls();
-  renderTimer();
 }
 
 /* ══════════════════════════════════════════════════════════════
