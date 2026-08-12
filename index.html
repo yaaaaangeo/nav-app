@@ -23,7 +23,7 @@
 (function(){
   try{
     var raw = localStorage.getItem('tmap-appkey');
-    var key = 'V2ZBpvQJzZ9DPdRuHNdsW8FRQQwJoNcTaVZzpzYe';
+    var key = '';
     if (raw){
       try { key = JSON.parse(raw); } catch(e){ key = raw; }   // 따옴표 유무 모두 허용
     }
@@ -174,6 +174,13 @@ input,select{font-family:inherit;}
   font-size:16px;box-shadow:var(--shadow);
 }
 .map-btn.on{background:rgba(59,130,246,.24);border-color:var(--accent);}
+
+#sector-hint{
+  position:absolute;left:10px;bottom:12px;z-index:400;display:none;
+  background:rgba(15,17,26,.92);border:1px solid var(--line);border-radius:9px;
+  padding:6px 10px;font-size:11px;font-weight:600;color:var(--sub);box-shadow:var(--shadow);
+}
+#sector-hint.on{display:block;}
 
 #route-spin{
   position:absolute;inset:0;z-index:450;display:none;
@@ -333,6 +340,7 @@ input,select{font-family:inherit;}
   <div class="mi" id="mi-import">📂 설정 가져오기</div>
   <div class="mdiv"></div>
   <div class="mi" id="mi-waypoint">📍 고정 경유점 사용<span class="cnt" id="wp-state">ON</span></div>
+  <div class="mi" id="mi-sector-roads">🛣 구역 내 길 표시<span class="cnt" id="sector-roads-state">ON</span></div>
   <div class="mi" id="mi-appkey">🔑 appKey 변경</div>
   <div class="mdiv"></div>
   <div class="mi" id="mi-logout" style="color:var(--danger)">🚪 로그아웃</div>
@@ -373,6 +381,8 @@ input,select{font-family:inherit;}
         <button class="map-btn" id="btn-fit" title="전체 경로 보기">🗺️</button>
       </div>
 
+      <div id="sector-hint"></div>
+
       <div id="route-spin"><div class="spin"></div></div>
     </div>
 
@@ -395,7 +405,7 @@ input,select{font-family:inherit;}
           <div id="cur-road">—</div>
           <div id="cur-stats">
             <div class="stat"><b id="st-dist">—</b><i>거리 (km)</i></div>
-            <div class="stat"><b id="st-eta">—</b><i>예상 (분)</i></div>
+            <div class="stat"><b id="st-eta">—</b><i id="st-eta-label">예상 (분)</i></div>
             <div class="stat"><b id="st-plan">—</b><i>계획 (분)</i></div>
           </div>
         </div>
@@ -451,6 +461,7 @@ const K = {
   log     : 'nav3-trip-log',
   ui      : 'nav3-ui',
   wp      : 'nav3-use-waypoints',
+  sectorRoads : 'nav3-sector-roads',
 };
 
 /* ─── TMAP 엔드포인트 ─── */
@@ -743,6 +754,7 @@ let announced = {};          // stepIdx -> Set(거리)
 let ttsOn = true;
 let useWaypoints = true;
 let importedFileName = '';
+let routesLoaded = false;   // routes.json(Ver.2 경로 원본) 적용 여부
 
 /* ══════════════════════════════════════════════════════════════
    유틸
@@ -960,6 +972,11 @@ function initMap(){
   const el = $('map_div');
   ['touchstart','mousedown','wheel'].forEach(ev => {
     el.addEventListener(ev, pauseFollow, { passive: true });
+  });
+
+  // 지도 이동·확대가 끝나면 화면에 걸치는 구역 도로만 다시 그린다.
+  ['zoom_changed','dragend','moveend','idle'].forEach(ev => {
+    try { map.addListener(ev, scheduleSectorRedraw); } catch (_) {}
   });
 }
 
@@ -1323,6 +1340,9 @@ function onGps(pos){
     try { map.setCenter(LL(lat, lng)); } catch (_) {}
   }
 
+  // 섹터 자유주행 — 턴 안내·구간 진행 로직을 타지 않는다.
+  if (currentSector()){ updateSectorDriving(lat, lng); return; }
+
   if (routeCoords.length >= 2){
     updateProgress(lat, lng);
     refreshGuidance(false);
@@ -1380,8 +1400,11 @@ function setGpsBadge(cls, text){
    구간 / 시나리오
    ══════════════════════════════════════════════════════════════ */
 function loadScenario(newLoc, newSc, keepIdx){
-  loc = newLoc; scKey = newSc;
-  legs = SCENARIOS[loc][scKey].legs.map(l => Object.assign({}, l));
+  loc = newLoc;
+  // 지역을 바꾸면 첫 시나리오로 — 지역마다 있는 키가 다르다.
+  const keys = scenarioKeys(loc);
+  scKey = keys.includes(newSc) ? newSc : (keys[0] || 'a');
+  legs = (SCENARIOS[loc][scKey].legs || []).map(l => Object.assign({}, l));
   if (!keepIdx){ legIdx = 0; doneSet.clear(); }
   stopTimer();
   isPlaying = false; phase = 'drive';
@@ -1391,8 +1414,11 @@ function loadScenario(newLoc, newSc, keepIdx){
 }
 
 function applyLeg(){
+  // 섹터(자유주행 구역) 시나리오는 구간·경로 안내가 없다.
+  if (currentSector()){ applySector(); return; }
+
   const leg = legs[legIdx];
-  if (!leg) return;
+  if (!leg){ renderSectorInfo(); return; }
 
   $('cur-idx').textContent =
     (legIdx + 1) + ' / ' + legs.length + ' · ' + leg.id;
@@ -1400,13 +1426,63 @@ function applyLeg(){
   $('cur-e').textContent = leg.e || '—';
   $('cur-road').textContent = leg.road || '—';
   $('st-plan').textContent = leg.time != null ? leg.time : '—';
+  $('st-eta-label').textContent = '예상 (분)';
 
   timerSec = (leg.time || 0) * 60;
   timerWarned = false;
   renderTimer();
   renderLegs();
 
+  clearSectorLayers();
+  showTurn(false);
+  renderControls();
   if (sdkReady) fetchTmapRoute(leg.sLL, leg.eLL, leg.id);
+}
+
+/** 섹터 시나리오 진입 — 경로 API를 부르지 않고 구역과 구역 내 도로만 표시한다. */
+function applySector(){
+  const sc = currentSector();
+  if (!sc) return;
+
+  clearRoute();
+  showTurn(false);
+  timerSec = 0;
+  timerWarned = false;
+  phase = 'drive';
+
+  renderSectorInfo();
+  renderTimer();
+  renderLegs();
+  renderControls();
+
+  if (sdkReady){
+    renderSector();
+    ensureSectorRoads();
+  }
+}
+
+/** 섹터일 때 현재 구간 카드 채우기 */
+function renderSectorInfo(){
+  const sc = currentSector();
+  if (!sc) return;
+  const roads = Array.isArray(sc.roads) ? sc.roads : [];
+
+  $('cur-idx').textContent = '자유주행 구역';
+  $('cur-s').textContent   = sc.name || '구역';
+  $('cur-e').textContent   = '자유 주행';
+  $('cur-road').textContent = roads.length
+    ? 'HD맵 도로 ' + roads.length + '개 · 꼭짓점 ' + sc.sector.length + '개'
+    : '꼭짓점 ' + sc.sector.length + '개 · 도로 데이터 없음';
+
+  $('st-dist').textContent = roads.length ? roadsTotalKm(roads).toFixed(1) : '—';
+  $('st-eta').textContent  = sectorTrailKm().toFixed(1);
+  $('st-plan').textContent = '—';
+  $('st-eta-label').textContent = '주행 (km)';
+
+  $('steps-body').innerHTML =
+    '<div class="tiny muted" style="padding:8px 2px;line-height:1.6">' +
+    '구역 안을 자유롭게 주행하세요. 턴바이턴 안내는 제공되지 않습니다.<br/>' +
+    '지나온 길은 초록색으로 칠해지고, 구역을 벗어나면 경고합니다.</div>';
 }
 
 function updateStats(){
@@ -1484,6 +1560,12 @@ function startTimer(){
   }, 1000);
 }
 
+/** 구역 주행 타이머 — 계획 시간이 없으므로 경과 시간을 센다. */
+function startSectorTimer(){
+  stopTimer();
+  timerInterval = setInterval(() => { timerSec++; renderTimer(); }, 1000);
+}
+
 function stopTimer(){
   if (timerInterval){ clearInterval(timerInterval); timerInterval = null; }
 }
@@ -1491,6 +1573,11 @@ function stopTimer(){
 function renderTimer(){
   const v = $('timer-val');
   v.textContent = fmtClock(timerSec);
+  if (currentSector()){
+    v.className = '';
+    $('timer-phase').textContent = '구역 주행 경과';
+    return;
+  }
   v.className = phase === 'rest' ? 'rest' : (timerSec <= 300 && timerSec > 0 && isPlaying ? 'warn' : '');
   $('timer-phase').textContent = phase === 'rest' ? '휴식 타이머' : '주행 타이머';
 }
@@ -1507,7 +1594,10 @@ function renderLogCount(){
 }
 
 function recordLeg(){
-  const leg = legs[legIdx];
+  const sector = currentSector();
+  const leg = sector
+    ? { id: 'SECTOR', s: sector.name || '구역', e: '자유주행' }
+    : legs[legIdx];
   if (!leg) return;
   const end = new Date();
   const row = {
@@ -1515,7 +1605,7 @@ function recordLeg(){
     vehicle   : vehicle,
     user      : user,
     region    : loc,
-    scenario  : SCENARIOS[loc][scKey].name,
+    scenario  : SCENARIOS[loc][scKey].name + (sector ? ' (구역)' : ''),
     legId     : leg.id,
     from      : leg.s,
     to        : leg.e,
@@ -1525,7 +1615,8 @@ function recordLeg(){
     endAddr   : '',
     startLL   : legStartPos ? legStartPos.join(',') : '',
     endLL     : lastPos ? lastPos.join(',') : '',
-    distanceKm: routeTotalM ? +(routeTotalM / 1000).toFixed(2) : '',
+    distanceKm: sector ? +sectorTrailKm().toFixed(2)
+                       : (routeTotalM ? +(routeTotalM / 1000).toFixed(2) : ''),
   };
   const log = getLog();
   log.push(row);
@@ -1636,6 +1727,412 @@ function importSettings(file){
   fr.readAsText(file);
 }
 
+
+/* ══════════════════════════════════════════════════════════════
+   routes.json — Ver.2 경로 원본 불러오기
+   ── 저장소 루트의 routes.json이 있으면 내장 SCENARIOS 위에 덮어쓴다.
+      기사 기기는 이 파일 하나만 갱신하면 모든 구간·구역이 반영된다.
+   ══════════════════════════════════════════════════════════════ */
+const SC_COLORS = ['#3b82f6','#f59e0b','#10b981','#8b5cf6','#ec4899','#14b8a6','#f97316'];
+
+async function loadRoutesJson(){
+  try {
+    const res = await fetch('./routes.json?ts=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return false;
+    const d = await res.json();
+
+    // ① 경유점
+    if (d.waypoints && typeof d.waypoints === 'object'){
+      Object.keys(d.waypoints).forEach(k => { WAYPOINTS[k] = d.waypoints[k]; });
+    }
+
+    // ② 시나리오 메타(이름·색·섹터·구역 내 도로)
+    const meta = d.scMeta || {};
+    Object.keys(meta).forEach(key => {
+      const [locKey, scK] = splitScenarioKey(key);
+      if (!locKey || !SCENARIOS[locKey]) return;
+      const m = meta[key];
+      const slot = SCENARIOS[locKey][scK] || (SCENARIOS[locKey][scK] = { name: '시나리오 ' + scK, legs: [] });
+      if (m.name)  slot.name  = m.name;
+      if (m.color) slot.color = m.color;
+      if (Array.isArray(m.sector) && m.sector.length >= 3){
+        slot.sector = m.sector.map(p => [p[0], p[1]]);
+      }
+      if (Array.isArray(m.roads) && m.roads.length){
+        slot.roads = m.roads;
+        slot.roadsClipped = !!m.roadsClipped;
+      }
+    });
+
+    // ③ 구간
+    const cl = d.customLegs || {};
+    Object.keys(cl).forEach(key => {
+      const [locKey, scK] = splitScenarioKey(key);
+      if (!locKey || !SCENARIOS[locKey]) return;
+      const slot = SCENARIOS[locKey][scK] || (SCENARIOS[locKey][scK] = { name: '시나리오 ' + scK, legs: [] });
+      slot.legs = (cl[key] || []).map(l => Object.assign({}, l));
+    });
+
+    // 색이 비어 있는 슬롯 보정
+    Object.keys(SCENARIOS).forEach(locKey => {
+      scenarioKeys(locKey).forEach((k, i) => {
+        const s = SCENARIOS[locKey][k];
+        if (!s.color) s.color = SC_COLORS[i % SC_COLORS.length];
+      });
+    });
+
+    routesLoaded = true;
+    return true;
+  } catch (e){
+    console.warn('routes.json 없음 — 내장 시나리오 사용:', e && e.message);
+    return false;
+  }
+}
+
+/** "강남-a" → ["강남","a"] */
+function splitScenarioKey(key){
+  const i = String(key).lastIndexOf('-');
+  if (i < 0) return [null, null];
+  return [key.slice(0, i), key.slice(i + 1)];
+}
+
+/** 지역이 가진 시나리오 키 목록 (center/zoom 같은 메타 필드는 제외) */
+function scenarioKeys(locKey){
+  const o = SCENARIOS[locKey];
+  if (!o) return [];
+  return Object.keys(o).filter(k => o[k] && typeof o[k] === 'object' && Array.isArray(o[k].legs));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   섹터(자유주행 구역)
+   ── 정해진 코스를 따라가는 대신, 지정된 구역 안을 자유롭게 훑는 방식.
+      경로 API를 호출하지 않고 구역 다각형 + 구역 내 도로만 표시한다.
+      도로 데이터는 HD맵(표준노드링크) 기준이라 LINK_ID가 함께 들어 있다.
+   ══════════════════════════════════════════════════════════════ */
+let sectorPolygon = null;          // 구역 경계 다각형
+let sectorRoadLines = [];          // 현재 화면에 그려진 도로 폴리라인
+let sectorTrailLine = null;        // 지나온 길 (초록)
+let sectorTrailPts = [];
+let sectorOutsideSpoken = false;
+let sectorRoadsOn = true;
+let sectorRedrawTimer = null;
+
+/** 구역 내 도로를 몇 배율부터 그릴지 — 너무 축소된 상태에서는 부담만 크다 */
+const SECTOR_ROAD_MIN_ZOOM = 15;
+/** 한 번에 그릴 도로 최대 개수 (화면 안쪽만 골라도 넘칠 때의 상한) */
+const SECTOR_ROAD_MAX_DRAW = 300;
+
+function isSectorScenario(sc){
+  return !!(sc && Array.isArray(sc.sector) && sc.sector.length >= 3);
+}
+function currentSector(){
+  const sc = SCENARIOS[loc] && SCENARIOS[loc][scKey];
+  return isSectorScenario(sc) ? sc : null;
+}
+
+/** 점이 다각형 안에 있는지 (ray casting) */
+function pointInPolygon(pt, poly){
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++){
+    const yi = poly[i][0], xi = poly[i][1];
+    const yj = poly[j][0], xj = poly[j][1];
+    if (((yi > pt[0]) !== (yj > pt[0])) &&
+        (pt[1] < (xj - xi) * (pt[0] - yi) / ((yj - yi) || 1e-12) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+function roadCoords(r){ return Array.isArray(r) ? r : (r && r.c) || null; }
+function roadType(r){ return Array.isArray(r) ? '' : ((r && r.t) || ''); }
+
+/** 도로 목록의 총 연장(km) */
+function roadsTotalKm(roads){
+  let m = 0;
+  (roads || []).forEach(r => {
+    const c = roadCoords(r);
+    if (!c) return;
+    for (let i = 0; i < c.length - 1; i++) m += haversine(c[i][0], c[i][1], c[i + 1][0], c[i + 1][1]);
+  });
+  return m / 1000;
+}
+
+function clearSectorLayers(){
+  setSectorHint('');
+  if (sectorPolygon){ try { sectorPolygon.setMap(null); } catch (_) {} sectorPolygon = null; }
+  clearSectorRoadLines();
+  clearSectorTrail();
+}
+
+function clearSectorRoadLines(){
+  sectorRoadLines.forEach(l => { try { l.setMap(null); } catch (_) {} });
+  sectorRoadLines = [];
+}
+
+/** 자유주행으로 실제 이동한 거리(km) */
+function sectorTrailKm(){
+  let m = 0;
+  for (let i = 1; i < sectorTrailPts.length; i++){
+    m += haversine(sectorTrailPts[i-1][0], sectorTrailPts[i-1][1],
+                   sectorTrailPts[i][0],   sectorTrailPts[i][1]);
+  }
+  return m / 1000;
+}
+
+function clearSectorTrail(){
+  if (sectorTrailLine){ try { sectorTrailLine.setMap(null); } catch (_) {} sectorTrailLine = null; }
+  sectorTrailPts = [];
+  sectorOutsideSpoken = false;
+}
+
+/** 구역 경계 + 구역 내 도로를 그린다 */
+function renderSector(){
+  clearSectorLayers();
+  const sc = currentSector();
+  if (!sc || !map) return;
+
+  const color = sc.color || '#f59e0b';
+  sectorPolygon = new Tmapv2.Polygon({
+    paths       : [sc.sector.map(p => LL(p[0], p[1]))],
+    strokeColor : color,
+    strokeWeight: 3,
+    fillColor   : color,
+    fillOpacity : 0.10,
+    map         : map,
+  });
+
+  fitSector(sc);
+  renderSectorRoads();
+}
+
+function fitSector(sc){
+  try {
+    const b = new Tmapv2.LatLngBounds();
+    sc.sector.forEach(p => b.extend(LL(p[0], p[1])));
+    map.fitBounds(b);
+  } catch (_) {}
+}
+
+/**
+ * 구역 내 도로 렌더링.
+ * ── 강남 섹터는 도로가 최대 644개라 전부 폴리라인으로 올리면 확대·축소가 눈에 띄게 느려진다.
+ *    그래서 현재 화면 범위 안에 걸치는 것만 그리고, 지도 이동이 끝나면 다시 계산한다.
+ */
+function renderSectorRoads(){
+  clearSectorRoadLines();
+  const sc = currentSector();
+  if (!sc || !map || !sectorRoadsOn) return;
+  if (!Array.isArray(sc.roads) || !sc.roads.length) return;
+
+  let zoom = 15;
+  try { zoom = map.getZoom(); } catch (_) {}
+  if (zoom < SECTOR_ROAD_MIN_ZOOM){
+    // 너무 축소된 상태에서 수백 개의 선을 올리면 확대·축소가 눈에 띄게 끊긴다.
+    setSectorHint('지도를 확대하면 구역 내 길이 표시됩니다');
+    return;
+  }
+  setSectorHint('');
+
+  const vb = viewportBox();
+  const picked = [];
+  for (const r of sc.roads){
+    const c = roadCoords(r);
+    if (!c || c.length < 2) continue;
+    if (vb && !roadIntersectsBox(c, vb)) continue;
+    picked.push(r);
+    if (picked.length >= SECTOR_ROAD_MAX_DRAW) break;
+  }
+
+  picked.forEach(r => {
+    const c = roadCoords(r);
+    const lanes = (!Array.isArray(r) && r.ln) || 0;
+    const minor = lanes <= 1;
+    const line = new Tmapv2.Polyline({
+      path         : c.map(p => LL(p[0], p[1])),
+      strokeColor  : '#2563eb',
+      strokeWeight : minor ? 3 : 5,
+      strokeOpacity: minor ? 0.45 : 0.62,
+      map          : map,
+    });
+    sectorRoadLines.push(line);
+  });
+}
+
+/** 현재 지도 화면 범위 (약간 여유를 둔다) */
+function viewportBox(){
+  try {
+    const b = map.getBounds();
+    const sw = b.getSouthWest(), ne = b.getNorthEast();
+    const s = sw.lat(), w = sw.lng(), n = ne.lat(), e = ne.lng();
+    const padLa = (n - s) * 0.15, padLo = (e - w) * 0.15;
+    return { s: s - padLa, n: n + padLa, w: w - padLo, e: e + padLo };
+  } catch (_) { return null; }
+}
+
+function roadIntersectsBox(c, b){
+  for (let i = 0; i < c.length; i++){
+    if (c[i][0] >= b.s && c[i][0] <= b.n && c[i][1] >= b.w && c[i][1] <= b.e) return true;
+  }
+  return false;
+}
+
+/** 지도 이동·확대가 끝나면 화면 안 도로만 다시 그린다 (연속 호출은 묶어서 처리) */
+function scheduleSectorRedraw(){
+  if (!currentSector()) return;
+  clearTimeout(sectorRedrawTimer);
+  sectorRedrawTimer = setTimeout(renderSectorRoads, 260);
+}
+
+/** 지도 위 작은 안내문 (구역 도로 표시 상태) */
+function setSectorHint(text){
+  const el = $('sector-hint');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('on', !!text && !!currentSector());
+}
+
+function toggleSectorRoads(){
+  sectorRoadsOn = !sectorRoadsOn;
+  lsSet(K.sectorRoads, sectorRoadsOn);
+  $('sector-roads-state').textContent = sectorRoadsOn ? 'ON' : 'OFF';
+  renderSectorRoads();
+  toast('구역 내 길 표시 ' + (sectorRoadsOn ? '켜짐' : '꺼짐'), 1400);
+}
+
+/** 자유주행 중 지나온 길을 초록으로 칠하고, 구역을 벗어나면 경고한다 */
+function updateSectorDriving(lat, lng){
+  const sc = currentSector();
+  if (!sc || !isPlaying) return;
+
+  const last = sectorTrailPts[sectorTrailPts.length - 1];
+  if (!last || haversine(last[0], last[1], lat, lng) >= 8){
+    sectorTrailPts.push([lat, lng]);
+    const path = sectorTrailPts.map(p => LL(p[0], p[1]));
+    if (!sectorTrailLine){
+      sectorTrailLine = new Tmapv2.Polyline({
+        path: path, strokeColor: '#22c55e', strokeWeight: 7, strokeOpacity: 0.78, map: map,
+      });
+    } else {
+      try { sectorTrailLine.setPath(path); } catch (_) {}
+    }
+  }
+
+  // 지나온 거리 실시간 표시
+  $('st-eta').textContent = sectorTrailKm().toFixed(1);
+
+  if (pointInPolygon([lat, lng], sc.sector)){
+    sectorOutsideSpoken = false;
+  } else if (!sectorOutsideSpoken){
+    sectorOutsideSpoken = true;
+    speak('구역을 벗어났습니다', true);
+    toast('⚠️ 구역을 벗어났습니다 — 구역 안으로 돌아가세요', 3000);
+  }
+}
+
+/* ── HD맵 도로 원본(hd_roads.json) — 구역에 도로가 저장돼 있지 않을 때만 잘라 쓴다 ── */
+let HD_ROADS = null, hdRoadsTried = false;
+
+async function loadHdRoads(){
+  if (HD_ROADS || hdRoadsTried) return HD_ROADS;
+  hdRoadsTried = true;
+  try {
+    const res = await fetch('./hd_roads.json?ts=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return null;
+    const d = await res.json();
+    const sets = d.roadSets || {};
+    HD_ROADS = [].concat.apply([], Object.keys(sets).map(k => sets[k] || []));
+    return HD_ROADS;
+  } catch (e){
+    console.warn('hd_roads.json 없음:', e && e.message);
+    return null;
+  }
+}
+
+/* 선분 교차 지점 비율 — 도로를 구역 경계에서 자르기 위해 사용 */
+function segCutT(a, b, c, d){
+  const x1 = a[1], y1 = a[0], x2 = b[1], y2 = b[0];
+  const x3 = c[1], y3 = c[0], x4 = d[1], y4 = d[0];
+  const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (Math.abs(den) < 1e-14) return null;
+  const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
+  const u = ((x1 - x3) * (y1 - y2) - (y1 - y3) * (x1 - x2)) / den;
+  if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+  return t;
+}
+function lerpPt(a, b, t){ return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; }
+
+/** 도로 선을 구역 경계에서 잘라 안쪽 부분만 남긴다 */
+function clipPathToPolygon(pts, poly){
+  const parts = [];
+  let cur = [];
+  for (let i = 0; i < pts.length - 1; i++){
+    const a = pts[i], b = pts[i + 1];
+    const cuts = [0, 1];
+    for (let j = 0, k = poly.length - 1; j < poly.length; k = j++){
+      const t = segCutT(a, b, poly[k], poly[j]);
+      if (t !== null && t > 1e-12 && t < 1 - 1e-12) cuts.push(t);
+    }
+    cuts.sort((x, y) => x - y);
+    for (let c = 0; c < cuts.length - 1; c++){
+      const t0 = cuts[c], t1 = cuts[c + 1];
+      if (t1 - t0 < 1e-12) continue;
+      if (pointInPolygon(lerpPt(a, b, (t0 + t1) / 2), poly)){
+        if (!cur.length) cur.push(lerpPt(a, b, t0));
+        cur.push(lerpPt(a, b, t1));
+      } else {
+        if (cur.length >= 2) parts.push(cur);
+        cur = [];
+      }
+    }
+  }
+  if (cur.length >= 2) parts.push(cur);
+  return parts;
+}
+
+/** 구역 다각형으로 HD맵 도로를 잘라낸다 */
+function cutRoadsFromHd(sc){
+  if (!HD_ROADS || !HD_ROADS.length) return null;
+  const poly = sc.sector;
+  let minLa = Infinity, maxLa = -Infinity, minLo = Infinity, maxLo = -Infinity;
+  poly.forEach(p => {
+    minLa = Math.min(minLa, p[0]); maxLa = Math.max(maxLa, p[0]);
+    minLo = Math.min(minLo, p[1]); maxLo = Math.max(maxLo, p[1]);
+  });
+
+  const out = [];
+  HD_ROADS.forEach(r => {
+    const c = r.c;
+    if (!Array.isArray(c) || c.length < 2) return;
+    let near = false;
+    for (let i = 0; i < c.length; i++){
+      if (c[i][0] >= minLa - 0.002 && c[i][0] <= maxLa + 0.002 &&
+          c[i][1] >= minLo - 0.002 && c[i][1] <= maxLo + 0.002){ near = true; break; }
+    }
+    if (!near) return;
+    clipPathToPolygon(c, poly).forEach(seg => {
+      out.push({
+        t : '',
+        c : seg.map(p => [+(+p[0]).toFixed(5), +(+p[1]).toFixed(5)]),
+        id: r.id || '', nm: r.nm || '', ln: r.ln || 0,
+      });
+    });
+  });
+  return out;
+}
+
+/** 구역에 도로가 없으면 HD맵에서 잘라 채운다 */
+async function ensureSectorRoads(){
+  const sc = currentSector();
+  if (!sc || (Array.isArray(sc.roads) && sc.roads.length)) return;
+  await loadHdRoads();
+  const cut = cutRoadsFromHd(sc);
+  if (cut && cut.length){
+    sc.roads = cut;
+    sc.roadsClipped = true;
+    renderSectorRoads();
+    renderSectorInfo();
+  }
+}
+
 /* ══════════════════════════════════════════════════════════════
    렌더링
    ══════════════════════════════════════════════════════════════ */
@@ -1657,12 +2154,12 @@ function renderChips(){
 
   const sc = $('sc-chips');
   sc.innerHTML = '';
-  ['a','b','c'].forEach(k => {
+  scenarioKeys(loc).forEach(k => {
     const s = SCENARIOS[loc][k];
-    if (!s) return;
     const b = document.createElement('button');
     b.className = 'chip' + (k === scKey ? ' on' : '');
-    b.textContent = s.name;
+    // 섹터(자유주행 구역)는 코스와 성격이 달라 ▣ 로 구분한다.
+    b.textContent = (isSectorScenario(s) ? '▣ ' : '') + (s.name || k);
     b.onclick = () => loadScenario(loc, k, false);
     sc.appendChild(b);
   });
@@ -1670,8 +2167,15 @@ function renderChips(){
 
 function renderLegs(){
   const box = $('legs-body');
-  $('legs-count').textContent = '(' + doneSet.size + '/' + legs.length + ')';
   box.innerHTML = '';
+
+  if (currentSector()){
+    $('legs-count').textContent = '';
+    box.innerHTML = '<div class="tiny muted" style="padding:8px 2px">구역 주행에는 구간이 없습니다.</div>';
+    return;
+  }
+
+  $('legs-count').textContent = '(' + doneSet.size + '/' + legs.length + ')';
   legs.forEach((l, i) => {
     const d = document.createElement('div');
     d.className = 'leg' + (i === legIdx ? ' cur' : '') + (doneSet.has(i) ? ' done' : '');
@@ -1715,9 +2219,12 @@ function renderStepsList(){
 }
 
 function renderControls(){
+  const sector = !!currentSector();
   $('btn-play').textContent = isPlaying ? '⏸ 일시정지' : '▶ 시작';
   $('btn-play').classList.toggle('primary', !isPlaying);
-  $('btn-done').disabled = !isPlaying;
+  // 구역 주행에는 구간 개념이 없어 완료·다음 버튼을 쓰지 않는다.
+  $('btn-done').disabled = sector || !isPlaying;
+  $('btn-skip').disabled = sector;
 }
 
 function renderTts(){
@@ -1732,18 +2239,32 @@ function renderWpState(){
    조작
    ══════════════════════════════════════════════════════════════ */
 function togglePlay(){
+  const sector = currentSector();
   isPlaying = !isPlaying;
   if (isPlaying){
     if (!legStartTime){
       legStartTime = new Date();
       legStartPos = lastPos ? lastPos.slice() : null;
     }
-    startTimer();
-    const leg = legs[legIdx];
-    speak((leg && leg.e ? leg.e : '목적지') + ' 방면으로 출발합니다', true);
+    if (sector){
+      // 구역 주행은 경과 시간을 위로 센다.
+      timerSec = 0;
+      startSectorTimer();
+      speak((sector.name || '구역') + ' 자유주행을 시작합니다', true);
+    } else {
+      startTimer();
+      const leg = legs[legIdx];
+      speak((leg && leg.e ? leg.e : '목적지') + ' 방면으로 출발합니다', true);
+    }
     setFollow(true);
   } else {
     stopTimer();
+    if (sector && sectorTrailPts.length > 1){
+      recordLeg();                       // 구역 주행 실적을 기록으로 남긴다
+      toast('구역 주행 ' + sectorTrailKm().toFixed(1) + 'km 기록됨', 2200);
+    }
+    legStartTime = null;
+    legStartPos = null;
     speak('일시정지합니다', true);
   }
   renderControls();
@@ -1820,6 +2341,7 @@ async function enterApp(){
 
   renderTts();
   renderWpState();
+  $('sector-roads-state').textContent = sectorRoadsOn ? 'ON' : 'OFF';
   renderLogCount();
   renderControls();
 
@@ -1827,9 +2349,18 @@ async function enterApp(){
   const startLoc = (ui.loc && SCENARIOS[ui.loc]) ? ui.loc : '강남';
   const startSc  = (ui.scKey && SCENARIOS[startLoc][ui.scKey]) ? ui.scKey : 'a';
 
+  // routes.json(Ver.2 경로 원본)과 SDK를 함께 준비한다.
+  const routesReady = loadRoutesJson();
+
   // 지도 로딩과 무관하게 시나리오 UI를 먼저 띄운다.
   loadScenario(startLoc, startSc, false);
   startGps();
+
+  await routesReady;
+  if (routesLoaded){
+    // 원본이 들어오면 시나리오 목록·구간이 바뀌므로 다시 적용한다.
+    loadScenario(startLoc, startSc, false);
+  }
 
   try {
     await loadTmapSdk();
@@ -1840,9 +2371,13 @@ async function enterApp(){
     return;
   }
 
-  // 지도가 준비된 뒤에 현재 구간 경로를 요청한다.
-  const leg = legs[legIdx];
-  if (leg) fetchTmapRoute(leg.sLL, leg.eLL, leg.id);
+  // 지도가 준비된 뒤에 현재 시나리오를 그린다.
+  if (currentSector()){
+    applySector();
+  } else {
+    const leg = legs[legIdx];
+    if (leg) fetchTmapRoute(leg.sLL, leg.eLL, leg.id);
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1923,6 +2458,7 @@ function bindEvents(){
     if (leg && sdkReady) fetchTmapRoute(leg.sLL, leg.eLL, leg.id);
     closeMenu();
   };
+  $('mi-sector-roads').onclick = () => { toggleSectorRoads(); closeMenu(); };
   $('mi-appkey').onclick = () => { closeMenu(); showSetup(); };
   $('mi-logout').onclick = () => { if (confirm('로그아웃할까요?')) logout(); };
 
@@ -1939,7 +2475,8 @@ function closeMenu(){ $('settings-menu').classList.remove('on'); }
    ══════════════════════════════════════════════════════════════ */
 (function boot(){
   appKey       = lsGet(K.appkey, '') || '';
-  useWaypoints = lsGet(K.wp, true);
+  useWaypoints   = lsGet(K.wp, true);
+  sectorRoadsOn  = lsGet(K.sectorRoads, true);
 
   buildVehicleGrid();
   bindEvents();
