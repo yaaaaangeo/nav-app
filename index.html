@@ -25,7 +25,7 @@
    │     따옴표 안에 발급받은 키를 붙여넣으세요.                │
    │     비워두면 앱 첫 화면에서 키를 직접 입력받습니다.        │
    └──────────────────────────────────────────────────────────┘ */
-var DEFAULT_APPKEY = 'V2ZBpvQJzZ9DPdRuHNdsW8FRQQwJoNcTaVZzpzYe';
+var DEFAULT_APPKEY = '';
 
 (function(){
   try{
@@ -191,6 +191,24 @@ input,select{font-family:inherit;}
 }
 .map-btn.on{background:rgba(59,130,246,.24);border-color:var(--accent);}
 
+#edit-bar{
+  position:absolute;top:10px;left:10px;right:10px;z-index:500;display:none;
+  flex-direction:column;gap:7px;background:rgba(15,17,26,.96);backdrop-filter:blur(9px);
+  border:1px solid var(--warn);border-radius:13px;padding:10px 11px;box-shadow:var(--shadow);
+}
+#edit-bar.on{display:flex;}
+.edit-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+#edit-count{font-size:12px;font-weight:800;color:var(--warn);}
+.ebtn{
+  padding:7px 10px;border-radius:9px;background:var(--card2);border:1px solid var(--line);
+  font-size:12px;font-weight:700;color:var(--txt);white-space:nowrap;
+}
+.ebtn.on{background:rgba(245,158,11,.24);border-color:var(--warn);color:#fbbf24;}
+.ebtn.save{background:var(--accent);border-color:var(--accent);color:#fff;}
+.ebtn.ghost{color:var(--sub);}
+#edit-hint{font-size:11px;color:var(--sub);line-height:1.4;}
+#panel.locked{opacity:.4;pointer-events:none;}
+
 #sector-hint{
   position:absolute;left:10px;bottom:12px;z-index:400;display:none;
   background:rgba(15,17,26,.92);border:1px solid var(--line);border-radius:9px;
@@ -352,6 +370,10 @@ input,select{font-family:inherit;}
   <div class="mdiv"></div>
   <div class="mi" id="mi-waypoint">📍 고정 경유점 사용<span class="cnt" id="wp-state">ON</span></div>
   <div class="mi" id="mi-sector-roads">🛣 구역 내 길 표시<span class="cnt" id="sector-roads-state">ON</span></div>
+  <div class="mdiv"></div>
+  <div class="mi" id="mi-edit">✏️ 경로 수정</div>
+  <div class="mi" id="mi-export-routes">🗺 경로 내보내기 (routes.json)<span class="cnt" id="edit-count-badge"></span></div>
+  <div class="mi" id="mi-reset-edits">↺ 경로 수정 되돌리기</div>
   <div class="mi" id="mi-appkey">🔑 appKey 변경</div>
   <div class="mdiv"></div>
   <div class="mi" id="mi-logout" style="color:var(--danger)">🚪 로그아웃</div>
@@ -390,6 +412,23 @@ input,select{font-family:inherit;}
       <div id="map-tools">
         <button class="map-btn on" id="btn-follow" title="현재 위치 추적">🎯</button>
         <button class="map-btn" id="btn-fit" title="전체 경로 보기">🗺️</button>
+      </div>
+
+      <div id="edit-bar">
+        <div class="edit-row">
+          <span id="edit-count">경유점 0개</span>
+          <div class="spacer"></div>
+          <button class="ebtn" id="edit-undo">↩ 되돌리기</button>
+          <button class="ebtn" id="edit-clear">✕ 경유점 전체삭제</button>
+        </div>
+        <div class="edit-row">
+          <button class="ebtn" id="edit-move-s">🟢 출발지 옮기기</button>
+          <button class="ebtn" id="edit-move-e">🔴 도착지 옮기기</button>
+          <div class="spacer"></div>
+          <button class="ebtn ghost" id="edit-cancel">취소</button>
+          <button class="ebtn save" id="edit-save">💾 저장</button>
+        </div>
+        <div id="edit-hint"></div>
       </div>
 
       <div id="sector-hint"></div>
@@ -468,6 +507,7 @@ const K = {
   ui      : 'nav3-ui',
   wp      : 'nav3-use-waypoints',
   sectorRoads : 'nav3-sector-roads',
+  edits       : 'nav3-route-edits',
 };
 
 /* ─── TMAP 엔드포인트 ─── */
@@ -983,6 +1023,10 @@ function initMap(){
   ['zoom_changed','dragend','moveend','idle'].forEach(ev => {
     try { map.addListener(ev, scheduleSectorRedraw); } catch (_) {}
   });
+
+  // 경로 수정용 탭 — 편집 모드가 아니면 내부에서 바로 빠져나간다.
+  // touchend는 등록하지 않는다. 모바일에서 click과 함께 발생해 두 번 찍힌다.
+  try { map.addListener('click', onEditMapClick); } catch (_) {}
 }
 
 function pauseFollow(){
@@ -1027,6 +1071,8 @@ function repaintProgress(){
 }
 
 function placeEndpointMarkers(sLL, eLL){
+  // 편집 중에는 편집용 S/E 마커가 따로 올라가므로 겹치지 않게 건너뛴다.
+  if (editMode) return;
   startMarker = new Tmapv2.Marker({
     position: LL(sLL[0], sLL[1]), icon: pinIcon('#10b981', 'S'),
     iconSize: new Tmapv2.Size(30, 38), map: map,
@@ -1121,8 +1167,13 @@ async function fetchTmapRoute(sLL, eLL, legId){
   clearRoute();
 
   const raw  = useWaypoints ? (WAYPOINTS[legId] || []) : [];
-  const safe = sanitizeWaypoints(sLL, eLL, raw);
+  // 편집 중에는 사용자가 직접 찍은 지점이므로 자동 필터를 적용하지 않는다.
+  const safe = editMode ? raw.slice() : sanitizeWaypoints(sLL, eLL, raw);
   const wps  = trimWaypoints(safe, TMAP_MAX_PASS_POINTS);
+
+  if (editMode && safe.length > TMAP_MAX_PASS_POINTS){
+    toast('경유점은 ' + TMAP_MAX_PASS_POINTS + '개까지만 경로에 반영됩니다', 2600);
+  }
 
   // 출발지와 도착지가 사실상 같은 순환 구간은 경유점이 없으면 경로가 생기지 않는다.
   if (!wps.length && haversine(sLL[0], sLL[1], eLL[0], eLL[1]) < 300){
@@ -1457,6 +1508,7 @@ function setGpsBadge(cls, text){
    구간 / 시나리오
    ══════════════════════════════════════════════════════════════ */
 function loadScenario(newLoc, newSc, keepIdx){
+  if (editMode) exitEditMode(false);
   loc = newLoc;
   // 지역을 바꾸면 첫 시나리오로 — 지역마다 있는 키가 다르다.
   const keys = scenarioKeys(loc);
@@ -2128,6 +2180,348 @@ async function ensureSectorRoads(){
   }
 }
 
+
+/* ══════════════════════════════════════════════════════════════
+   경로 수정
+   ── TMAP v2 마커 드래그는 모바일에서 동작이 일정하지 않아
+      탭(클릭) 기반으로 만들었다. 태블릿에서 훨씬 정확하다.
+        · 지도를 탭하면 그 지점에 경유점 추가 (가장 가까운 구간에 끼워 넣음)
+        · 경유점을 탭하면 삭제
+        · 출발/도착 옮기기 모드에서는 탭한 지점으로 핀 이동
+   ══════════════════════════════════════════════════════════════ */
+let editMode = false;
+let editWps = [];            // 수정 중인 경유점 [[lat,lng], ...]
+let editSLL = null, editELL = null;
+let editMarkers = [];
+let editTarget = 'wp';       // 'wp' | 'start' | 'end'
+let editHistory = [];        // 되돌리기용 스냅샷
+
+/** 저장된 경로 수정본 { legId: {wps, sLL, eLL} } */
+function getRouteEdits(){ return lsGet(K.edits, {}) || {}; }
+function setRouteEdits(v){ lsSet(K.edits, v); }
+
+/** 시작 시 저장된 수정본을 시나리오에 입힌다 */
+function applyRouteEdits(){
+  const edits = getRouteEdits();
+  const ids = Object.keys(edits);
+  if (!ids.length) return 0;
+
+  let applied = 0;
+  Object.keys(SCENARIOS).forEach(locKey => {
+    scenarioKeys(locKey).forEach(k => {
+      (SCENARIOS[locKey][k].legs || []).forEach(lg => {
+        const e = edits[lg.id];
+        if (!e) return;
+        if (Array.isArray(e.wps)) WAYPOINTS[lg.id] = e.wps.map(w => w.slice());
+        if (Array.isArray(e.sLL)) lg.sLL = e.sLL.slice();
+        if (Array.isArray(e.eLL)) lg.eLL = e.eLL.slice();
+        applied++;
+      });
+    });
+  });
+  return applied;
+}
+
+function canEditCurrentLeg(){
+  return !!legs[legIdx] && !currentSector();
+}
+
+function toggleEditMode(){
+  if (editMode) { exitEditMode(false); return; }
+  enterEditMode();
+}
+
+function enterEditMode(){
+  if (!canEditCurrentLeg()){
+    toast('구역 주행에는 경로 수정이 없습니다');
+    return;
+  }
+  if (!sdkReady){ toast('지도를 불러온 뒤에 수정할 수 있습니다'); return; }
+  if (isPlaying){ toast('주행 중에는 수정할 수 없습니다 — ⏸ 먼저 눌러주세요'); return; }
+
+  const lg = legs[legIdx];
+  editMode   = true;
+  editTarget = 'wp';
+  editWps    = (WAYPOINTS[lg.id] || []).map(w => w.slice());
+  editSLL    = lg.sLL.slice();
+  editELL    = lg.eLL.slice();
+  editHistory = [];
+
+  $('edit-bar').classList.add('on');
+  $('panel').classList.add('locked');
+  renderEditTargetBtns();
+  renderEditMarkers();
+  refreshEditPreview();
+}
+
+function exitEditMode(saved){
+  editMode = false;
+  clearEditMarkers();
+  $('edit-bar').classList.remove('on');
+  $('panel').classList.remove('locked');
+
+  if (!saved){
+    // 저장하지 않았으면 원래 경로로 되돌린다.
+    const lg = legs[legIdx];
+    if (lg) fetchTmapRoute(lg.sLL, lg.eLL, lg.id);
+  }
+}
+
+/** 편집 중 스냅샷 — 되돌리기용 */
+function pushEditHistory(){
+  editHistory.push({
+    wps: editWps.map(w => w.slice()),
+    sLL: editSLL.slice(),
+    eLL: editELL.slice(),
+  });
+  if (editHistory.length > 30) editHistory.shift();
+}
+
+function undoEdit(){
+  const prev = editHistory.pop();
+  if (!prev){ toast('되돌릴 내용이 없습니다', 1200); return; }
+  editWps = prev.wps;
+  editSLL = prev.sLL;
+  editELL = prev.eLL;
+  renderEditMarkers();
+  refreshEditPreview();
+}
+
+function clearEditWaypoints(){
+  if (!editWps.length){ toast('경유점이 없습니다', 1200); return; }
+  pushEditHistory();
+  editWps = [];
+  renderEditMarkers();
+  refreshEditPreview();
+  toast('경유점을 모두 지웠습니다', 1400);
+}
+
+/** 지도 탭 처리 (편집 모드에서만) */
+let lastEditTapAt = 0, lastEditTapLL = null;
+
+function onEditMapClick(evt){
+  if (!editMode) return;
+  const ll = extractLatLng(evt);
+  if (!ll) return;
+
+  // 같은 지점에서 이벤트가 겹쳐 들어오는 경우를 한 번으로 친다.
+  const now = Date.now();
+  if (lastEditTapLL && now - lastEditTapAt < 400 &&
+      haversine(ll[0], ll[1], lastEditTapLL[0], lastEditTapLL[1]) < 12) return;
+  lastEditTapAt = now;
+  lastEditTapLL = ll;
+
+  pushEditHistory();
+  if (editTarget === 'start'){
+    editSLL = ll;
+    editTarget = 'wp';
+    renderEditTargetBtns();
+  } else if (editTarget === 'end'){
+    editELL = ll;
+    editTarget = 'wp';
+    renderEditTargetBtns();
+  } else {
+    editWps.splice(bestInsertIndex(ll), 0, ll);
+  }
+  renderEditMarkers();
+  refreshEditPreview();
+}
+
+/** TMAP 클릭 이벤트에서 좌표를 꺼낸다 (SDK 버전마다 형태가 조금씩 다르다) */
+function extractLatLng(e){
+  try {
+    const p = e && (e.latLng || e.lngLat || e.data && e.data.latLng);
+    if (!p) return null;
+    const lat = typeof p.lat === 'function' ? p.lat() : (p.lat != null ? p.lat : p._lat);
+    const lng = typeof p.lng === 'function' ? p.lng() : (p.lng != null ? p.lng : p._lng);
+    if (!isFinite(lat) || !isFinite(lng)) return null;
+    return [+lat, +lng];
+  } catch (_) { return null; }
+}
+
+/** 새 경유점을 어느 구간 사이에 끼울지 — 선분까지의 거리로 판단 */
+function bestInsertIndex(ll){
+  const pts = [editSLL].concat(editWps, [editELL]);
+  let best = editWps.length, bestD = Infinity;
+  for (let i = 0; i < pts.length - 1; i++){
+    const d = pointToSegmentMeters(ll, pts[i], pts[i + 1]);
+    if (d < bestD){ bestD = d; best = i; }
+  }
+  return best;
+}
+
+/** 점에서 선분까지의 최단 거리(m) */
+function pointToSegmentMeters(p, a, b){
+  const latRef = (a[0] + b[0]) / 2;
+  const kx = 111320 * Math.cos(latRef * Math.PI / 180), ky = 110540;
+  const px = (p[1] - a[1]) * kx, py = (p[0] - a[0]) * ky;
+  const bx = (b[1] - a[1]) * kx, by = (b[0] - a[0]) * ky;
+  const len2 = bx * bx + by * by;
+  let t = len2 ? (px * bx + py * by) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  const dx = px - bx * t, dy = py - by * t;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function clearEditMarkers(){
+  editMarkers.forEach(m => { try { m.setMap(null); } catch (_) {} });
+  editMarkers = [];
+}
+
+function editPinIcon(color, label){
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">' +
+      '<circle cx="15" cy="15" r="12" fill="' + color + '" stroke="#ffffff" stroke-width="3"/>' +
+      '<text x="15" y="20" font-size="12" font-weight="bold" text-anchor="middle" ' +
+        'fill="#ffffff" font-family="sans-serif">' + label + '</text>' +
+    '</svg>';
+  return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+}
+
+function renderEditMarkers(){
+  clearEditMarkers();
+  if (!editMode || !map) return;
+
+  const mk = (ll, icon, onClick) => {
+    const m = new Tmapv2.Marker({
+      position: LL(ll[0], ll[1]), icon: icon,
+      iconSize: new Tmapv2.Size(30, 30), map: map, zIndex: 950,
+    });
+    if (onClick){ try { m.addListener('click', onClick); } catch (_) {} }
+    editMarkers.push(m);
+  };
+
+  mk(editSLL, editPinIcon('#10b981', 'S'));
+  mk(editELL, editPinIcon('#ef4444', 'E'));
+
+  editWps.forEach((w, i) => {
+    mk(w, editPinIcon('#f59e0b', String(i + 1)), () => {
+      pushEditHistory();
+      editWps.splice(i, 1);
+      renderEditMarkers();
+      refreshEditPreview();
+      toast('경유점 ' + (i + 1) + '번 삭제', 1200);
+    });
+  });
+
+  const over = editWps.length > TMAP_MAX_PASS_POINTS;
+  $('edit-count').textContent = '경유점 ' + editWps.length + '개' +
+    (over ? ' (최대 ' + TMAP_MAX_PASS_POINTS + '개 반영)' : '');
+  $('edit-count').style.color = over ? 'var(--danger)' : 'var(--warn)';
+}
+
+/** 편집 중인 값으로 경로를 다시 그린다 (저장 전까지 원본은 건드리지 않는다) */
+async function refreshEditPreview(){
+  const lg = legs[legIdx];
+  if (!lg) return;
+  const orig = WAYPOINTS[lg.id];
+  const origUse = useWaypoints;
+  WAYPOINTS[lg.id] = editWps.map(w => w.slice());
+  useWaypoints = true;                 // 편집 중에는 찍은 경유점을 그대로 반영
+  try {
+    await fetchTmapRoute(editSLL, editELL, lg.id);
+  } finally {
+    WAYPOINTS[lg.id] = orig;
+    useWaypoints = origUse;
+    if (editMode) renderEditMarkers();  // 경로 렌더가 마커를 덮지 않도록 다시 올린다
+  }
+}
+
+function renderEditTargetBtns(){
+  $('edit-move-s').classList.toggle('on', editTarget === 'start');
+  $('edit-move-e').classList.toggle('on', editTarget === 'end');
+  $('edit-hint').textContent =
+    editTarget === 'start' ? '출발지로 쓸 지점을 탭하세요' :
+    editTarget === 'end'   ? '도착지로 쓸 지점을 탭하세요' :
+    '지도를 탭하면 경유점 추가 · 경유점을 탭하면 삭제';
+}
+
+function setEditTarget(t){
+  editTarget = (editTarget === t) ? 'wp' : t;
+  renderEditTargetBtns();
+}
+
+/** 저장 — 경유점·출발·도착을 확정하고 앞뒤 구간을 이어 맞춘다 */
+function saveRouteEdit(){
+  const lg = legs[legIdx];
+  if (!lg) return;
+
+  WAYPOINTS[lg.id] = editWps.map(w => w.slice());
+  lg.sLL = editSLL.slice();
+  lg.eLL = editELL.slice();
+
+  const edits = getRouteEdits();
+  edits[lg.id] = { wps: editWps.map(w => w.slice()), sLL: lg.sLL.slice(), eLL: lg.eLL.slice() };
+
+  // 도착지를 옮겼으면 다음 구간 출발지도 같이 옮긴다 (구간이 끊기지 않도록)
+  const next = legs[legIdx + 1];
+  if (next){
+    next.sLL = lg.eLL.slice();
+    edits[next.id] = Object.assign({}, edits[next.id], { sLL: next.sLL.slice() });
+  }
+  // 출발지를 옮겼으면 이전 구간 도착지도 같이 옮긴다
+  const prev = legs[legIdx - 1];
+  if (prev){
+    prev.eLL = lg.sLL.slice();
+    edits[prev.id] = Object.assign({}, edits[prev.id], { eLL: prev.eLL.slice() });
+  }
+
+  setRouteEdits(edits);
+
+  // 원본 시나리오에도 반영해 두어야 시나리오를 다시 열었을 때 유지된다.
+  const src = SCENARIOS[loc][scKey].legs;
+  [legIdx - 1, legIdx, legIdx + 1].forEach(i => {
+    if (legs[i] && src[i]){ src[i].sLL = legs[i].sLL.slice(); src[i].eLL = legs[i].eLL.slice(); }
+  });
+
+  exitEditMode(true);
+  applyLeg();
+  toast('경로를 저장했습니다 — 설정 → 경로 내보내기로 배포용 파일을 만드세요', 3200);
+}
+
+/** 수정 결과를 routes.json 형식으로 내보낸다 (저장소에 올리면 전 기기 반영) */
+function exportRoutesJson(){
+  const waypoints = {};
+  const customLegs = {};
+  const scMeta = {};
+
+  Object.keys(SCENARIOS).forEach(locKey => {
+    scenarioKeys(locKey).forEach(k => {
+      const sc = SCENARIOS[locKey][k];
+      const key = locKey + '-' + k;
+      const meta = { name: sc.name, color: sc.color };
+      if (Array.isArray(sc.sector)) meta.sector = sc.sector;
+      if (Array.isArray(sc.roads) && sc.roads.length){
+        meta.roads = sc.roads;
+        meta.roadsClipped = !!sc.roadsClipped;
+      }
+      scMeta[key] = meta;
+      customLegs[key] = (sc.legs || []).map(l => Object.assign({}, l));
+    });
+  });
+
+  // 경유점은 구간에 매칭되지 않는 항목까지 그대로 보존한다 (내보내기로 데이터가 줄지 않도록).
+  Object.keys(WAYPOINTS).forEach(id => {
+    if (Array.isArray(WAYPOINTS[id]) && WAYPOINTS[id].length) waypoints[id] = WAYPOINTS[id];
+  });
+
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    note: 'nav-app 경로 원본. 저장소 루트에 routes.json으로 올리면 모든 기기에 반영됨.',
+    waypoints: waypoints,
+    customLegs: customLegs,
+    scMeta: scMeta,
+  };
+  downloadBlob(JSON.stringify(payload), 'routes.json', 'application/json');
+  toast('routes.json을 저장했습니다 — 저장소 루트에 덮어쓰세요', 3200);
+}
+
+function resetRouteEdits(){
+  if (!confirm('이 기기에 저장된 경로 수정을 모두 되돌릴까요?\n(routes.json 원본 상태로 돌아갑니다)')) return;
+  setRouteEdits({});
+  location.reload();
+}
+
 /* ══════════════════════════════════════════════════════════════
    렌더링
    ══════════════════════════════════════════════════════════════ */
@@ -2234,6 +2628,7 @@ function renderWpState(){
    조작
    ══════════════════════════════════════════════════════════════ */
 function togglePlay(){
+  if (editMode){ toast('경로 수정을 마친 뒤 시작하세요'); return; }
   const sector = currentSector();
   isPlaying = !isPlaying;
   if (isPlaying){
@@ -2348,7 +2743,10 @@ async function enterApp(){
   startGps();
 
   await routesReady;
-  if (routesLoaded){
+  // 이 기기에서 수정한 경로는 원본 위에 덮어쓴다.
+  const editedCount = applyRouteEdits();
+  if (editedCount) $('edit-count-badge').textContent = editedCount + '건 수정';
+  if (routesLoaded || editedCount){
     // 원본이 들어오면 시나리오 목록·구간이 바뀌므로 다시 적용한다.
     loadScenario(startLoc, startSc, false);
   }
@@ -2450,6 +2848,17 @@ function bindEvents(){
     closeMenu();
   };
   $('mi-sector-roads').onclick = () => { toggleSectorRoads(); closeMenu(); };
+  $('mi-edit').onclick = () => { closeMenu(); toggleEditMode(); };
+  $('mi-export-routes').onclick = () => { exportRoutesJson(); closeMenu(); };
+  $('mi-reset-edits').onclick = () => { closeMenu(); resetRouteEdits(); };
+
+  /* 경로 수정 바 */
+  $('edit-undo').onclick   = undoEdit;
+  $('edit-clear').onclick  = clearEditWaypoints;
+  $('edit-move-s').onclick = () => setEditTarget('start');
+  $('edit-move-e').onclick = () => setEditTarget('end');
+  $('edit-cancel').onclick = () => exitEditMode(false);
+  $('edit-save').onclick   = saveRouteEdit;
   $('mi-appkey').onclick = () => { closeMenu(); showSetup(); };
   $('mi-logout').onclick = () => { if (confirm('로그아웃할까요?')) logout(); };
 
