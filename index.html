@@ -20,19 +20,35 @@
      따라서 저장된 appKey를 읽어 파싱 중에 스크립트 태그를 직접 써 넣는다.
      ══════════════════════════════════════════════════════════════ -->
 <script>
+/* ┌──────────────────────────────────────────────────────────┐
+   │  ★ 배포용 TMAP appKey — 여기 한 곳에만 넣으면 됩니다.      │
+   │     따옴표 안에 발급받은 키를 붙여넣으세요.                │
+   │     비워두면 앱 첫 화면에서 키를 직접 입력받습니다.        │
+   └──────────────────────────────────────────────────────────┘ */
+var DEFAULT_APPKEY = '';
+
 (function(){
   try{
-    var raw = localStorage.getItem('tmap-appkey');
-    var key = 'V2ZBpvQJzZ9DPdRuHNdsW8FRQQwJoNcTaVZzpzYe';
-    if (raw){
-      try { key = JSON.parse(raw); } catch(e){ key = raw; }   // 따옴표 유무 모두 허용
+    // 우선순위: URL(?appKey=) > 위의 기본 키 > 사용자가 입력해 저장한 키
+    // 배포본에 심은 키를 앞에 두어, 기기에 남은 옛 키 때문에 지도가 안 뜨는 일을 막는다.
+    var key = (DEFAULT_APPKEY || '').trim();
+    if (!key){
+      var raw = localStorage.getItem('tmap-appkey');
+      if (raw){
+        try { key = JSON.parse(raw); } catch(e){ key = raw; }  // 따옴표 유무 모두 허용
+      }
     }
     var q = new URLSearchParams(location.search).get('appKey');
     if (q){
       key = q.trim();
       localStorage.setItem('tmap-appkey', JSON.stringify(key));
     }
+
+    // 본문 스크립트가 같은 키를 쓰도록 넘겨준다.
+    window.__TMAP_KEY__ = key;
+
     if (key){
+      // SDK는 내부적으로 document.write를 쓰므로 파싱 시점에 동기 로드해야 한다.
       document.write(
         '<scr' + 'ipt src="https://apis.openapi.sk.com/tmap/jsv2?version=1&appKey=' +
         encodeURIComponent(key) + '"><\/scr' + 'ipt>'
@@ -297,6 +313,7 @@ input,select{font-family:inherit;}
       · <a href="https://openapi.sk.com" target="_blank" rel="noopener">openapi.sk.com</a> 에서 앱을 등록하고 발급받은 <code>appKey</code>를 넣으세요.<br/>
       · 사용 API: <b>Vector Map (JS SDK v2)</b>, <b>자동차 경로안내</b>, <b>리버스 지오코딩</b><br/>
       · 키는 이 브라우저에만 저장되며 서버로 전송되지 않습니다.<br/>
+      · 배포본에 미리 심으려면 <code>index.html</code> 상단의 <code>DEFAULT_APPKEY</code>에 넣으세요.<br/>
       · GitHub Pages 배포 시 SK open API 콘솔에 배포 도메인을 등록해야 합니다.
     </div>
   </div>
@@ -2313,6 +2330,8 @@ async function enterApp(){
 
   renderTts();
   renderWpState();
+  // 배포본에 키가 심어져 있으면 사용자가 바꿀 수 없으므로 메뉴를 감춘다.
+  if ((window.DEFAULT_APPKEY || '').trim()) $('mi-appkey').classList.add('hidden');
   $('sector-roads-state').textContent = sectorRoadsOn ? 'ON' : 'OFF';
   renderLogCount();
   renderControls();
@@ -2446,7 +2465,8 @@ function closeMenu(){ $('settings-menu').classList.remove('on'); }
    부팅
    ══════════════════════════════════════════════════════════════ */
 (function boot(){
-  appKey       = lsGet(K.appkey, '') || '';
+  // head 로더가 이미 결정한 키(URL > 저장값 > DEFAULT_APPKEY)를 그대로 쓴다.
+  appKey = (window.__TMAP_KEY__ || lsGet(K.appkey, '') || '').trim();
   // 경유점은 Ver.1/Ver.2가 OSRM을 네이버 경로에 맞추려고 넣은 것이라
   // TMAP에서는 오히려 경로를 되돌리게 만드는 경우가 많다. 기본은 끈다.
   useWaypoints   = lsGet(K.wp, false);
@@ -2455,10 +2475,6 @@ function closeMenu(){ $('settings-menu').classList.remove('on'); }
   buildVehicleGrid();
   bindEvents();
   $('app-version').textContent = APP_VER;
-
-  // URL로 키를 넘겨 배포본에 미리 심을 수 있게 한다: index.html?appKey=...
-  const q = new URLSearchParams(location.search).get('appKey');
-  if (q){ appKey = q.trim(); lsSet(K.appkey, appKey); }
 
   if (!appKey){ showSetup(); return; }
 
