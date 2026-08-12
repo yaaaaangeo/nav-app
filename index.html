@@ -1067,14 +1067,50 @@ function trimWaypoints(list, max){
   return out;
 }
 
+/** 방위각 차이(0~180) */
+function bearingDiff(a, b){
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+/**
+ * 진행 방향을 크게 되돌리는 경유점을 걸러낸다.
+ * TMAP은 passList를 준 순서대로 반드시 들르기 때문에, 순서가 어긋난 경유점이
+ * 하나만 있어도 갔다가 되돌아오는 선이 그려진다.
+ */
+function sanitizeWaypoints(sLL, eLL, list){
+  if (!list || list.length < 1) return [];
+  const kept = [];
+  let prev = sLL;
+  for (let i = 0; i < list.length; i++){
+    const w = list[i];
+    // 이 경유점 다음에 향하게 될 지점 (마지막이면 도착지)
+    const next = (i + 1 < list.length) ? list[i + 1] : eLL;
+    const toW    = bearing(prev[0], prev[1], w[0], w[1]);
+    const toNext = bearing(w[0], w[1], next[0], next[1]);
+    const toEnd  = bearing(w[0], w[1], eLL[0], eLL[1]);
+    // 들렀다가 120도 넘게 꺾어야 한다면 되돌아가는 경유점이므로 버린다.
+    if (bearingDiff(toW, toNext) > 120 || bearingDiff(toW, toEnd) > 120) continue;
+    kept.push(w);
+    prev = w;
+  }
+  return kept;
+}
+
 async function fetchTmapRoute(sLL, eLL, legId){
   if (routeAbort) { try { routeAbort.abort(); } catch (_) {} }
   routeAbort = new AbortController();
   showSpin(true);
   clearRoute();
 
-  const raw = useWaypoints ? (WAYPOINTS[legId] || []) : [];
-  const wps = trimWaypoints(raw, TMAP_MAX_PASS_POINTS);
+  const raw  = useWaypoints ? (WAYPOINTS[legId] || []) : [];
+  const safe = sanitizeWaypoints(sLL, eLL, raw);
+  const wps  = trimWaypoints(safe, TMAP_MAX_PASS_POINTS);
+
+  // 출발지와 도착지가 사실상 같은 순환 구간은 경유점이 없으면 경로가 생기지 않는다.
+  if (!wps.length && haversine(sLL[0], sLL[1], eLL[0], eLL[1]) < 300){
+    toast('출발지와 도착지가 거의 같은 순환 구간입니다 — 설정에서 고정 경유점을 켜세요', 4000);
+  }
 
   const body = new URLSearchParams({
     appKey       : appKey,
@@ -2411,7 +2447,9 @@ function closeMenu(){ $('settings-menu').classList.remove('on'); }
    ══════════════════════════════════════════════════════════════ */
 (function boot(){
   appKey       = lsGet(K.appkey, '') || '';
-  useWaypoints   = lsGet(K.wp, true);
+  // 경유점은 Ver.1/Ver.2가 OSRM을 네이버 경로에 맞추려고 넣은 것이라
+  // TMAP에서는 오히려 경로를 되돌리게 만드는 경우가 많다. 기본은 끈다.
+  useWaypoints   = lsGet(K.wp, false);
   sectorRoadsOn  = lsGet(K.sectorRoads, true);
 
   buildVehicleGrid();
