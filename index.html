@@ -25,9 +25,7 @@
    │     따옴표 안에 발급받은 키를 붙여넣으세요.                │
    │     비워두면 앱 첫 화면에서 키를 직접 입력받습니다.        │
    └──────────────────────────────────────────────────────────┘ */
-var DEFAULT_APPKEY = 'V2ZBpvQJzZ9DPdRuHNdsW8FRQQwJoNcTaVZzpzYe
-
-';
+var DEFAULT_APPKEY = '';
 
 (function(){
   try{
@@ -374,6 +372,7 @@ input,select{font-family:inherit;}
 <div id="settings-menu">
   <div class="mi" id="mi-download">📥 주행기록지 (엑셀)<span class="cnt" id="log-count"></span></div>
   <div class="mi" id="mi-clear">🗑️ 오늘 기록 삭제</div>
+  <div class="mi" id="mi-traffic">🚦 교통밀도<span class="cnt" id="traffic-state">미측정</span></div>
   <div class="mdiv"></div>
   <div class="mi" id="mi-export">📤 설정 내보내기</div>
   <div class="mi" id="mi-import">📂 설정 가져오기</div>
@@ -520,7 +519,7 @@ const K = {
   sectorRoads : 'nav3-sector-roads',
   edits       : 'nav3-route-edits',
   headingUp   : 'nav3-heading-up',
-  samples     : 'nav3-track-samples',
+  traffic     : 'nav3-traffic-density',
 };
 
 /* ─── TMAP 엔드포인트 ─── */
@@ -1494,6 +1493,7 @@ function toggleHeadingUp(){
   headingUp = !headingUp;
   lsSet(K.headingUp, headingUp);
   $('btn-headup').classList.toggle('on', headingUp);
+  renderTrafficState();
   if (headingUp) setFollow(true);   // 헤딩업은 따라가기와 함께 쓴다
   applyMapRotation();
   toast(headingUp ? '진행 방향이 위로 (헤딩업)' : '북쪽 고정', 1500);
@@ -1794,13 +1794,37 @@ function getLocationLabel(){
   return MAP[loc] || loc || '—';
 }
 
-/** 교통 밀도 — 구간 평균속도로 역산 */
-function getTrafficDensity(avgSpeedKmh){
-  if (avgSpeedKmh == null || isNaN(avgSpeedKmh)) return '—';
-  if (avgSpeedKmh < 10) return '정체(≥45대/km/차선)';
-  if (avgSpeedKmh < 25) return '혼잡(25~45대/km/차선)';
-  if (avgSpeedKmh < 50) return '보통(12~25대/km/차선)';
-  return '여유(≤12대/km/차선)';
+/* ── 교통 밀도 ──
+   Ver.2는 ITS 도로 흐름 실측으로 판정하지만, ITS를 매번 켜고 연동하는 부담이 커서
+   Ver.3에서는 기록지 서식만 유지하는 placeholder로 둔다.
+   현장에서 눈으로 판단해 골라두면 이후 기록에 그 값이 들어간다. */
+const TRAFFIC_PLACEHOLDER = '(미측정)';
+const TRAFFIC_OPTIONS = [
+  TRAFFIC_PLACEHOLDER,
+  '여유(≤12대/km/차선)',
+  '보통(12~25대/km/차선)',
+  '혼잡(25~45대/km/차선)',
+  '정체(≥45대/km/차선)',
+];
+let trafficDensity = TRAFFIC_PLACEHOLDER;
+
+/** 메뉴에서 누를 때마다 다음 단계로 넘어간다 */
+function cycleTrafficDensity(){
+  const i = TRAFFIC_OPTIONS.indexOf(trafficDensity);
+  trafficDensity = TRAFFIC_OPTIONS[(i + 1) % TRAFFIC_OPTIONS.length];
+  lsSet(K.traffic, trafficDensity);
+  renderTrafficState();
+  toast('교통밀도: ' + shortTraffic(trafficDensity), 1600);
+}
+
+/** 메뉴에 짧게 표시할 이름 */
+function shortTraffic(v){
+  return v === TRAFFIC_PLACEHOLDER ? '미측정' : String(v).split('(')[0];
+}
+
+function renderTrafficState(){
+  const el = $('traffic-state');
+  if (el) el.textContent = shortTraffic(trafficDensity);
 }
 
 /* ── 날씨 (Open-Meteo · API 키 불필요, CORS 허용) ──
@@ -1967,9 +1991,8 @@ async function logGpsSnapshot(){
     weather  : await fetchWeather(lastPos[0], lastPos[1]).catch(() => _cachedWeather || '—'),
     timeOfDay: getTimeOfDay(now),
     place    : getLocationLabel(),
-    // 교통밀도는 도로 흐름 실측이 있어야 판정할 수 있다. Ver.3에는 ITS 연동이 없어
-    // 내 차 속도로 대체하지 않고 빈칸으로 둔다 (잘못된 값을 남기지 않기 위해).
-    trafficDensity: getTrafficDensity(null),
+    // ITS 연동 대신 사용자가 골라둔 값. 고르지 않았으면 (미측정) placeholder.
+    trafficDensity: trafficDensity,
     speedKmh : kmh.toFixed(1),
   };
 
@@ -2024,7 +2047,7 @@ async function downloadTodayLog(){
     }
     return [i + 1, e.date, e.time, e.pos || '—',
             e.roadType || '—', e.weather || '—', e.timeOfDay || '—',
-            e.place || '—', e.trafficDensity || '—', e.speedKmh || '—'];
+            e.place || '—', e.trafficDensity || TRAFFIC_PLACEHOLDER, e.speedKmh || '—'];
   });
 
   const aoa = [infoRow, [], headers].concat(rows);
@@ -2414,6 +2437,7 @@ function toggleSectorRoads(){
   lsSet(K.sectorRoads, sectorRoadsOn);
   $('sector-roads-state').textContent = sectorRoadsOn ? 'ON' : 'OFF';
   $('btn-headup').classList.toggle('on', headingUp);
+  renderTrafficState();
   renderSectorRoads();
   toast('구역 내 길 표시 ' + (sectorRoadsOn ? '켜짐' : '꺼짐'), 1400);
 }
@@ -3110,6 +3134,7 @@ async function enterApp(){
   if ((window.DEFAULT_APPKEY || '').trim()) $('mi-appkey').classList.add('hidden');
   $('sector-roads-state').textContent = sectorRoadsOn ? 'ON' : 'OFF';
   $('btn-headup').classList.toggle('on', headingUp);
+  renderTrafficState();
   renderLogCount();
   renderControls();
 
@@ -3210,6 +3235,7 @@ function bindEvents(){
   /* 설정 메뉴 */
   $('mi-download').onclick = () => { downloadTodayLog(); closeMenu(); };
   $('mi-clear').onclick = () => { closeMenu(); clearTodayLog(); };
+  $('mi-traffic').onclick = cycleTrafficDensity;   // 연속으로 눌러 고를 수 있게 메뉴를 닫지 않는다
   $('mi-export').onclick = () => { exportSettings(); closeMenu(); };
   $('mi-import').onclick = () => { $('import-input').click(); closeMenu(); };
   $('import-input').onchange = e => {
@@ -3260,6 +3286,8 @@ function closeMenu(){ $('settings-menu').classList.remove('on'); }
   useWaypoints   = lsGet(K.wp, false);
   sectorRoadsOn  = lsGet(K.sectorRoads, true);
   headingUp      = lsGet(K.headingUp, false);
+  trafficDensity = lsGet(K.traffic, TRAFFIC_PLACEHOLDER) || TRAFFIC_PLACEHOLDER;
+  if (TRAFFIC_OPTIONS.indexOf(trafficDensity) < 0) trafficDensity = TRAFFIC_PLACEHOLDER;
 
   buildVehicleGrid();
   bindEvents();
