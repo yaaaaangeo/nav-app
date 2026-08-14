@@ -25,7 +25,7 @@
    │     따옴표 안에 발급받은 키를 붙여넣으세요.                │
    │     비워두면 앱 첫 화면에서 키를 직접 입력받습니다.        │
    └──────────────────────────────────────────────────────────┘ */
-var DEFAULT_APPKEY = 'V2ZBpvQJzZ9DPdRuHNdsW8FRQQwJoNcTaVZzpzYe';
+var DEFAULT_APPKEY = '';
 
 (function(){
   try{
@@ -190,6 +190,14 @@ input,select{font-family:inherit;}
   font-size:16px;box-shadow:var(--shadow);
 }
 .map-btn.on{background:rgba(59,130,246,.24);border-color:var(--accent);}
+
+/* 헤딩업 — 지도만 회전시키고, 회전으로 드러나는 모서리는 확대로 덮는다.
+   턴 안내·버튼은 #map_div 바깥이라 함께 돌아가지 않는다. */
+#map_div.heading-up{
+  transform:scale(1.45) rotate(var(--map-rot,0deg));
+  transform-origin:center center;
+  transition:transform .35s ease-out;
+}
 
 #edit-bar{
   position:absolute;top:10px;left:10px;right:10px;z-index:500;display:none;
@@ -362,8 +370,8 @@ input,select{font-family:inherit;}
 
 <!-- ══════════ 설정 메뉴 ══════════ -->
 <div id="settings-menu">
-  <div class="mi" id="mi-download">📥 오늘 기록 다운로드<span class="cnt" id="log-count"></span></div>
-  <div class="mi" id="mi-clear">🗑️ 오늘 기록 초기화</div>
+  <div class="mi" id="mi-download">📥 주행기록지 (엑셀)<span class="cnt" id="log-count"></span></div>
+  <div class="mi" id="mi-clear">🗑️ 오늘 기록 삭제</div>
   <div class="mdiv"></div>
   <div class="mi" id="mi-export">📤 설정 내보내기</div>
   <div class="mi" id="mi-import">📂 설정 가져오기</div>
@@ -411,6 +419,7 @@ input,select{font-family:inherit;}
 
       <div id="map-tools">
         <button class="map-btn on" id="btn-follow" title="현재 위치 추적">🎯</button>
+        <button class="map-btn" id="btn-headup" title="진행 방향 위로 (헤딩업)">🧭</button>
         <button class="map-btn" id="btn-fit" title="전체 경로 보기">🗺️</button>
       </div>
 
@@ -508,6 +517,8 @@ const K = {
   wp      : 'nav3-use-waypoints',
   sectorRoads : 'nav3-sector-roads',
   edits       : 'nav3-route-edits',
+  headingUp   : 'nav3-heading-up',
+  samples     : 'nav3-track-samples',
 };
 
 /* ─── TMAP 엔드포인트 ─── */
@@ -790,7 +801,7 @@ let routeAbort = null;
 
 /* GPS */
 let watchId = null;
-let lastPos = null, lastAccuracy = null, lastFixAt = 0;
+let lastPos = null, lastAccuracy = null, lastFixAt = 0, lastSpeedMs = null;
 let followMode = true, followPauseUntil = 0;
 let offRouteCount = 0, offRouteSpoken = false;
 let announced = {};          // stepIdx -> Set(거리)
@@ -1038,7 +1049,13 @@ function setFollow(on){
   followMode = on;
   followPauseUntil = 0;
   $('btn-follow').classList.toggle('on', on);
-  if (on && lastPos && map) map.setCenter(LL(lastPos[0], lastPos[1]));
+  if (on && lastPos && map){
+    try {
+      const t = followTarget(lastPos[0], lastPos[1], displayHeading);
+      map.setCenter(LL(t[0], t[1]));
+    } catch (_) {}
+  }
+  applyMapRotation();
 }
 
 function clearMapLayers(){
@@ -1110,7 +1127,8 @@ function fitRoute(){
     const c = routeCoords[Math.floor(routeCoords.length / 2)];
     map.setCenter(LL(c[0], c[1]));
   }
-  setFollow(false);
+  setFollow(false);   // 전체를 볼 때는 북쪽 고정이 읽기 편하다
+  drivingZoomApplied = false;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1406,6 +1424,107 @@ function refreshGuidance(force){
 function showTurn(on){ $('turn-overlay').classList.toggle('on', on); }
 function showSpin(on){ $('route-spin').classList.toggle('on', on); }
 
+
+/* ══════════════════════════════════════════════════════════════
+   주행 추적 (내비게이션 뷰)
+   ── ① 룩어헤드: 진행 방향 앞쪽을 화면 중앙에 두어 차가 아래쪽에 오게 한다
+      ② 주행 배율: 시작하면 주행용 배율로 당긴다
+      ③ 헤딩업: 진행 방향이 위로 오도록 지도를 돌린다 (선택)
+   ══════════════════════════════════════════════════════════════ */
+let headingUp = false;          // 헤딩업(지도 회전) 사용 여부
+let displayHeading = 0;         // 부드럽게 다듬은 진행 방향
+let drivingZoomApplied = false;
+
+const DRIVE_ZOOM        = 17;   // 주행 시작 시 당길 배율
+const LOOKAHEAD_RATIO   = 0.18; // 화면 세로의 몇 %만큼 앞을 볼지
+const LOOKAHEAD_MAX_PX  = 140;
+const HEADING_SMOOTH     = 0.25; // 0에 가까울수록 부드럽고 느리다
+
+/** 각도를 부드럽게 잇는다 (359°→1° 같은 경계 처리 포함) */
+function smoothHeading(prev, next){
+  if (!isFinite(prev)) return next;
+  let diff = ((next - prev + 540) % 360) - 180;
+  return (prev + diff * HEADING_SMOOTH + 360) % 360;
+}
+
+/** 화면 1픽셀이 몇 미터인지 (웹 메르카토르) */
+function metersPerPixel(lat, zoom){
+  return 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+}
+
+/** (lat,lng)에서 heading 방향으로 dist 미터 떨어진 지점 */
+function destinationPoint(lat, lng, heading, dist){
+  const R = 6371000, r = Math.PI / 180;
+  const d = dist / R, br = heading * r;
+  const la1 = lat * r, lo1 = lng * r;
+  const la2 = Math.asin(Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(br));
+  const lo2 = lo1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(la1),
+                               Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+  return [la2 / r, ((lo2 / r) + 540) % 360 - 180];
+}
+
+/**
+ * 지도 중심을 차량보다 진행 방향 앞쪽에 둔다.
+ * 그래야 차가 화면 아래쪽에 오고 앞길이 더 보인다 — 실제 내비와 같은 배치.
+ */
+function followTarget(lat, lng, heading){
+  if (!isFinite(heading)) return [lat, lng];
+  try {
+    const h = $('map_div').clientHeight || 400;
+    const px = Math.min(h * LOOKAHEAD_RATIO, LOOKAHEAD_MAX_PX);
+    const dist = metersPerPixel(lat, map.getZoom()) * px;
+    return destinationPoint(lat, lng, heading, dist);
+  } catch (_) { return [lat, lng]; }
+}
+
+/** 헤딩업 — 지도 요소를 진행 방향 반대로 돌린다. 오버레이·버튼은 그대로 유지된다. */
+function applyMapRotation(){
+  const el = $('map_div');
+  if (!el) return;
+  const on = headingUp && followMode;
+  el.classList.toggle('heading-up', on);
+  el.style.setProperty('--map-rot', on ? (-displayHeading).toFixed(1) + 'deg' : '0deg');
+  // 차량 아이콘은 지도 안에 있어 함께 돌아간다.
+  // 아이콘 +heading, 지도 -heading이 상쇄되어 헤딩업에서는 자연히 위를 향한다.
+}
+
+function toggleHeadingUp(){
+  headingUp = !headingUp;
+  lsSet(K.headingUp, headingUp);
+  $('btn-headup').classList.toggle('on', headingUp);
+  if (headingUp) setFollow(true);   // 헤딩업은 따라가기와 함께 쓴다
+  applyMapRotation();
+  toast(headingUp ? '진행 방향이 위로 (헤딩업)' : '북쪽 고정', 1500);
+}
+
+/** 주행을 시작하면 주행용 배율로 당긴다 */
+function applyDrivingZoom(){
+  if (drivingZoomApplied || !map) return;
+  try {
+    if (map.getZoom() < DRIVE_ZOOM) map.setZoom(DRIVE_ZOOM);
+    drivingZoomApplied = true;
+  } catch (_) {}
+}
+
+/** 내 위치로 즉시 복귀 + 따라가기 재개 */
+function recenterToMe(){
+  if (followMode && lastPos){   // 이미 따라가는 중이면 해제
+    setFollow(false);
+    return;
+  }
+  setFollow(true);
+  if (!lastPos){
+    toast('아직 GPS 위치를 받지 못했습니다', 1800);
+    return;
+  }
+  try {
+    if (map.getZoom() < DRIVE_ZOOM) map.setZoom(DRIVE_ZOOM);
+    const t = followTarget(lastPos[0], lastPos[1], displayHeading);
+    map.setCenter(LL(t[0], t[1]));
+  } catch (_) {}
+  applyMapRotation();
+}
+
 /* ══════════════════════════════════════════════════════════════
    GPS
    ══════════════════════════════════════════════════════════════ */
@@ -1426,26 +1545,35 @@ function onGps(pos){
   const lat = pos.coords.latitude, lng = pos.coords.longitude;
   const acc = pos.coords.accuracy;
   lastAccuracy = acc; lastFixAt = Date.now();
+  lastSpeedMs = (typeof pos.coords.speed === 'number' && !isNaN(pos.coords.speed))
+    ? pos.coords.speed : null;
   setGpsBadge(acc <= 15 ? 'good' : acc <= 40 ? 'mid' : 'bad',
               'GPS ' + Math.round(acc) + 'm');
 
-  // 진행 방향
-  let heading = carHeading;
-  if (typeof pos.coords.heading === 'number' && !isNaN(pos.coords.heading)){
-    heading = pos.coords.heading;
+  // 진행 방향 — 기기 heading이 없거나 정지 상태면 이전 값을 유지한다.
+  let raw = displayHeading;
+  if (typeof pos.coords.heading === 'number' && !isNaN(pos.coords.heading) &&
+      pos.coords.speed > 0.5){
+    raw = pos.coords.heading;
   } else if (lastPos && haversine(lastPos[0], lastPos[1], lat, lng) > 3){
-    heading = bearing(lastPos[0], lastPos[1], lat, lng);
+    raw = bearing(lastPos[0], lastPos[1], lat, lng);
   }
+  displayHeading = smoothHeading(displayHeading, raw);
 
   lastPos = [lat, lng];
-  updateCarMarker(lat, lng, heading);
+  updateCarMarker(lat, lng, displayHeading);
 
   // 주행 시작 시점에 측위가 없었다면 첫 유효 측위를 출발 위치로 기록한다.
   if (isPlaying && legStartTime && !legStartPos) legStartPos = [lat, lng];
 
-  // 자동 추적
+  // 자동 추적 — 진행 방향 앞쪽을 중심에 두어 차가 화면 아래쪽에 오게 한다.
   if (followMode && Date.now() > followPauseUntil && map){
-    try { map.setCenter(LL(lat, lng)); } catch (_) {}
+    try {
+      if (isPlaying) applyDrivingZoom();
+      const t = followTarget(lat, lng, displayHeading);
+      map.setCenter(LL(t[0], t[1]));
+    } catch (_) {}
+    applyMapRotation();
   }
 
   // 섹터 자유주행 — 턴 안내·구간 진행 로직을 타지 않는다.
@@ -1541,6 +1669,7 @@ function applyLeg(){
   clearSectorLayers();
   showTurn(false);
   renderControls();
+  drivingZoomApplied = false;
   if (sdkReady) fetchTmapRoute(leg.sLL, leg.eLL, leg.id);
 }
 
@@ -1604,7 +1733,7 @@ function updateStats(){
 
 function completeLeg(auto){
   if (!legs[legIdx]) return;
-  recordLeg();
+  // 구간 단위 요약 기록은 쓰지 않는다. 위치·속도는 10초 주기 스냅샷으로 남는다.
   doneSet.add(legIdx);
 
   nextLeg();
@@ -1629,58 +1758,310 @@ function nextLeg(){
   renderControls();
 }
 
+
 /* ══════════════════════════════════════════════════════════════
-   주행 기록
+   주행 환경 조건 (Ver.2에서 이식)
+   구간 완료 시 자동 계산해 기록에 남긴다.
    ══════════════════════════════════════════════════════════════ */
-function getLog(){ return lsGet(K.log, []); }
-function setLog(v){ lsSet(K.log, v); renderLogCount(); }
 
-function renderLogCount(){
-  const n = getLog().filter(r => r.date === todayKey()).length;
-  $('log-count').textContent = n ? n + '건' : '';
+/** 도로 종류 — 구간 road 필드의 키워드로 분류 */
+function classifyRoadType(road){
+  if (!road) return '도심';
+  return /올림픽대로|동부간선도로|경부고속도로|서울외곽순환|수도권제1순환|분당내곡간도시고속화|시화방조제|고속도로|자동차전용/.test(road)
+    ? '자동차전용' : '도심';
 }
 
-function recordLeg(){
+function getSeason(d){
+  const m = (d || new Date()).getMonth() + 1;
+  if (m >= 3 && m <= 5)  return '봄';
+  if (m >= 6 && m <= 8)  return '여름';
+  if (m >= 9 && m <= 11) return '가을';
+  return '겨울';
+}
+
+function getTimeOfDay(d){
+  const h = (d || new Date()).getHours();
+  if (h >= 5  && h <= 7)  return '일출';
+  if (h >= 8  && h <= 16) return '주간';
+  if (h >= 17 && h <= 19) return '일몰';
+  return '야간';
+}
+
+function getLocationLabel(){
+  const MAP = { '강남':'강남', '판교':'성남', '시흥':'시흥', '화성':'화성', '광교':'광교' };
+  return MAP[loc] || loc || '—';
+}
+
+/** 교통 밀도 — 구간 평균속도로 역산 */
+function getTrafficDensity(avgSpeedKmh){
+  if (avgSpeedKmh == null || isNaN(avgSpeedKmh)) return '—';
+  if (avgSpeedKmh < 10) return '정체(≥45대/km/차선)';
+  if (avgSpeedKmh < 25) return '혼잡(25~45대/km/차선)';
+  if (avgSpeedKmh < 50) return '보통(12~25대/km/차선)';
+  return '여유(≤12대/km/차선)';
+}
+
+/* ── 날씨 (Open-Meteo · API 키 불필요, CORS 허용) ──
+   강수량(mm)·운량(%) 실측치를 weather_code보다 우선 적용한다.
+   code는 안개처럼 강수·운량만으로 못 잡는 경우의 보조 판정에만 쓴다. */
+let _cachedWeather = null, _weatherFetchedAt = 0;
+const WEATHER_CACHE_MS = 5 * 60 * 1000;
+
+async function fetchWeather(lat, lng){
+  const now = Date.now();
+  if (_cachedWeather && now - _weatherFetchedAt < WEATHER_CACHE_MS) return _cachedWeather;
+  try {
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 6000);
+    const res = await fetch(
+      'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
+      '&current=weather_code,cloud_cover,precipitation,rain,showers,snowfall',
+      { signal: ctl.signal });
+    clearTimeout(to);
+    const data = await res.json();
+    _cachedWeather = classifyCurrentWeather(data.current || data.current_weather || {});
+    _weatherFetchedAt = now;
+    return _cachedWeather;
+  } catch (e){
+    return _cachedWeather || '—';
+  }
+}
+
+function classifyCurrentWeather(cur){
+  const code = Number.isFinite(cur.weather_code) ? cur.weather_code : null;
+  if (code === 45 || code === 48) return '안개';
+  if ((Number(cur.snowfall) || 0) > 0) return '눈';
+  if ((Number(cur.rain) || 0) > 0 || (Number(cur.showers) || 0) > 0 ||
+      (Number(cur.precipitation) || 0) > 0) return '비';
+  const cloud = Number.isFinite(cur.cloud_cover) ? cur.cloud_cover : null;
+  if (cloud != null) return cloud <= 20 ? '맑음' : '흐림';
+  return wmoCodeToLabel(code == null ? -1 : code);
+}
+
+function wmoCodeToLabel(code){
+  if (code === 0) return '맑음';
+  if ([1,2,3].indexOf(code) >= 0) return '흐림';
+  if ([45,48].indexOf(code) >= 0) return '안개';
+  if ([51,53,55,56,57,61,63,65,66,67,80,81,82].indexOf(code) >= 0) return '비';
+  if ([71,73,75,77,85,86].indexOf(code) >= 0) return '눈';
+  if ([95,96,99].indexOf(code) >= 0) return '비';
+  return '—';
+}
+
+/* ══════════════════════════════════════════════════════════════
+   주행기록 저장소 — IndexedDB
+   ── 10초마다 쌓이면 하루 2,880건이다. localStorage는 저장할 때마다
+      전체 배열을 다시 쓰기 때문에 기록이 늘수록 느려지고 용량(5~10MB)에도
+      금방 닿는다. IndexedDB는 한 건씩 추가할 수 있고 용량도 훨씬 크다.
+   ══════════════════════════════════════════════════════════════ */
+const TRIP_DB_NAME = 'nav3_trip_log_db';
+const TRIP_DB_VER  = 1;
+const TRIP_STORE   = 'entries';
+let _tripDBPromise = null;
+
+function openTripDB(){
+  if (_tripDBPromise) return _tripDBPromise;
+  _tripDBPromise = new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) { reject(new Error('IndexedDB 미지원')); return; }
+    const req = indexedDB.open(TRIP_DB_NAME, TRIP_DB_VER);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(TRIP_STORE)){
+        const st = db.createObjectStore(TRIP_STORE, { keyPath: '_id' });
+        st.createIndex('date', 'date', { unique: false });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+  return _tripDBPromise;
+}
+
+async function addTripEntry(entry){
+  try {
+    const db = await openTripDB();
+    await new Promise((res, rej) => {
+      const tx = db.transaction(TRIP_STORE, 'readwrite');
+      tx.objectStore(TRIP_STORE).put(entry);
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+    });
+  } catch (e){
+    // IndexedDB를 못 쓰는 환경에서는 localStorage로 물러선다.
+    const rows = lsGet(K.log, []) || [];
+    rows.push(entry);
+    if (rows.length > 20000) rows.splice(0, rows.length - 20000);
+    lsSet(K.log, rows);
+  }
+}
+
+async function getTripEntriesByDate(date){
+  try {
+    const db = await openTripDB();
+    return await new Promise((res, rej) => {
+      const tx = db.transaction(TRIP_STORE, 'readonly');
+      const idx = tx.objectStore(TRIP_STORE).index('date');
+      const req = idx.getAll(date);
+      req.onsuccess = () => res(req.result || []);
+      req.onerror   = () => rej(req.error);
+    });
+  } catch (e){
+    return (lsGet(K.log, []) || []).filter(r => r.date === date);
+  }
+}
+
+async function deleteTripEntriesByDate(date){
+  try {
+    const db = await openTripDB();
+    await new Promise((res, rej) => {
+      const tx = db.transaction(TRIP_STORE, 'readwrite');
+      const idx = tx.objectStore(TRIP_STORE).index('date');
+      const req = idx.openCursor(IDBKeyRange.only(date));
+      req.onsuccess = () => {
+        const c = req.result;
+        if (c){ c.delete(); c.continue(); }
+      };
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+    });
+  } catch (e){
+    lsSet(K.log, (lsGet(K.log, []) || []).filter(r => r.date !== date));
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   10초 주기 GPS 스냅샷 기록
+   ── 로그인 직후부터 로그아웃까지, 주행 시작/정지와 무관하게 계속 쌓인다.
+      번호 / 날짜 / 시각 / GPS위치 / 도로종류 / 날씨 / 시간대 / 장소 /
+      교통밀도 / 차량속도(km/h)
+   ══════════════════════════════════════════════════════════════ */
+const PERIODIC_LOG_INTERVAL_MS = 10 * 1000;   // Ver.2는 30초, Ver.3은 10초
+let periodicLogTimer = null;
+
+function startPeriodicLogging(){
+  if (periodicLogTimer) return;      // 중복 시작 시 간격이 리셋되는 것을 막는다
+  logGpsSnapshot();                  // 시작 시점 1건 즉시 기록
+  periodicLogTimer = setInterval(logGpsSnapshot, PERIODIC_LOG_INTERVAL_MS);
+}
+
+function stopPeriodicLogging(){
+  if (periodicLogTimer){ clearInterval(periodicLogTimer); periodicLogTimer = null; }
+}
+
+async function logGpsSnapshot(){
+  if (!lastPos) return;              // 아직 측위 전이면 다음 주기에 다시 시도
+  const now = new Date();
   const sector = currentSector();
-  const leg = sector
-    ? { id: 'SECTOR', s: sector.name || '구역', e: '자유주행' }
-    : legs[legIdx];
-  if (!leg) return;
-  const end = new Date();
-  const row = {
-    date      : todayKey(),
-    vehicle   : vehicle,
-    user      : user,
-    region    : loc,
-    scenario  : SCENARIOS[loc][scKey].name + (sector ? ' (구역)' : ''),
-    legId     : leg.id,
-    from      : leg.s,
-    to        : leg.e,
-    startTime : legStartTime ? nowHM(legStartTime) : '',
-    endTime   : nowHM(end),
-    startAddr : '',
-    endAddr   : '',
-    startLL   : legStartPos ? legStartPos.join(',') : '',
-    endLL     : lastPos ? lastPos.join(',') : '',
-    distanceKm: sector ? +sectorTrailKm().toFixed(2)
-                       : (routeTotalM ? +(routeTotalM / 1000).toFixed(2) : ''),
-  };
-  const log = getLog();
-  log.push(row);
-  setLog(log);
+  const lg = (isPlaying && !sector) ? legs[legIdx] : null;
+  const kmh = Math.max(0, (lastSpeedMs || 0) * 3.6);
 
-  // 주소는 비동기로 채워 넣는다 (TMAP 리버스 지오코딩)
-  const i = log.length - 1;
-  if (legStartPos) reverseGeocode(legStartPos[0], legStartPos[1]).then(a => patchLog(i, 'startAddr', a));
-  if (lastPos)     reverseGeocode(lastPos[0], lastPos[1]).then(a => patchLog(i, 'endAddr', a));
+  const entry = {
+    _id      : Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    type     : 'gps',
+    date     : todayKey(now),
+    time     : nowHM(now),
+    pos      : lastPos[0].toFixed(5) + ', ' + lastPos[1].toFixed(5),
+    roadType : classifyRoadType(lg && lg.road),
+    weather  : await fetchWeather(lastPos[0], lastPos[1]).catch(() => _cachedWeather || '—'),
+    timeOfDay: getTimeOfDay(now),
+    place    : getLocationLabel(),
+    // 교통밀도는 도로 흐름 실측이 있어야 판정할 수 있다. Ver.3에는 ITS 연동이 없어
+    // 내 차 속도로 대체하지 않고 빈칸으로 둔다 (잘못된 값을 남기지 않기 위해).
+    trafficDensity: getTrafficDensity(null),
+    speedKmh : kmh.toFixed(1),
+  };
+
+  await addTripEntry(entry);
+  renderLogCount();
 }
 
-function patchLog(i, field, value){
-  if (!value) return;
-  const log = getLog();
-  if (!log[i]) return;
-  log[i][field] = value;
-  setLog(log);
+/* ══════════════════════════════════════════════════════════════
+   주행기록 내보내기
+   ── Ver.2 v4.0.0과 같은 표 형식. 구간 단위 요약 대신 주기 스냅샷을 쓴다.
+      (구간 완료를 몇 초 만에 누르면 평균속도가 수천 km/h로 계산되던 문제 때문에
+       Ver.2가 구간 단위 기록을 폐기하고 주기 기록으로 바꿨다.)
+   ══════════════════════════════════════════════════════════════ */
+function renderLogCount(){
+  getTripEntriesByDate(todayKey()).then(list => {
+    $('log-count').textContent = list.length ? list.length + '건' : '';
+  }).catch(() => {});
+}
+
+/** 로그아웃 시 한 줄 남긴다 */
+async function logLogoutEntry(){
+  const now = new Date();
+  await addTripEntry({
+    _id : Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    type: 'logout',
+    date: todayKey(now),
+    time: nowHM(now),
+    place: getLocationLabel(),
+  });
+}
+
+async function downloadTodayLog(){
+  const today = todayKey();
+  const rows0 = (await getTripEntriesByDate(today))
+    .sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+
+  if (!rows0.length){
+    alert('오늘 기록된 주행 데이터가 아직 없습니다.\n' +
+          '(로그인 후 10초마다 자동으로 GPS 위치가 기록됩니다)\n\n' +
+          '기록이 안 됐다면 위치(GPS) 권한이 거부되어 있거나,\n' +
+          'file://로 직접 연 상태(https 주소로 접속해야 함)일 수 있습니다.');
+    return;
+  }
+
+  const loginTime = sessionStorage.getItem('nav3-login-time') || '';
+  const infoRow = ['차량', vehicle, '이름', user, '입장시각', loginTime];
+  const headers = ['번호','날짜','시각','GPS위치','도로종류','날씨','시간대','장소','교통밀도','차량속도(km/h)'];
+
+  const rows = rows0.map((e, i) => {
+    if (e.type === 'logout'){
+      return [i + 1, e.date, e.time, e.place || '—', '—', '—', '—', '로그아웃', '—', '—'];
+    }
+    return [i + 1, e.date, e.time, e.pos || '—',
+            e.roadType || '—', e.weather || '—', e.timeOfDay || '—',
+            e.place || '—', e.trafficDensity || '—', e.speedKmh || '—'];
+  });
+
+  const aoa = [infoRow, [], headers].concat(rows);
+
+  if (typeof XLSX !== 'undefined'){
+    try {
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [{wch:6},{wch:12},{wch:10},{wch:20},
+                     {wch:12},{wch:8},{wch:8},{wch:8},{wch:22},{wch:14}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '주행기록');
+      XLSX.writeFile(wb, '주행기록_' + today + '.xlsx');
+      return;
+    } catch (e){ console.warn('.xlsx 실패 → CSV로 대체:', e); }
+  }
+
+  const csv = aoa.map(r => r.map(c => {
+    const v = String(c == null ? '' : c);
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }).join(',')).join('\r\n');
+  downloadBlob('\uFEFF' + csv, '주행기록_' + today + '.csv', 'text/csv;charset=utf-8');
+}
+
+async function clearTodayLog(){
+  const today = todayKey();
+  const cnt = (await getTripEntriesByDate(today)).length;
+  if (!cnt){ toast('오늘 기록이 없습니다'); return; }
+  if (!confirm('오늘(' + today + ') 기록 ' + cnt + '건을 모두 삭제할까요?')) return;
+  await deleteTripEntriesByDate(today);
+  renderLogCount();
+  toast('오늘 기록을 삭제했습니다');
+}
+
+function downloadBlob(text, filename, type){
+  const url = URL.createObjectURL(new Blob([text], { type: type }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 async function reverseGeocode(lat, lon){
@@ -1693,46 +2074,9 @@ async function reverseGeocode(lat, lon){
     const d = await res.json();
     const a = d && d.addressInfo;
     if (!a) return '';
-    return a.fullAddress ? String(a.fullAddress).split(',')[0] :
-           [a.city_do, a.gu_gun, a.legalDong, a.bunji].filter(Boolean).join(' ');
+    return a.fullAddress ? String(a.fullAddress).split(',')[0]
+                         : [a.city_do, a.gu_gun, a.legalDong, a.bunji].filter(Boolean).join(' ');
   } catch (_) { return ''; }
-}
-
-function downloadTodayLog(){
-  const rows = getLog().filter(r => r.date === todayKey());
-  if (!rows.length){ toast('오늘 기록이 없습니다'); return; }
-
-  const headers = ['날짜','차량','작업자','지역','시나리오','구간ID','출발지','도착지',
-                   '출발시각','도착시각','출발주소','도착주소','출발좌표','도착좌표','경로거리(km)'];
-  const body = rows.map(r => [r.date, r.vehicle, r.user, r.region, r.scenario, r.legId,
-                              r.from, r.to, r.startTime, r.endTime, r.startAddr, r.endAddr,
-                              r.startLL, r.endLL, r.distanceKm]);
-  const name = '주행기록_' + todayKey();
-
-  if (typeof XLSX !== 'undefined'){
-    try {
-      const info = ['자율주행 데이터 취득 주행기록 · Ver.3 (TMAP)', '', '차량: ' + vehicle, '작업자: ' + user];
-      const ws = XLSX.utils.aoa_to_sheet([info, [], headers].concat(body));
-      ws['!cols'] = headers.map(h => ({ wch: Math.max(10, h.length * 2) }));
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '주행기록');
-      XLSX.writeFile(wb, name + '.xlsx');
-      return;
-    } catch (e){ console.warn('XLSX 실패, CSV로 대체:', e); }
-  }
-
-  const csv = [headers].concat(body)
-    .map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(','))
-    .join('\r\n');
-  downloadBlob('\uFEFF' + csv, name + '.csv', 'text/csv;charset=utf-8');
-}
-
-function downloadBlob(text, filename, type){
-  const url = URL.createObjectURL(new Blob([text], { type: type }));
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1744,7 +2088,7 @@ function exportSettings(){
     version    : APP_VER,
     exportedAt : new Date().toISOString(),
     ui         : { loc: loc, scKey: scKey, ttsOn: ttsOn, useWaypoints: useWaypoints },
-    tripLog    : getLog(),
+    routeEdits : getRouteEdits(),
   };
   const d = new Date();
   const stamp = todayKey(d).replace(/-/g, '') + '_' +
@@ -1758,7 +2102,10 @@ function importSettings(file){
   fr.onload = () => {
     try {
       const d = JSON.parse(fr.result);
-      if (Array.isArray(d.tripLog)) setLog(d.tripLog);
+      if (d.routeEdits && typeof d.routeEdits === 'object'){
+        setRouteEdits(d.routeEdits);
+        applyRouteEdits();
+      }
       if (d.ui){
         if (typeof d.ui.ttsOn === 'boolean') { ttsOn = d.ui.ttsOn; renderTts(); }
         if (typeof d.ui.useWaypoints === 'boolean') { useWaypoints = d.ui.useWaypoints; lsSet(K.wp, useWaypoints); renderWpState(); }
@@ -1865,9 +2212,17 @@ let sectorRoadsOn = true;
 let sectorRedrawTimer = null;
 
 /** 구역 내 도로를 몇 배율부터 그릴지 — 너무 축소된 상태에서는 부담만 크다 */
-const SECTOR_ROAD_MIN_ZOOM = 15;
-/** 한 번에 그릴 도로 최대 개수 (화면 안쪽만 골라도 넘칠 때의 상한) */
-const SECTOR_ROAD_MAX_DRAW = 300;
+const SECTOR_ROAD_MIN_ZOOM = 14;
+/**
+ * 한 번에 그릴 도로 최대 개수.
+ * 축소 상태에서는 화면에 구역 전체가 들어와 수백 개가 걸리므로 큰길만 추린다.
+ * 확대하면 화면 범위 자체가 좁아져 개수가 알아서 줄기 때문에 상한을 넉넉히 준다.
+ */
+function sectorRoadMaxDraw(zoom){
+  return zoom >= 15 ? 700 : 350;
+}
+/** 구역 내 길 색 — 경로선(파랑)·지도 도로와 겹치지 않는 보라 계열 */
+const SECTOR_ROAD_COLOR = '#7c3aed';
 
 function isSectorScenario(sc){
   return !!(sc && Array.isArray(sc.sector) && sc.sector.length >= 3);
@@ -1943,7 +2298,7 @@ function renderSector(){
     strokeColor : color,
     strokeWeight: 3,
     fillColor   : color,
-    fillOpacity : 0.10,
+    fillOpacity : 0.05,
     map         : map,
   });
 
@@ -1980,14 +2335,29 @@ function renderSectorRoads(){
   setSectorHint('');
 
   const vb = viewportBox();
-  const picked = [];
+  const inView = [];
   for (const r of sc.roads){
     const c = roadCoords(r);
     if (!c || c.length < 2) continue;
     if (vb && !roadIntersectsBox(c, vb)) continue;
-    picked.push(r);
-    if (picked.length >= SECTOR_ROAD_MAX_DRAW) break;
+    inView.push(r);
   }
+
+  // 상한에 걸릴 때 앞에서부터 자르면 골목만 남고 큰길이 빠지는 일이 생긴다.
+  // 차선 수가 많은 도로를 먼저 그려 축소 상태에서도 도로망 뼈대가 보이게 한다.
+  const maxDraw = sectorRoadMaxDraw(zoom);
+  const truncated = inView.length > maxDraw;
+  if (truncated) inView.sort((a, b) => ((b.ln || 0) - (a.ln || 0)));
+  const picked = inView.slice(0, maxDraw);
+
+  setSectorHint(truncated
+    ? '큰길 위주로 ' + picked.length + '개 표시 — 확대하면 골목까지 보입니다'
+    : '');
+
+  // 확대할수록 굵게 — 축소 상태에서 화면이 뭉개지지 않으면서, 확대하면 또렷해진다.
+  const step  = Math.max(0, Math.min(4, zoom - SECTOR_ROAD_MIN_ZOOM));
+  const wMain = 4 + step;          // 2차선 이상
+  const wMinor = 3 + step * 0.75;  // 1차선 골목
 
   picked.forEach(r => {
     const c = roadCoords(r);
@@ -1995,9 +2365,9 @@ function renderSectorRoads(){
     const minor = lanes <= 1;
     const line = new Tmapv2.Polyline({
       path         : c.map(p => LL(p[0], p[1])),
-      strokeColor  : '#2563eb',
-      strokeWeight : minor ? 3 : 5,
-      strokeOpacity: minor ? 0.45 : 0.62,
+      strokeColor  : SECTOR_ROAD_COLOR,
+      strokeWeight : minor ? wMinor : wMain,
+      strokeOpacity: minor ? 0.80 : 0.95,
       map          : map,
     });
     sectorRoadLines.push(line);
@@ -2041,6 +2411,7 @@ function toggleSectorRoads(){
   sectorRoadsOn = !sectorRoadsOn;
   lsSet(K.sectorRoads, sectorRoadsOn);
   $('sector-roads-state').textContent = sectorRoadsOn ? 'ON' : 'OFF';
+  $('btn-headup').classList.toggle('on', headingUp);
   renderSectorRoads();
   toast('구역 내 길 표시 ' + (sectorRoadsOn ? '켜짐' : '꺼짐'), 1400);
 }
@@ -2247,6 +2618,10 @@ function enterEditMode(){
   editELL    = lg.eLL.slice();
   editHistory = [];
 
+  // 회전 상태에서는 탭 위치를 가늠하기 어려우므로 편집 중에는 북쪽 고정으로 둔다.
+  $('map_div').classList.remove('heading-up');
+  $('map_div').style.setProperty('--map-rot', '0deg');
+
   $('edit-bar').classList.add('on');
   $('panel').classList.add('locked');
   renderEditTargetBtns();
@@ -2259,6 +2634,7 @@ function exitEditMode(saved){
   clearEditMarkers();
   $('edit-bar').classList.remove('on');
   $('panel').classList.remove('locked');
+  applyMapRotation();
 
   if (!saved){
     // 저장하지 않았으면 원래 경로로 되돌린다.
@@ -2645,8 +3021,7 @@ function togglePlay(){
     setFollow(true);
   } else {
     if (sector && sectorTrailPts.length > 1){
-      recordLeg();                       // 구역 주행 실적을 기록으로 남긴다
-      toast('구역 주행 ' + sectorTrailKm().toFixed(1) + 'km 기록됨', 2200);
+      toast('구역 주행 ' + sectorTrailKm().toFixed(1) + 'km', 2200);
     }
     legStartTime = null;
     legStartPos = null;
@@ -2709,11 +3084,15 @@ function submitLogin(){
   }
   user = name;
   sessionStorage.setItem(K.session, JSON.stringify({ user: user, vehicle: vehicle }));
+  sessionStorage.setItem('nav3-login-time', nowHM(new Date()));
   enterApp();
 }
 
-function logout(){
+async function logout(){
+  stopPeriodicLogging();
+  try { await logLogoutEntry(); } catch (_) {}
   sessionStorage.removeItem(K.session);
+  sessionStorage.removeItem('nav3-login-time');
   location.reload();
 }
 
@@ -2728,6 +3107,7 @@ async function enterApp(){
   // 배포본에 키가 심어져 있으면 사용자가 바꿀 수 없으므로 메뉴를 감춘다.
   if ((window.DEFAULT_APPKEY || '').trim()) $('mi-appkey').classList.add('hidden');
   $('sector-roads-state').textContent = sectorRoadsOn ? 'ON' : 'OFF';
+  $('btn-headup').classList.toggle('on', headingUp);
   renderLogCount();
   renderControls();
 
@@ -2741,6 +3121,7 @@ async function enterApp(){
   // 지도 로딩과 무관하게 시나리오 UI를 먼저 띄운다.
   loadScenario(startLoc, startSc, false);
   startGps();
+  startPeriodicLogging();   // 로그인 직후부터 상시 기록 (주행 시작 여부와 무관)
 
   await routesReady;
   // 이 기기에서 수정한 경로는 원본 위에 덮어쓴다.
@@ -2805,7 +3186,8 @@ function bindEvents(){
   $('settings-menu').onclick = e => e.stopPropagation();
 
   /* map tools */
-  $('btn-follow').onclick = () => setFollow(!followMode);
+  $('btn-follow').onclick = recenterToMe;
+  $('btn-headup').onclick = toggleHeadingUp;
   $('btn-fit').onclick = fitRoute;
 
   /* controls */
@@ -2825,12 +3207,7 @@ function bindEvents(){
 
   /* 설정 메뉴 */
   $('mi-download').onclick = () => { downloadTodayLog(); closeMenu(); };
-  $('mi-clear').onclick = () => {
-    if (!confirm('오늘 주행 기록을 모두 지울까요?')) return;
-    setLog(getLog().filter(r => r.date !== todayKey()));
-    toast('오늘 기록을 초기화했습니다');
-    closeMenu();
-  };
+  $('mi-clear').onclick = () => { closeMenu(); clearTodayLog(); };
   $('mi-export').onclick = () => { exportSettings(); closeMenu(); };
   $('mi-import').onclick = () => { $('import-input').click(); closeMenu(); };
   $('import-input').onchange = e => {
@@ -2880,6 +3257,7 @@ function closeMenu(){ $('settings-menu').classList.remove('on'); }
   // TMAP에서는 오히려 경로를 되돌리게 만드는 경우가 많다. 기본은 끈다.
   useWaypoints   = lsGet(K.wp, false);
   sectorRoadsOn  = lsGet(K.sectorRoads, true);
+  headingUp      = lsGet(K.headingUp, false);
 
   buildVehicleGrid();
   bindEvents();
