@@ -215,6 +215,13 @@ input,select{font-family:inherit;}
 .ebtn.save{background:var(--accent);border-color:var(--accent);color:#fff;}
 .ebtn.ghost{color:var(--sub);}
 #edit-hint{font-size:11px;color:var(--sub);line-height:1.4;}
+#edit-warn{
+  display:none;align-items:center;gap:8px;flex-wrap:wrap;
+  background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.45);
+  border-radius:9px;padding:7px 9px;font-size:11px;line-height:1.45;color:#fbbf24;
+}
+#edit-warn.on{display:flex;}
+#edit-warn span{flex:1;min-width:180px;}
 #panel.locked{opacity:.4;pointer-events:none;}
 
 #trail-legend{
@@ -450,6 +457,7 @@ input,select{font-family:inherit;}
           <button class="ebtn save" id="edit-save">💾 저장</button>
         </div>
         <div id="edit-hint"></div>
+        <div id="edit-warn"></div>
       </div>
 
       <div id="trail-legend"></div>
@@ -2830,6 +2838,92 @@ async function ensureSectorRoads(){
 }
 
 
+
+/* ══════════════════════════════════════════════════════════════
+   경로 겹침 감지
+   ── TMAP은 passList에 넣은 지점을 반드시 순서대로 들른다.
+      그래서 경유점을 진행 방향에서 벗어난 자리에 찍으면, 거기까지 갔다가
+      되돌아오는 경로가 나오고 같은 길이 두 번 그려진다.
+      경유점 좌표만 봐서는 알 수 없는 경우(일방통행·중앙분리대)도 있어,
+      실제로 받은 경로 좌표에서 되짚는 구간을 찾아낸다.
+   ══════════════════════════════════════════════════════════════ */
+const OVERLAP_NEAR_M      = 15;   // 이 거리 안에서 다시 지나가면 되짚은 것으로 본다
+const OVERLAP_MIN_GAP     = 12;   // 인접한 좌표끼리는 당연히 가까우므로 건너뛴다
+const OVERLAP_REPORT_MIN_M = 120; // 이보다 짧은 겹침은 교차로 회전 등으로 보고 넘긴다
+
+/** 경로에서 되짚는(겹치는) 구간의 총 길이(m) */
+function measureRouteOverlap(coords){
+  if (!coords || coords.length < 30) return 0;
+
+  // 좌표가 많으면 대략 10m 간격으로 솎아 비교 비용을 줄인다.
+  const pts = [], keepIdx = [];
+  let acc = 0;
+  for (let i = 0; i < coords.length; i++){
+    if (i === 0){ pts.push(coords[i]); keepIdx.push(i); continue; }
+    acc += haversine(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1]);
+    if (acc >= 10){ pts.push(coords[i]); keepIdx.push(i); acc = 0; }
+  }
+  if (pts.length < 30) return 0;
+
+  const flagged = new Array(pts.length).fill(false);
+  for (let i = 0; i < pts.length; i++){
+    for (let j = i + OVERLAP_MIN_GAP; j < pts.length; j++){
+      if (haversine(pts[i][0], pts[i][1], pts[j][0], pts[j][1]) <= OVERLAP_NEAR_M){
+        flagged[i] = true; flagged[j] = true;
+        break;
+      }
+    }
+  }
+
+  let total = 0;
+  for (let i = 1; i < pts.length; i++){
+    if (flagged[i] && flagged[i-1]){
+      total += haversine(pts[i-1][0], pts[i-1][1], pts[i][0], pts[i][1]);
+    }
+  }
+  return total;
+}
+
+/** 편집 중 겹침을 검사해 편집 바에 알린다 */
+function checkEditOverlap(){
+  const box = $('edit-warn');
+  if (!box) return;
+  const m = measureRouteOverlap(routeCoords);
+  if (m < OVERLAP_REPORT_MIN_M){
+    box.classList.remove('on');
+    box.innerHTML = '';
+    return;
+  }
+  box.classList.add('on');
+  box.innerHTML =
+    '<span>⚠️ 같은 길을 되짚는 구간이 약 ' + Math.round(m) + 'm 있습니다. ' +
+    '경유점이 진행 방향 밖에 있으면 갔다가 돌아오는 경로가 만들어집니다.</span>' +
+    '<button class="ebtn" id="edit-fix">🧹 자동 정리</button>';
+  const btn = $('edit-fix');
+  if (btn) btn.onclick = autoFixEditWaypoints;
+}
+
+/** 되돌아가게 만드는 경유점을 걸러내고 다시 그린다 */
+async function autoFixEditWaypoints(){
+  const before = editWps.length;
+  const cleaned = sanitizeWaypoints(editSLL, editELL, editWps);
+
+  if (cleaned.length === before){
+    // 경유점 배치만으로는 걸러지지 않는 경우(일방통행·중앙분리대 등).
+    // 이럴 때는 마지막에 찍은 경유점을 빼 보는 것이 가장 확실하다.
+    if (!editWps.length){ toast('정리할 경유점이 없습니다', 1800); return; }
+    pushEditHistory();
+    editWps.pop();
+    toast('마지막 경유점을 뺐습니다 — 여전히 겹치면 다시 눌러주세요', 2600);
+  } else {
+    pushEditHistory();
+    editWps = cleaned;
+    toast('되돌아가게 만드는 경유점 ' + (before - cleaned.length) + '개를 뺐습니다', 2600);
+  }
+  renderEditMarkers();
+  await refreshEditPreview();
+}
+
 /* ══════════════════════════════════════════════════════════════
    경로 수정
    ── TMAP v2 마커 드래그는 모바일에서 동작이 일정하지 않아
@@ -2912,6 +3006,8 @@ function exitEditMode(saved){
   clearEditMarkers();
   $('edit-bar').classList.remove('on');
   $('panel').classList.remove('locked');
+  const warn = $('edit-warn');
+  if (warn){ warn.classList.remove('on'); warn.innerHTML = ''; }
   applyMapRotation();
 
   if (!saved){
@@ -3077,7 +3173,10 @@ async function refreshEditPreview(){
   } finally {
     WAYPOINTS[lg.id] = orig;
     useWaypoints = origUse;
-    if (editMode) renderEditMarkers();  // 경로 렌더가 마커를 덮지 않도록 다시 올린다
+    if (editMode){
+      renderEditMarkers();   // 경로 렌더가 마커를 덮지 않도록 다시 올린다
+      checkEditOverlap();    // 되짚는 구간이 생겼는지 확인
+    }
   }
 }
 
