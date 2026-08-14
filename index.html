@@ -25,7 +25,7 @@
    │     따옴표 안에 발급받은 키를 붙여넣으세요.                │
    │     비워두면 앱 첫 화면에서 키를 직접 입력받습니다.        │
    └──────────────────────────────────────────────────────────┘ */
-var DEFAULT_APPKEY = 'V2ZBpvQJzZ9DPdRuHNdsW8FRQQwJoNcTaVZzpzYe';
+var DEFAULT_APPKEY = '';
 
 (function(){
   try{
@@ -217,6 +217,16 @@ input,select{font-family:inherit;}
 #edit-hint{font-size:11px;color:var(--sub);line-height:1.4;}
 #panel.locked{opacity:.4;pointer-events:none;}
 
+#trail-legend{
+  position:absolute;left:10px;bottom:52px;z-index:400;display:none;
+  align-items:center;gap:10px;background:rgba(15,17,26,.94);border:1px solid var(--line);
+  border-radius:9px;padding:6px 10px;font-size:11px;font-weight:700;box-shadow:var(--shadow);
+}
+#trail-legend.on{display:flex;}
+#trail-legend span{display:flex;align-items:center;gap:5px;white-space:nowrap;}
+#trail-legend i{width:11px;height:4px;border-radius:2px;display:inline-block;}
+#trail-legend .pct{color:var(--accent2);border-left:1px solid var(--line);padding-left:9px;}
+
 #sector-hint{
   position:absolute;left:10px;bottom:12px;z-index:400;display:none;
   background:rgba(15,17,26,.92);border:1px solid var(--line);border-radius:9px;
@@ -373,6 +383,7 @@ input,select{font-family:inherit;}
   <div class="mi" id="mi-download">📥 주행기록지 (엑셀)<span class="cnt" id="log-count"></span></div>
   <div class="mi" id="mi-clear">🗑️ 오늘 기록 삭제</div>
   <div class="mi" id="mi-traffic">🚦 교통밀도<span class="cnt" id="traffic-state">미측정</span></div>
+  <div class="mi" id="mi-wakelock">💡 화면 꺼짐 방지<span class="cnt" id="wakelock-state">—</span></div>
   <div class="mdiv"></div>
   <div class="mi" id="mi-export">📤 설정 내보내기</div>
   <div class="mi" id="mi-import">📂 설정 가져오기</div>
@@ -441,6 +452,7 @@ input,select{font-family:inherit;}
         <div id="edit-hint"></div>
       </div>
 
+      <div id="trail-legend"></div>
       <div id="sector-hint"></div>
 
       <div id="route-spin"><div class="spin"></div></div>
@@ -466,7 +478,7 @@ input,select{font-family:inherit;}
           <div id="cur-stats">
             <div class="stat"><b id="st-dist">—</b><i>거리 (km)</i></div>
             <div class="stat"><b id="st-eta">—</b><i id="st-eta-label">예상 (분)</i></div>
-            <div class="stat"><b id="st-plan">—</b><i>계획 (분)</i></div>
+            <div class="stat"><b id="st-plan">—</b><i id="st-plan-label">계획 (분)</i></div>
           </div>
         </div>
 
@@ -1023,9 +1035,11 @@ function initMap(){
   });
 
   // 사용자가 지도를 직접 만지면 자동 추적을 잠시 멈춘다.
-  ['dragstart','zoom_changed','touchstart','mousedown','wheel'].forEach(ev => {
+  ['dragstart','touchstart','mousedown','wheel'].forEach(ev => {
     try { map.addListener(ev, pauseFollow); } catch (_) {}
   });
+  // 배율은 앱도 바꾸므로(주행 시작 시 당김) 따로 가려낸다.
+  try { map.addListener('zoom_changed', pauseFollowOnZoom); } catch (_) {}
   const el = $('map_div');
   ['touchstart','mousedown','wheel'].forEach(ev => {
     el.addEventListener(ev, pauseFollow, { passive: true });
@@ -1041,9 +1055,25 @@ function initMap(){
   try { map.addListener('click', onEditMapClick); } catch (_) {}
 }
 
+/* 앱이 스스로 지도를 움직이는 동안에는 '사용자 조작'으로 세지 않는다.
+   주행 시작 시 배율을 당기면 zoom_changed가 발생하는데, 이것을 손 조작으로
+   오인해 곧바로 추적이 10초간 멈춰 버리는 문제가 있었다. */
+let programmaticMoveUntil = 0;
+
+function beginProgrammaticMove(){
+  programmaticMoveUntil = Date.now() + 400;
+}
+
+/** 손으로 지도를 만졌을 때 — 앱이 일으킬 수 없는 이벤트라 항상 추적을 멈춘다 */
 function pauseFollow(){
   if (!followMode) return;
   followPauseUntil = Date.now() + GPS_FOLLOW_RESUME_MS;
+}
+
+/** 배율 변경 — 앱이 배율을 당긴 것인지, 사용자가 손으로 바꾼 것인지 가려낸다 */
+function pauseFollowOnZoom(){
+  if (Date.now() < programmaticMoveUntil) return;
+  pauseFollow();
 }
 
 function setFollow(on){
@@ -1052,6 +1082,7 @@ function setFollow(on){
   $('btn-follow').classList.toggle('on', on);
   if (on && lastPos && map){
     try {
+      beginProgrammaticMove();
       const t = followTarget(lastPos[0], lastPos[1], displayHeading);
       map.setCenter(LL(t[0], t[1]));
     } catch (_) {}
@@ -1121,6 +1152,7 @@ function updateCarMarker(lat, lng, heading){
 function fitRoute(){
   if (!map || routeCoords.length < 2) return;
   try {
+    beginProgrammaticMove();
     const b = new Tmapv2.LatLngBounds();
     routeCoords.forEach(c => b.extend(LL(c[0], c[1])));
     map.fitBounds(b);
@@ -1494,6 +1526,7 @@ function toggleHeadingUp(){
   lsSet(K.headingUp, headingUp);
   $('btn-headup').classList.toggle('on', headingUp);
   renderTrafficState();
+  renderWakeLockState();
   if (headingUp) setFollow(true);   // 헤딩업은 따라가기와 함께 쓴다
   applyMapRotation();
   toast(headingUp ? '진행 방향이 위로 (헤딩업)' : '북쪽 고정', 1500);
@@ -1503,28 +1536,30 @@ function toggleHeadingUp(){
 function applyDrivingZoom(){
   if (drivingZoomApplied || !map) return;
   try {
+    beginProgrammaticMove();
     if (map.getZoom() < DRIVE_ZOOM) map.setZoom(DRIVE_ZOOM);
     drivingZoomApplied = true;
   } catch (_) {}
 }
 
 /** 내 위치로 즉시 복귀 + 따라가기 재개 */
+/* 🎯 버튼은 언제 눌러도 '내 위치로 가서 따라가기'다.
+   따라가는 중에 누르면 꺼지도록 했더니, 따라가게 하려고 누른 사람에게
+   정반대로 동작해 혼란스러웠다. 추적 해제는 지도를 손으로 움직이면 된다. */
 function recenterToMe(){
-  if (followMode && lastPos){   // 이미 따라가는 중이면 해제
-    setFollow(false);
-    return;
-  }
   setFollow(true);
   if (!lastPos){
     toast('아직 GPS 위치를 받지 못했습니다', 1800);
     return;
   }
   try {
+    beginProgrammaticMove();
     if (map.getZoom() < DRIVE_ZOOM) map.setZoom(DRIVE_ZOOM);
     const t = followTarget(lastPos[0], lastPos[1], displayHeading);
     map.setCenter(LL(t[0], t[1]));
   } catch (_) {}
   applyMapRotation();
+  toast('내 위치를 따라갑니다', 1400);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1571,12 +1606,15 @@ function onGps(pos){
   // 자동 추적 — 진행 방향 앞쪽을 중심에 두어 차가 화면 아래쪽에 오게 한다.
   if (followMode && Date.now() > followPauseUntil && map){
     try {
+      beginProgrammaticMove();
       if (isPlaying) applyDrivingZoom();
       const t = followTarget(lat, lng, displayHeading);
       map.setCenter(LL(t[0], t[1]));
     } catch (_) {}
     applyMapRotation();
   }
+
+  maybeLogSnapshot();   // 타이머가 늦춰져도 측위가 오면 기록이 이어지도록
 
   // 섹터 자유주행 — 턴 안내·구간 진행 로직을 타지 않는다.
   if (currentSector()){ updateSectorDriving(lat, lng); return; }
@@ -1664,7 +1702,8 @@ function applyLeg(){
   $('cur-e').textContent = leg.e || '—';
   $('cur-road').textContent = leg.road || '—';
   $('st-plan').textContent = leg.time != null ? leg.time : '—';
-  $('st-eta-label').textContent = '예상 (분)';
+  $('st-eta-label').textContent  = '예상 (분)';
+  $('st-plan-label').textContent = '계획 (분)';
 
   renderLegs();
 
@@ -1706,15 +1745,19 @@ function renderSectorInfo(){
     ? 'HD맵 도로 ' + roads.length + '개 · 꼭짓점 ' + sc.sector.length + '개'
     : '꼭짓점 ' + sc.sector.length + '개 · 도로 데이터 없음';
 
+  const [hd, off] = trailSplitKm();
   $('st-dist').textContent = roads.length ? roadsTotalKm(roads).toFixed(1) : '—';
-  $('st-eta').textContent  = sectorTrailKm().toFixed(1);
-  $('st-plan').textContent = '—';
-  $('st-eta-label').textContent = '주행 (km)';
+  $('st-eta').textContent  = hd.toFixed(1);
+  $('st-plan').textContent = off.toFixed(1);
+  $('st-eta-label').textContent  = 'HD맵 (km)';
+  $('st-plan-label').textContent = '비구현 (km)';
 
   $('steps-body').innerHTML =
     '<div class="tiny muted" style="padding:8px 2px;line-height:1.6">' +
     '구역 안을 자유롭게 주행하세요. 턴바이턴 안내는 제공되지 않습니다.<br/>' +
-    '지나온 길은 초록색으로 칠해지고, 구역을 벗어나면 경고합니다.</div>';
+    '지나온 길은 <b style="color:' + TRAIL_COLOR_HD + '">HD맵 구현 구간(초록)</b>과 ' +
+    '<b style="color:' + TRAIL_COLOR_OFF + '">비구현 구간(보라)</b>으로 나눠 칠해집니다.<br/>' +
+    '구역을 벗어나면 경고합니다.</div>';
 }
 
 function updateStats(){
@@ -1814,12 +1857,19 @@ function cycleTrafficDensity(){
   trafficDensity = TRAFFIC_OPTIONS[(i + 1) % TRAFFIC_OPTIONS.length];
   lsSet(K.traffic, trafficDensity);
   renderTrafficState();
+  renderWakeLockState();
   toast('교통밀도: ' + shortTraffic(trafficDensity), 1600);
 }
 
 /** 메뉴에 짧게 표시할 이름 */
 function shortTraffic(v){
   return v === TRAFFIC_PLACEHOLDER ? '미측정' : String(v).split('(')[0];
+}
+
+function renderWakeLockState(){
+  const el = $('wakelock-state');
+  if (!el) return;
+  el.textContent = !('wakeLock' in navigator) ? '미지원' : (wakeLock ? 'ON' : 'OFF');
 }
 
 function renderTrafficState(){
@@ -1872,6 +1922,41 @@ function wmoCodeToLabel(code){
   if ([71,73,75,77,85,86].indexOf(code) >= 0) return '눈';
   if ([95,96,99].indexOf(code) >= 0) return '비';
   return '—';
+}
+
+/* ══════════════════════════════════════════════════════════════
+   화면 꺼짐 방지 (Screen Wake Lock)
+   ── 화면이 꺼지면 브라우저가 탭을 얼려 GPS 수신과 기록이 함께 멈춘다.
+      기록 중에는 화면을 켜 둔다. iOS는 16.4부터, 안드로이드 크롬은 계속 지원.
+   ══════════════════════════════════════════════════════════════ */
+let wakeLock = null;
+
+async function requestWakeLock(){
+  if (!('wakeLock' in navigator)) return false;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; renderWakeLockState(); });
+    renderWakeLockState();
+    return true;
+  } catch (e){
+    console.warn('화면 꺼짐 방지 실패:', e && e.message);
+    return false;
+  }
+}
+
+function releaseWakeLock(){
+  if (wakeLock){ try { wakeLock.release(); } catch (_) {} wakeLock = null; }
+  renderWakeLockState();
+}
+
+/** 화면이 다시 켜지면 잠금이 풀려 있으므로 다시 건다 */
+function onVisibilityChange(){
+  if (document.visibilityState !== 'visible') return;
+  if (periodicLogTimer){
+    requestWakeLock();
+    // 백그라운드에 있던 동안 밀린 기록을 즉시 한 건 남긴다.
+    maybeLogSnapshot();
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1962,20 +2047,48 @@ async function deleteTripEntriesByDate(date){
       교통밀도 / 차량속도(km/h)
    ══════════════════════════════════════════════════════════════ */
 const PERIODIC_LOG_INTERVAL_MS = 10 * 1000;   // Ver.2는 30초, Ver.3은 10초
+const GPS_STALE_MS = 30 * 1000;              // 이보다 오래된 측위는 기록하지 않는다
 let periodicLogTimer = null;
+let lastLogAt = 0;
+let staleWarned = false;
 
 function startPeriodicLogging(){
   if (periodicLogTimer) return;      // 중복 시작 시 간격이 리셋되는 것을 막는다
   logGpsSnapshot();                  // 시작 시점 1건 즉시 기록
   periodicLogTimer = setInterval(logGpsSnapshot, PERIODIC_LOG_INTERVAL_MS);
+  requestWakeLock();
 }
 
 function stopPeriodicLogging(){
   if (periodicLogTimer){ clearInterval(periodicLogTimer); periodicLogTimer = null; }
+  releaseWakeLock();
+}
+
+/**
+ * 측위가 들어올 때도 기록 시점을 확인한다.
+ * 화면이 꺼지거나 앱이 백그라운드로 가면 브라우저가 setInterval을 크게 늦추기 때문에
+ * (실측: 10초 간격이 22초 → 52초 → 80초로 벌어짐) 타이머 하나에만 의존할 수 없다.
+ */
+function maybeLogSnapshot(){
+  if (!periodicLogTimer) return;
+  if (Date.now() - lastLogAt >= PERIODIC_LOG_INTERVAL_MS - 500) logGpsSnapshot();
 }
 
 async function logGpsSnapshot(){
   if (!lastPos) return;              // 아직 측위 전이면 다음 주기에 다시 시도
+
+  // 측위가 멈춘 동안 마지막 좌표를 계속 남기면, 차가 있지도 않은 자리에
+  // 머문 것처럼 기록된다. 실제로 8/14 기록에서 30분간 같은 좌표가 반복됐다.
+  if (lastFixAt && Date.now() - lastFixAt > GPS_STALE_MS){
+    if (!staleWarned){
+      staleWarned = true;
+      toast('⚠️ GPS 신호가 끊겨 기록이 멈췄습니다 — 화면을 켜 두세요', 4000);
+      setGpsBadge('none', 'GPS 끊김');
+    }
+    return;
+  }
+  staleWarned = false;
+  lastLogAt = Date.now();
   const now = new Date();
   const sector = currentSector();
   const lg = (isPlaying && !sector) ? legs[legIdx] : null;
@@ -2230,8 +2343,10 @@ function scenarioKeys(locKey){
    ══════════════════════════════════════════════════════════════ */
 let sectorPolygon = null;          // 구역 경계 다각형
 let sectorRoadLines = [];          // 현재 화면에 그려진 도로 폴리라인
-let sectorTrailLine = null;        // 지나온 길 (초록)
-let sectorTrailPts = [];
+/* 지나온 길 — HD맵 구현 구간(초록)과 비구현 구간(보라)을 나눠 그린다.
+   segs = [{ onHd:bool, pts:[[lat,lng],...], line:Polyline }] */
+let sectorTrailSegs = [];
+let sectorTrailPts = [];          // 전체 궤적 (거리 계산용)
 let sectorOutsideSpoken = false;
 let sectorRoadsOn = true;
 let sectorRedrawTimer = null;
@@ -2246,8 +2361,10 @@ const SECTOR_ROAD_MIN_ZOOM = 14;
 function sectorRoadMaxDraw(zoom){
   return zoom >= 15 ? 700 : 350;
 }
-/** 구역 내 길 색 — 경로선(파랑)·지도 도로와 겹치지 않는 보라 계열 */
-const SECTOR_ROAD_COLOR = '#7c3aed';
+/* 구역 내 길(아직 지나지 않은 도로) 색.
+   주행 궤적의 보라(#a855f7)와 헷갈리지 않도록 진한 남보라로 둔다.
+   궤적은 굵기 8, 이 선은 4~8이라 굵기로도 구분된다. */
+const SECTOR_ROAD_COLOR = '#4338ca';
 
 function isSectorScenario(sc){
   return !!(sc && Array.isArray(sc.sector) && sc.sector.length >= 3);
@@ -2267,6 +2384,50 @@ function pointInPolygon(pt, poly){
         (pt[1] < (xj - xi) * (pt[0] - yi) / ((yj - yi) || 1e-12) + xi)) inside = !inside;
   }
   return inside;
+}
+
+/* ── HD맵 도로 위를 지나는 중인지 판정 ──
+   구역 안이라도 HD맵에 없는 길이 있고, 구역 밖으로 잠깐 나갔다 오기도 한다.
+   실제 취득 대상은 "HD맵에 있는 도로 위"이므로 도로와의 거리로 판단한다. */
+const HD_ON_ROAD_TOLERANCE_M = 30;   // GPS 오차와 차로 폭을 감안한 여유
+
+/** 도로마다 경계 상자를 미리 만들어 둔다 (매 측위마다 전체를 재는 비용을 줄인다) */
+function ensureRoadBoxes(sc){
+  if (sc._boxes && sc._boxes.length === (sc.roads || []).length) return sc._boxes;
+  sc._boxes = (sc.roads || []).map(r => {
+    const c = roadCoords(r);
+    if (!c || !c.length) return null;
+    let s2 = Infinity, n2 = -Infinity, w2 = Infinity, e2 = -Infinity;
+    for (const p of c){
+      if (p[0] < s2) s2 = p[0];
+      if (p[0] > n2) n2 = p[0];
+      if (p[1] < w2) w2 = p[1];
+      if (p[1] > e2) e2 = p[1];
+    }
+    return { s: s2, n: n2, w: w2, e: e2, c: c };
+  });
+  return sc._boxes;
+}
+
+function isOnHdRoad(lat, lng, sc){
+  const roads = sc && sc.roads;
+  if (!Array.isArray(roads) || !roads.length){
+    // 도로 데이터가 없는 구역은 다각형 안쪽인지로 대신 판단한다.
+    return pointInPolygon([lat, lng], sc.sector);
+  }
+  const boxes = ensureRoadBoxes(sc);
+  const padLa = HD_ON_ROAD_TOLERANCE_M / 110540;
+  const padLo = HD_ON_ROAD_TOLERANCE_M / (111320 * Math.cos(lat * Math.PI / 180) || 1);
+
+  for (const b of boxes){
+    if (!b) continue;
+    if (lat < b.s - padLa || lat > b.n + padLa ||
+        lng < b.w - padLo || lng > b.e + padLo) continue;   // 경계 상자로 먼저 걸러낸다
+    for (let i = 0; i < b.c.length - 1; i++){
+      if (pointToSegmentMeters([lat, lng], b.c[i], b.c[i + 1]) <= HD_ON_ROAD_TOLERANCE_M) return true;
+    }
+  }
+  return false;
 }
 
 function roadCoords(r){ return Array.isArray(r) ? r : (r && r.c) || null; }
@@ -2295,6 +2456,101 @@ function clearSectorRoadLines(){
   sectorRoadLines = [];
 }
 
+const TRAIL_COLOR_HD  = '#22c55e';   // 구현 구역을 주행한 부분 — 초록
+const TRAIL_COLOR_OFF = '#a855f7';   // 구역 밖을 주행한 부분 — 보라
+
+/**
+ * 궤적에 점을 하나 붙인다.
+ * HD맵 도로 위인지 여부가 바뀌면 선을 끊고 새 색으로 이어 그린다.
+ * 이때 직전 점을 새 구간의 시작점으로 넣어 선이 끊겨 보이지 않게 한다.
+ */
+const TRAIL_JUMP_MAX_M = 200;   // 이보다 멀리 튀면 실제 주행이 아니라 신호 끊김으로 본다
+const TRAIL_SWITCH_CONFIRM = 2; // 색을 바꾸기 전 같은 상태가 연속으로 확인돼야 하는 횟수
+
+let pendingHd = null, pendingHdCount = 0;
+
+/**
+ * HD맵 도로 판정이 경계 부근에서 오락가락하면 궤적이 잘게 쪼개져 읽기 어렵다.
+ * 새 상태가 연속으로 확인될 때만 실제로 전환한다.
+ */
+function stabilizeHdState(onHd){
+  const seg = sectorTrailSegs[sectorTrailSegs.length - 1];
+  const cur = seg ? seg.onHd : null;
+  if (cur === null) return onHd;
+  if (onHd === cur){ pendingHd = null; pendingHdCount = 0; return cur; }
+
+  if (pendingHd === onHd) pendingHdCount++;
+  else { pendingHd = onHd; pendingHdCount = 1; }
+
+  if (pendingHdCount >= TRAIL_SWITCH_CONFIRM){
+    pendingHd = null; pendingHdCount = 0;
+    return onHd;
+  }
+  return cur;
+}
+
+function appendTrailPoint(lat, lng, rawOnHd){
+  const onHd = stabilizeHdState(rawOnHd);
+  let seg = sectorTrailSegs[sectorTrailSegs.length - 1];
+  const prev = seg && seg.pts.length ? seg.pts[seg.pts.length - 1] : null;
+
+  // 터널 진출입·신호 끊김으로 위치가 크게 건너뛰면 선을 잇지 않는다.
+  // 이으면 지나지도 않은 구간이 그려지고 주행 거리도 부풀려진다.
+  const jumped = prev && haversine(prev[0], prev[1], lat, lng) > TRAIL_JUMP_MAX_M;
+
+  if (!seg || seg.onHd !== onHd || jumped){
+    const carry = (prev && !jumped) ? prev : null;
+    seg = { onHd: onHd, pts: carry ? [carry] : [], line: null };
+    sectorTrailSegs.push(seg);
+  }
+
+  seg.pts.push([lat, lng]);
+  if (seg.pts.length < 2) return;
+
+  const path = seg.pts.map(p => LL(p[0], p[1]));
+  if (!seg.line){
+    seg.line = new Tmapv2.Polyline({
+      path         : path,
+      strokeColor  : onHd ? TRAIL_COLOR_HD : TRAIL_COLOR_OFF,
+      strokeWeight : 8,
+      strokeOpacity: 0.85,
+      map          : map,
+    });
+  } else {
+    try { seg.line.setPath(path); } catch (_) {}
+  }
+}
+
+/** 구간별 주행 거리(km) — [HD 구현, 비구현] */
+function trailSplitKm(){
+  let hd = 0, off = 0;
+  sectorTrailSegs.forEach(sg => {
+    let m = 0;
+    for (let i = 1; i < sg.pts.length; i++){
+      m += haversine(sg.pts[i-1][0], sg.pts[i-1][1], sg.pts[i][0], sg.pts[i][1]);
+    }
+    if (sg.onHd) hd += m; else off += m;
+  });
+  return [hd / 1000, off / 1000];
+}
+
+/** 현재 구간 카드에 HD 구현 / 비구현 주행량을 표시 */
+function renderTrailStats(){
+  const [hd, off] = trailSplitKm();
+  const total = hd + off;
+  $('st-eta').textContent = hd.toFixed(1);
+  $('st-plan').textContent = off.toFixed(1);
+  const pct = total > 0 ? Math.round(hd / total * 100) : 0;
+  const el = $('trail-legend');
+  if (el){
+    el.classList.add('on');
+    el.innerHTML =
+      '<span><i style="background:' + TRAIL_COLOR_HD  + '"></i>HD맵 ' + hd.toFixed(1) + 'km</span>' +
+      '<span><i style="background:' + TRAIL_COLOR_OFF + '"></i>비구현 ' + off.toFixed(1) + 'km</span>' +
+      '<span class="pct">' + pct + '%</span>';
+  }
+}
+
 /** 자유주행으로 실제 이동한 거리(km) */
 function sectorTrailKm(){
   let m = 0;
@@ -2306,9 +2562,13 @@ function sectorTrailKm(){
 }
 
 function clearSectorTrail(){
-  if (sectorTrailLine){ try { sectorTrailLine.setMap(null); } catch (_) {} sectorTrailLine = null; }
+  sectorTrailSegs.forEach(sg => { if (sg.line){ try { sg.line.setMap(null); } catch (_) {} } });
+  sectorTrailSegs = [];
   sectorTrailPts = [];
   sectorOutsideSpoken = false;
+  pendingHd = null; pendingHdCount = 0;
+  const el = $('trail-legend');
+  if (el){ el.classList.remove('on'); el.innerHTML = ''; }
 }
 
 /** 구역 경계 + 구역 내 도로를 그린다 */
@@ -2438,6 +2698,7 @@ function toggleSectorRoads(){
   $('sector-roads-state').textContent = sectorRoadsOn ? 'ON' : 'OFF';
   $('btn-headup').classList.toggle('on', headingUp);
   renderTrafficState();
+  renderWakeLockState();
   renderSectorRoads();
   toast('구역 내 길 표시 ' + (sectorRoadsOn ? '켜짐' : '꺼짐'), 1400);
 }
@@ -2450,18 +2711,9 @@ function updateSectorDriving(lat, lng){
   const last = sectorTrailPts[sectorTrailPts.length - 1];
   if (!last || haversine(last[0], last[1], lat, lng) >= 8){
     sectorTrailPts.push([lat, lng]);
-    const path = sectorTrailPts.map(p => LL(p[0], p[1]));
-    if (!sectorTrailLine){
-      sectorTrailLine = new Tmapv2.Polyline({
-        path: path, strokeColor: '#22c55e', strokeWeight: 7, strokeOpacity: 0.78, map: map,
-      });
-    } else {
-      try { sectorTrailLine.setPath(path); } catch (_) {}
-    }
+    appendTrailPoint(lat, lng, isOnHdRoad(lat, lng, sc));
+    renderTrailStats();
   }
-
-  // 지나온 거리 실시간 표시
-  $('st-eta').textContent = sectorTrailKm().toFixed(1);
 
   if (pointInPolygon([lat, lng], sc.sector)){
     sectorOutsideSpoken = false;
@@ -3047,7 +3299,8 @@ function togglePlay(){
     setFollow(true);
   } else {
     if (sector && sectorTrailPts.length > 1){
-      toast('구역 주행 ' + sectorTrailKm().toFixed(1) + 'km', 2200);
+      const [hd2, off2] = trailSplitKm();
+      toast('HD맵 ' + hd2.toFixed(1) + 'km · 비구현 ' + off2.toFixed(1) + 'km', 3000);
     }
     legStartTime = null;
     legStartPos = null;
@@ -3135,6 +3388,7 @@ async function enterApp(){
   $('sector-roads-state').textContent = sectorRoadsOn ? 'ON' : 'OFF';
   $('btn-headup').classList.toggle('on', headingUp);
   renderTrafficState();
+  renderWakeLockState();
   renderLogCount();
   renderControls();
 
@@ -3236,6 +3490,13 @@ function bindEvents(){
   $('mi-download').onclick = () => { downloadTodayLog(); closeMenu(); };
   $('mi-clear').onclick = () => { closeMenu(); clearTodayLog(); };
   $('mi-traffic').onclick = cycleTrafficDensity;   // 연속으로 눌러 고를 수 있게 메뉴를 닫지 않는다
+  $('mi-wakelock').onclick = async () => {
+    if (wakeLock){ releaseWakeLock(); }
+    else if (!(await requestWakeLock())){
+      toast('이 브라우저는 화면 꺼짐 방지를 지원하지 않습니다 — 기기 설정에서 화면 자동잠금을 꺼주세요', 4500);
+    }
+    renderWakeLockState();
+  };
   $('mi-export').onclick = () => { exportSettings(); closeMenu(); };
   $('mi-import').onclick = () => { $('import-input').click(); closeMenu(); };
   $('import-input').onchange = e => {
@@ -3266,6 +3527,8 @@ function bindEvents(){
   $('edit-save').onclick   = saveRouteEdit;
   $('mi-appkey').onclick = () => { closeMenu(); showSetup(); };
   $('mi-logout').onclick = () => { if (confirm('로그아웃할까요?')) logout(); };
+
+  document.addEventListener('visibilitychange', onVisibilityChange);
 
   /* 상태 저장 */
   window.addEventListener('beforeunload', () => {
