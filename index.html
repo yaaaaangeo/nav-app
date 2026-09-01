@@ -156,7 +156,10 @@ input,select{font-family:inherit;}
 /* ─────────── 레이아웃 ─────────── */
 #app{height:100%;display:flex;flex-direction:column;}
 #main{flex:1;display:flex;min-height:0;}
-#map-wrap{position:relative;flex:1;min-height:0;background:#0d1017;}
+#map-wrap{
+  position:relative;flex:1;min-height:0;background:#0d1017;
+  overflow:hidden;isolation:isolate;clip-path:inset(0);
+}
 #map_div{position:absolute;inset:0;}
 #panel{
   width:380px;flex:0 0 380px;background:var(--panel);border-left:1px solid var(--line);
@@ -194,9 +197,10 @@ input,select{font-family:inherit;}
 /* 헤딩업 — 지도만 회전시키고, 회전으로 드러나는 모서리는 확대로 덮는다.
    턴 안내·버튼은 #map_div 바깥이라 함께 돌아가지 않는다. */
 #map_div.heading-up{
-  transform:scale(1.45) rotate(var(--map-rot,0deg));
+  transform:scale(var(--map-scale,1.02)) rotate(var(--map-rot,0deg));
   transform-origin:center center;
   transition:transform .35s ease-out;
+  will-change:transform;
 }
 
 #edit-bar{
@@ -1480,6 +1484,8 @@ const DRIVE_ZOOM        = 17;   // 주행 시작 시 당길 배율
 const LOOKAHEAD_RATIO   = 0.18; // 화면 세로의 몇 %만큼 앞을 볼지
 const LOOKAHEAD_MAX_PX  = 140;
 const HEADING_SMOOTH     = 0.25; // 0에 가까울수록 부드럽고 느리다
+const HEADING_SCALE_PAD  = 0.04;
+const HEADING_SCALE_MAX  = 2.35;
 
 /** 각도를 부드럽게 잇는다 (359°→1° 같은 경계 처리 포함) */
 function smoothHeading(prev, next){
@@ -1519,12 +1525,25 @@ function followTarget(lat, lng, heading){
 }
 
 /** 헤딩업 — 지도 요소를 진행 방향 반대로 돌린다. 오버레이·버튼은 그대로 유지된다. */
+function headingCoverScale(el, heading){
+  const w = el.clientWidth || 0;
+  const h = el.clientHeight || 0;
+  if (!w || !h || !isFinite(heading)) return 1.45;
+  const rad = heading * Math.PI / 180;
+  const sin = Math.abs(Math.sin(rad));
+  const cos = Math.abs(Math.cos(rad));
+  const xScale = cos + (h / w) * sin;
+  const yScale = cos + (w / h) * sin;
+  return Math.min(HEADING_SCALE_MAX, Math.max(1, xScale, yScale) + HEADING_SCALE_PAD);
+}
+
 function applyMapRotation(){
   const el = $('map_div');
   if (!el) return;
   const on = headingUp && followMode;
   el.classList.toggle('heading-up', on);
   el.style.setProperty('--map-rot', on ? (-displayHeading).toFixed(1) + 'deg' : '0deg');
+  el.style.setProperty('--map-scale', on ? headingCoverScale(el, displayHeading).toFixed(3) : '1');
   // 차량 아이콘은 지도 안에 있어 함께 돌아간다.
   // 아이콘 +heading, 지도 -heading이 상쇄되어 헤딩업에서는 자연히 위를 향한다.
 }
@@ -2993,6 +3012,7 @@ function enterEditMode(){
   // 회전 상태에서는 탭 위치를 가늠하기 어려우므로 편집 중에는 북쪽 고정으로 둔다.
   $('map_div').classList.remove('heading-up');
   $('map_div').style.setProperty('--map-rot', '0deg');
+  $('map_div').style.setProperty('--map-scale', '1');
 
   $('edit-bar').classList.add('on');
   $('panel').classList.add('locked');
@@ -3628,6 +3648,8 @@ function bindEvents(){
   $('mi-logout').onclick = () => { if (confirm('로그아웃할까요?')) logout(); };
 
   document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('resize', applyMapRotation);
+  window.addEventListener('orientationchange', applyMapRotation);
 
   /* 상태 저장 */
   window.addEventListener('beforeunload', () => {
