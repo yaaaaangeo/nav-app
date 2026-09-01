@@ -539,6 +539,7 @@ const K = {
   session : 'nav3-session',
   log     : 'nav3-trip-log',
   ui      : 'nav3-ui',
+  checkpoint : 'nav3-checkpoint',
   wp      : 'nav3-use-waypoints',
   sectorRoads : 'nav3-sector-roads',
   edits       : 'nav3-route-edits',
@@ -823,6 +824,7 @@ let routeGeoM = 0;                        // 경로 좌표로 계산한 총 거�
 let curStepIdx = 0;
 let progressM = 0, progressIdx = 0, progressInit = false;
 let routeAbort = null;
+let routeRequestSeq = 0;
 
 /* GPS */
 let watchId = null;
@@ -898,6 +900,126 @@ function lsGet(k, def){
 }
 function lsSet(k, v){
   try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {}
+}
+function lsRemove(k){
+  try { localStorage.removeItem(k); } catch (_) {}
+}
+
+const CHECKPOINT_THROTTLE_MS = 5000;
+const CHECKPOINT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+let lastCheckpointAt = 0;
+let restoringCheckpoint = false;
+let pendingRouteCheckpoint = null;
+
+function saveUiState(){
+  lsSet(K.ui, { loc: loc, scKey: scKey, ttsOn: ttsOn, useWaypoints: useWaypoints });
+}
+
+function checkpointMatches(cp){
+  return !!(cp && cp.loc === loc && cp.scKey === scKey && SCENARIOS[cp.loc] && SCENARIOS[cp.loc][cp.scKey]);
+}
+
+function routeIndexAtMeters(m){
+  if (!routeCum.length || !isFinite(m)) return 0;
+  const target = Math.max(0, Math.min(m, routeCum[routeCum.length - 1]));
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < routeCum.length; i++){
+    const d = Math.abs(routeCum[i] - target);
+    if (d < bestD){ bestD = d; best = i; }
+  }
+  return best;
+}
+
+function buildCheckpoint(){
+  return {
+    version: 1,
+    savedAt: Date.now(),
+    date: todayKey(),
+    loc: loc,
+    scKey: scKey,
+    legIdx: legIdx,
+    done: Array.from(doneSet),
+    progressIdx: progressIdx,
+    progressM: progressM,
+    progressInit: progressInit,
+    curStepIdx: curStepIdx,
+    isPlaying: isPlaying,
+    displayHeading: displayHeading,
+    lastGps: lastPos ? {
+      lat: lastPos[0],
+      lng: lastPos[1],
+      accuracy: lastAccuracy,
+      fixAt: lastFixAt,
+      speedMs: lastSpeedMs,
+    } : null,
+  };
+}
+
+function saveCheckpoint(force){
+  const now = Date.now();
+  if (!force && now - lastCheckpointAt < CHECKPOINT_THROTTLE_MS) return;
+  lastCheckpointAt = now;
+  saveUiState();
+  lsSet(K.checkpoint, buildCheckpoint());
+}
+
+function loadUsableCheckpoint(){
+  const cp = lsGet(K.checkpoint, null);
+  if (!cp || !cp.savedAt || Date.now() - cp.savedAt > CHECKPOINT_MAX_AGE_MS) return null;
+  if (!cp.loc || !SCENARIOS[cp.loc]) return null;
+  if (!cp.scKey) return null;
+  return cp;
+}
+
+function applySavedCheckpoint(cp){
+  if (!checkpointMatches(cp)) return false;
+
+  const maxLeg = Math.max(0, legs.length - 1);
+  legIdx = Math.max(0, Math.min(Number(cp.legIdx) || 0, maxLeg));
+
+  doneSet.clear();
+  (Array.isArray(cp.done) ? cp.done : []).forEach(i => {
+    i = Number(i);
+    if (Number.isInteger(i) && i >= 0 && i < legs.length) doneSet.add(i);
+  });
+
+  isPlaying = !!cp.isPlaying;
+  legStartTime = isPlaying ? new Date() : null;
+  legStartPos = null;
+
+  if (cp.lastGps && isFinite(cp.lastGps.lat) && isFinite(cp.lastGps.lng)){
+    lastPos = [Number(cp.lastGps.lat), Number(cp.lastGps.lng)];
+    lastAccuracy = cp.lastGps.accuracy == null ? null : Number(cp.lastGps.accuracy);
+    lastFixAt = Number(cp.lastGps.fixAt) || 0;
+    lastSpeedMs = cp.lastGps.speedMs == null ? null : Number(cp.lastGps.speedMs);
+    legStartPos = lastPos.slice();
+  }
+  if (isFinite(cp.displayHeading)) displayHeading = Number(cp.displayHeading);
+
+  pendingRouteCheckpoint = cp;
+  applyLeg();
+  renderControls();
+  return true;
+}
+
+function applyRouteProgressCheckpoint(legId){
+  const cp = pendingRouteCheckpoint;
+  if (!checkpointMatches(cp) || !legs[legIdx] || legs[legIdx].id !== legId) return;
+
+  const maxIdx = Math.max(0, routeCoords.length - 1);
+  const savedM = Number(cp.progressM);
+  if (isFinite(savedM) && savedM > 0){
+    progressIdx = routeIndexAtMeters(savedM);
+  } else if (Number.isInteger(cp.progressIdx) && cp.progressIdx >= 0){
+    progressIdx = Math.min(cp.progressIdx, maxIdx);
+  } else {
+    progressIdx = 0;
+  }
+  progressM = metersAt(progressIdx);
+  progressInit = !!cp.progressInit || progressIdx > 0;
+  curStepIdx = Math.max(0, Math.min(Number(cp.curStepIdx) || 0, Math.max(0, routeSteps.length - 1)));
+  repaintProgress();
+  pendingRouteCheckpoint = null;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1225,7 +1347,9 @@ function sanitizeWaypoints(sLL, eLL, list){
 
 async function fetchTmapRoute(sLL, eLL, legId){
   if (routeAbort) { try { routeAbort.abort(); } catch (_) {} }
-  routeAbort = new AbortController();
+  const controller = new AbortController();
+  const requestId = ++routeRequestSeq;
+  routeAbort = controller;
   showSpin(true);
   clearRoute();
 
@@ -1264,19 +1388,21 @@ async function fetchTmapRoute(sLL, eLL, legId){
       method  : 'POST',
       headers : { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
       body    : body.toString(),
-      signal  : routeAbort.signal,
+      signal  : controller.signal,
     });
     if (!res.ok){
       const txt = await res.text().catch(() => '');
       throw new Error('HTTP ' + res.status + ' ' + txt.slice(0, 160));
     }
     const data = await res.json();
+    if (routeAbort !== controller || routeRequestSeq !== requestId) return;
     if (!data || !Array.isArray(data.features) || !data.features.length){
       throw new Error('경로 응답이 비어 있습니다');
     }
 
     parseTmapRoute(data.features, sLL, eLL);
     drawRouteLines();
+    applyRouteProgressCheckpoint(legId);
     placeEndpointMarkers(sLL, eLL);
     curStepIdx = 0;
     announced = {};
@@ -1287,13 +1413,16 @@ async function fetchTmapRoute(sLL, eLL, legId){
     else fitRoute();
     refreshGuidance(true);
   } catch (e){
-    if (e.name === 'AbortError') return;
+    if (e && e.name === 'AbortError') return;
+    if (routeAbort !== controller || routeRequestSeq !== requestId) return;
     console.warn('TMAP 경로 실패:', e);
     fallbackRoute(sLL, eLL);
     toast('경로를 불러오지 못했습니다 — 직선으로 표시합니다');
   } finally {
-    showSpin(false);
-    routeAbort = null;
+    if (routeAbort === controller && routeRequestSeq === requestId){
+      showSpin(false);
+      routeAbort = null;
+    }
   }
 }
 
@@ -1556,6 +1685,7 @@ function toggleHeadingUp(){
   renderWakeLockState();
   if (headingUp) setFollow(true);   // 헤딩업은 따라가기와 함께 쓴다
   applyMapRotation();
+  saveCheckpoint(true);
   toast(headingUp ? '진행 방향이 위로 (헤딩업)' : '북쪽 고정', 1500);
 }
 
@@ -1626,6 +1756,7 @@ function onGps(pos){
 
   lastPos = [lat, lng];
   updateCarMarker(lat, lng, displayHeading);
+  saveCheckpoint(false);
 
   // 주행 시작 시점에 측위가 없었다면 첫 유효 측위를 출발 위치로 기록한다.
   if (isPlaying && legStartTime && !legStartPos) legStartPos = [lat, lng];
@@ -1666,6 +1797,7 @@ function updateProgress(lat, lng){
   progressM = metersAt(idx);
   progressInit = true;
   repaintProgress();
+  saveCheckpoint(false);
 }
 
 function checkArrival(lat, lng){
@@ -1714,6 +1846,7 @@ function loadScenario(newLoc, newSc, keepIdx){
   renderChips();
   renderLegs();
   applyLeg();
+  if (!restoringCheckpoint) saveCheckpoint(true);
 }
 
 function applyLeg(){
@@ -1807,6 +1940,7 @@ function completeLeg(auto){
   if (!legs[legIdx]) return;
   // 구간 단위 요약 기록은 쓰지 않는다. 위치·속도는 10초 주기 스냅샷으로 남는다.
   doneSet.add(legIdx);
+  saveCheckpoint(true);
 
   nextLeg();
 }
@@ -1817,6 +1951,7 @@ function nextLeg(){
     speak('모든 구간을 완료했습니다', true);
     toast('🎉 시나리오 완료');
     renderControls();
+    saveCheckpoint(true);
     return;
   }
   legIdx++;
@@ -1828,6 +1963,7 @@ function nextLeg(){
     speak('다음 구간 ' + (legs[legIdx].s || '') + ' 에서 ' + (legs[legIdx].e || '') + ' 로 출발합니다');
   }
   renderControls();
+  saveCheckpoint(true);
 }
 
 
@@ -1885,6 +2021,7 @@ function cycleTrafficDensity(){
   lsSet(K.traffic, trafficDensity);
   renderTrafficState();
   renderWakeLockState();
+  saveCheckpoint(true);
   toast('교통밀도: ' + shortTraffic(trafficDensity), 1600);
 }
 
@@ -1978,6 +2115,7 @@ function releaseWakeLock(){
 
 /** 화면이 다시 켜지면 잠금이 풀려 있으므로 다시 건다 */
 function onVisibilityChange(){
+  saveCheckpoint(true);
   if (document.visibilityState !== 'visible') return;
   if (periodicLogTimer){
     requestWakeLock();
@@ -2727,6 +2865,7 @@ function toggleSectorRoads(){
   renderTrafficState();
   renderWakeLockState();
   renderSectorRoads();
+  saveCheckpoint(true);
   toast('구역 내 길 표시 ' + (sectorRoadsOn ? '켜짐' : '꺼짐'), 1400);
 }
 
@@ -3353,6 +3492,7 @@ function renderLegs(){
       legIdx = i;
       legStartTime = null; legStartPos = null;
       applyLeg(); renderControls();
+      saveCheckpoint(true);
     };
     box.appendChild(d);
   });
@@ -3426,6 +3566,7 @@ function togglePlay(){
     speak('일시정지합니다', true);
   }
   renderControls();
+  saveCheckpoint(true);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -3491,6 +3632,7 @@ async function logout(){
   try { await logLogoutEntry(); } catch (_) {}
   sessionStorage.removeItem(K.session);
   sessionStorage.removeItem('nav3-login-time');
+  lsRemove(K.checkpoint);
   location.reload();
 }
 
@@ -3511,15 +3653,21 @@ async function enterApp(){
   renderLogCount();
   renderControls();
 
+  const checkpoint = loadUsableCheckpoint();
   const ui = lsGet(K.ui, {});
-  const startLoc = (ui.loc && SCENARIOS[ui.loc]) ? ui.loc : '강남';
-  const startSc  = (ui.scKey && SCENARIOS[startLoc][ui.scKey]) ? ui.scKey : 'a';
+  const savedLoc = checkpoint && checkpoint.loc ? checkpoint.loc : ui.loc;
+  const savedSc = checkpoint && checkpoint.scKey ? checkpoint.scKey : ui.scKey;
+  const startLoc = (savedLoc && SCENARIOS[savedLoc]) ? savedLoc : '강남';
+  const startSc  = (savedSc && SCENARIOS[startLoc][savedSc]) ? savedSc : 'a';
 
   // routes.json(Ver.2 경로 원본)과 SDK를 함께 준비한다.
   const routesReady = loadRoutesJson();
 
   // 지도 로딩과 무관하게 시나리오 UI를 먼저 띄운다.
+  restoringCheckpoint = true;
   loadScenario(startLoc, startSc, false);
+  applySavedCheckpoint(checkpoint);
+  restoringCheckpoint = false;
   startGps();
   startPeriodicLogging();   // 로그인 직후부터 상시 기록 (주행 시작 여부와 무관)
 
@@ -3529,7 +3677,11 @@ async function enterApp(){
   if (editedCount) $('edit-count-badge').textContent = editedCount + '건 수정';
   if (routesLoaded || editedCount){
     // 원본이 들어오면 시나리오 목록·구간이 바뀌므로 다시 적용한다.
-    loadScenario(startLoc, startSc, false);
+    const reloadedSc = (savedSc && SCENARIOS[startLoc][savedSc]) ? savedSc : startSc;
+    restoringCheckpoint = true;
+    loadScenario(startLoc, reloadedSc, false);
+    applySavedCheckpoint(checkpoint);
+    restoringCheckpoint = false;
   }
 
   try {
@@ -3576,6 +3728,7 @@ function bindEvents(){
     ttsOn = !ttsOn;
     if (!ttsOn && window.speechSynthesis) window.speechSynthesis.cancel();
     renderTts();
+    saveCheckpoint(true);
     toast(ttsOn ? '음성 안내 켜짐' : '음성 안내 꺼짐', 1200);
   };
   $('btn-settings').onclick = e => {
@@ -3627,6 +3780,7 @@ function bindEvents(){
     useWaypoints = !useWaypoints;
     lsSet(K.wp, useWaypoints);
     renderWpState();
+    saveCheckpoint(true);
     toast('고정 경유점 ' + (useWaypoints ? '사용' : '해제') + ' — 경로를 다시 계산합니다');
     const leg = legs[legIdx];
     if (leg && sdkReady) fetchTmapRoute(leg.sLL, leg.eLL, leg.id);
@@ -3648,12 +3802,13 @@ function bindEvents(){
   $('mi-logout').onclick = () => { if (confirm('로그아웃할까요?')) logout(); };
 
   document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('pagehide', () => saveCheckpoint(true));
   window.addEventListener('resize', applyMapRotation);
   window.addEventListener('orientationchange', applyMapRotation);
 
   /* 상태 저장 */
   window.addEventListener('beforeunload', () => {
-    lsSet(K.ui, { loc: loc, scKey: scKey, ttsOn: ttsOn, useWaypoints: useWaypoints });
+    saveCheckpoint(true);
   });
 }
 

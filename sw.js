@@ -1,6 +1,21 @@
 const CACHE_NAME = 'nav-app-v3-tmap-20260812-sector';
 const APP_SHELL = ['./', './index.html', './manifest.json'];
 
+function dataCacheKey(request) {
+  const url = new URL(request.url);
+  url.search = '';
+  return new Request(url.toString(), {
+    method: 'GET',
+    headers: request.headers,
+    mode: request.mode,
+    credentials: request.credentials,
+    redirect: request.redirect,
+    referrer: request.referrer,
+    referrerPolicy: request.referrerPolicy,
+    integrity: request.integrity,
+  });
+}
+
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
@@ -29,15 +44,18 @@ self.addEventListener('fetch', event => {
   // 경로·도로 원본은 갱신이 잦아 네트워크를 먼저 본다 (오프라인이면 캐시로 폴백).
   if (url.pathname.endsWith('/routes.json') || url.pathname.endsWith('/hd_roads.json')) {
     event.respondWith((async () => {
+      const cacheKey = dataCacheKey(request);
       try {
         const res = await fetch(request, { cache: 'no-store' });
         if (res && res.ok) {
           const cache = await caches.open(CACHE_NAME);
-          await cache.put(request, res.clone());
+          await cache.put(cacheKey, res.clone());
         }
         return res;
       } catch (_) {
-        return (await caches.match(request)) || Response.error();
+        return (await caches.match(cacheKey)) ||
+               (await caches.match(request, { ignoreSearch: true })) ||
+               Response.error();
       }
     })());
     return;
