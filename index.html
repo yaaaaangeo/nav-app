@@ -540,6 +540,7 @@ const K = {
   log     : 'nav3-trip-log',
   ui      : 'nav3-ui',
   checkpoint : 'nav3-checkpoint',
+  excelReminderDate : 'nav3-excel-reminder-date',
   wp      : 'nav3-use-waypoints',
   sectorRoads : 'nav3-sector-roads',
   edits       : 'nav3-route-edits',
@@ -905,6 +906,49 @@ function lsRemove(k){
   try { localStorage.removeItem(k); } catch (_) {}
 }
 
+const EXCEL_REMINDER_TEXT = '📊 오늘 주행기록 엑셀을 전송할 시간입니다.';
+const EXCEL_REMINDER_TZ = 'Asia/Seoul';
+const EXCEL_REMINDER_HOUR = 18;
+const EXCEL_REMINDER_WINDOW_MIN = 5;
+const EXCEL_REMINDER_INTERVAL_MS = 30 * 1000;
+let excelReminderTimer = null;
+
+function getKstParts(d = new Date()){
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: EXCEL_REMINDER_TZ,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(d);
+  const map = {};
+  parts.forEach(p => { if (p.type !== 'literal') map[p.type] = p.value; });
+  return {
+    date: map.year + '-' + map.month + '-' + map.day,
+    hour: Number(map.hour),
+    minute: Number(map.minute),
+  };
+}
+
+function checkKstExcelReminder(now = new Date()){
+  const kst = getKstParts(now);
+  const minutes = kst.hour * 60 + kst.minute;
+  const start = EXCEL_REMINDER_HOUR * 60;
+  const inWindow = minutes >= start && minutes <= start + EXCEL_REMINDER_WINDOW_MIN;
+  if (!inWindow || lsGet(K.excelReminderDate, '') === kst.date) return false;
+  lsSet(K.excelReminderDate, kst.date);
+  toast(EXCEL_REMINDER_TEXT, 12000);
+  return true;
+}
+
+function startExcelReminderTimer(){
+  checkKstExcelReminder();
+  if (excelReminderTimer) return;
+  excelReminderTimer = setInterval(checkKstExcelReminder, EXCEL_REMINDER_INTERVAL_MS);
+}
+
 const CHECKPOINT_THROTTLE_MS = 5000;
 const CHECKPOINT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 let lastCheckpointAt = 0;
@@ -1202,6 +1246,9 @@ function beginProgrammaticMove(){
 function pauseFollow(){
   if (!followMode) return;
   followPauseUntil = Date.now() + GPS_FOLLOW_RESUME_MS;
+  // 헤딩업 회전이 걸린 채로 있으면 손 드래그 좌표와 어긋나 지도가 엉뚱하게
+  // 움직인다. 사람이 만지는 동안은 즉시 회전을 풀어 북쪽 고정으로 되돌린다.
+  applyMapRotation();
 }
 
 /** 배율 변경 — 앱이 배율을 당긴 것인지, 사용자가 손으로 바꾼 것인지 가려낸다 */
@@ -1669,7 +1716,7 @@ function headingCoverScale(el, heading){
 function applyMapRotation(){
   const el = $('map_div');
   if (!el) return;
-  const on = headingUp && followMode;
+  const on = headingUp && followMode && Date.now() >= followPauseUntil;
   el.classList.toggle('heading-up', on);
   el.style.setProperty('--map-rot', on ? (-displayHeading).toFixed(1) + 'deg' : '0deg');
   el.style.setProperty('--map-scale', on ? headingCoverScale(el, displayHeading).toFixed(3) : '1');
@@ -2116,6 +2163,7 @@ function releaseWakeLock(){
 /** 화면이 다시 켜지면 잠금이 풀려 있으므로 다시 건다 */
 function onVisibilityChange(){
   saveCheckpoint(true);
+  if (document.visibilityState === 'visible') checkKstExcelReminder();
   if (document.visibilityState !== 'visible') return;
   if (periodicLogTimer){
     requestWakeLock();
@@ -3652,6 +3700,7 @@ async function enterApp(){
   renderWakeLockState();
   renderLogCount();
   renderControls();
+  startExcelReminderTimer();
 
   const checkpoint = loadUsableCheckpoint();
   const ui = lsGet(K.ui, {});
