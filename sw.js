@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nav-app-v3-tmap-20260812-sector';
+const CACHE_NAME = 'nav-app-v3-tmap-20260903-fixed-route';
 const APP_SHELL = ['./', './index.html', './manifest.json'];
 
 function dataCacheKey(request) {
@@ -20,7 +20,8 @@ self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
     await Promise.allSettled(APP_SHELL.map(url => cache.add(url)));
-    await self.skipWaiting();
+    // Do not take over an active navigation session in the middle of a drive.
+    // The new worker becomes active after all existing app tabs are closed.
   })());
 });
 
@@ -28,7 +29,6 @@ self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const names = await caches.keys();
     await Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)));
-    await self.clients.claim();
   })());
 });
 
