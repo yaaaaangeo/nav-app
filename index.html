@@ -218,6 +218,12 @@ input,select{font-family:inherit;}
 .ebtn.on{background:rgba(245,158,11,.24);border-color:var(--warn);color:#fbbf24;}
 .ebtn.save{background:var(--accent);border-color:var(--accent);color:#fff;}
 .ebtn.ghost{color:var(--sub);}
+.ename-tag{font-size:11px;}
+.ename{
+  flex:1;min-width:96px;padding:7px 9px;border-radius:9px;background:var(--card);
+  border:1px solid var(--line);color:var(--txt);font-size:12px;font-weight:600;outline:none;
+}
+.ename:focus{border-color:var(--accent);}
 #edit-hint{font-size:11px;color:var(--sub);line-height:1.4;}
 #edit-warn{
   display:none;align-items:center;gap:8px;flex-wrap:wrap;
@@ -227,6 +233,24 @@ input,select{font-family:inherit;}
 #edit-warn.on{display:flex;}
 #edit-warn span{flex:1;min-width:180px;}
 #panel.locked{opacity:.4;pointer-events:none;}
+
+/* ─────────── 시나리오 전체 구간 보기 ─────────── */
+#overview-bar{
+  position:absolute;top:10px;left:10px;right:10px;z-index:500;display:none;
+  flex-direction:column;gap:7px;background:rgba(15,17,26,.96);backdrop-filter:blur(9px);
+  border:1px solid var(--accent);border-radius:13px;padding:10px 11px;box-shadow:var(--shadow);
+  max-height:46%;
+}
+#overview-bar.on{display:flex;}
+.ov-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;}
+.ov-title #ov-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ov-sum{font-size:11px;color:var(--sub);font-weight:700;}
+.ov-legs{overflow-y:auto;display:flex;flex-direction:column;gap:3px;}
+.ov-leg{display:flex;align-items:center;gap:7px;font-size:11px;line-height:1.35;padding:2px 0;}
+.ov-leg i{width:11px;height:11px;border-radius:3px;flex:0 0 auto;font-style:normal;}
+.ov-leg b{font-weight:800;color:var(--accent2);flex:0 0 auto;}
+.ov-leg span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub);}
+.ov-leg em{font-style:normal;color:var(--dim);flex:0 0 auto;}
 
 #trail-legend{
   position:absolute;left:10px;bottom:52px;z-index:400;display:none;
@@ -466,6 +490,16 @@ input,select{font-family:inherit;}
         <button class="map-btn on" id="btn-follow" title="현재 위치 추적">🎯</button>
         <button class="map-btn" id="btn-headup" title="진행 방향 위로 (헤딩업)">🧭</button>
         <button class="map-btn" id="btn-fit" title="전체 경로 보기">🗺️</button>
+        <button class="map-btn" id="btn-overview" title="시나리오 전체 구간 합쳐 보기">🛣️</button>
+      </div>
+
+      <div id="overview-bar">
+        <div class="ov-title">
+          <span id="ov-name">시나리오 전체</span>
+          <button class="ebtn ghost" id="ov-close">✕ 닫기</button>
+        </div>
+        <div id="ov-sum" class="ov-sum">불러오는 중…</div>
+        <div id="ov-legs" class="ov-legs"></div>
       </div>
 
       <div id="edit-bar">
@@ -478,6 +512,18 @@ input,select{font-family:inherit;}
         <div class="edit-row">
           <button class="ebtn" id="edit-move-s">🟢 출발지 옮기기</button>
           <button class="ebtn" id="edit-move-e">🔴 도착지 옮기기</button>
+        </div>
+        <div class="edit-row">
+          <button class="ebtn" id="edit-leg-add">➕ 뒤에 구간 추가</button>
+          <button class="ebtn" id="edit-leg-del">🗑 이 구간 삭제</button>
+        </div>
+        <div class="edit-row">
+          <span class="ename-tag">🟢</span>
+          <input type="text" id="edit-name-s" class="ename" placeholder="출발지 이름" autocomplete="off"/>
+          <span class="ename-tag">🔴</span>
+          <input type="text" id="edit-name-e" class="ename" placeholder="도착지 이름" autocomplete="off"/>
+        </div>
+        <div class="edit-row">
           <div class="spacer"></div>
           <button class="ebtn ghost" id="edit-cancel">취소</button>
           <button class="ebtn save" id="edit-save">💾 저장</button>
@@ -595,6 +641,7 @@ const K = {
   traffic     : 'nav3-traffic-density',
   sectorTrails    : 'nav3-sector-trails',
   trailRetention  : 'nav3-trail-retention',
+  legLists        : 'nav3-leg-lists',   // 구간을 넣고 뺀 시나리오의 구간 목록 전체
 };
 
 /* ─── TMAP 엔드포인트 ─── */
@@ -1560,14 +1607,17 @@ async function fetchTmapRoute(sLL, eLL, legId){
 
 /** GeoJSON FeatureCollection → routeCoords / routeSteps */
 function parseTmapRoute(rawFeatures, sLL, eLL){
-  // 응답 조각은 반드시 index 순으로 이어 붙여야 한다.
+  // 경유점을 넣으면 TMAP은 경로 조각 말고도 경유지 표식(pointType B1)과
+  // "경유지와 연결된 가상의 라인"을 index 없이 끼워 보낸다. 이 가상 라인까지
+  // 이어 붙이면 도착지에서 경유점으로 되돌아가는 선이 생겨 경로가 왕복해 보인다.
+  // 응답 조각은 반드시 index 순으로 이어 붙여야 한다 —
   // 순서가 섞이면 경로선이 앞뒤로 튀며 같은 길이 여러 번 그려진다.
-  const features = rawFeatures.slice().sort((a, b) => {
-    const ai = Number(a && a.properties && a.properties.index);
-    const bi = Number(b && b.properties && b.properties.index);
-    if (!isFinite(ai) || !isFinite(bi)) return 0;
-    return ai - bi;
-  });
+  const features = rawFeatures
+    .filter(f => {
+      const i = f && f.properties && f.properties.index;
+      return i != null && isFinite(Number(i));
+    })
+    .sort((a, b) => Number(a.properties.index) - Number(b.properties.index));
 
   const coords = [];
   const steps  = [];
@@ -2042,6 +2092,7 @@ function setGpsBadge(cls, text){
    ══════════════════════════════════════════════════════════════ */
 function loadScenario(newLoc, newSc, keepIdx){
   if (editMode) exitEditMode(false);
+  hideScenarioOverview();  // 시나리오가 바뀌면 전체 보기는 닫는다 (아래에서 applyLeg로 다시 그린다)
   saveSectorTrail(true);   // 떠나는 구역의 궤적을 먼저 저장해 둔다 (보존 시간대 안이면 나중에 다시 불러온다)
   loc = newLoc;
   // 지역을 바꾸면 첫 시나리오로 — 지역마다 있는 키가 다르다.
@@ -2152,7 +2203,7 @@ function updateStats(){
 
 function completeLeg(auto){
   if (!legs[legIdx]) return;
-  // 구간 단위 요약 기록은 쓰지 않는다. 위치·속도는 10초 주기 스냅샷으로 남는다.
+  // 구간 단위 요약 기록은 쓰지 않는다. 위치·속도는 1초 주기 스냅샷으로 남는다.
   doneSet.add(legIdx);
   saveCheckpoint(true);
 
@@ -2342,7 +2393,7 @@ function onVisibilityChange(){
 
 /* ══════════════════════════════════════════════════════════════
    주행기록 저장소 — IndexedDB
-   ── 10초마다 쌓이면 하루 2,880건이다. localStorage는 저장할 때마다
+   ── 1초마다 쌓이면 12시간 근무에 4만 건이 넘는다. localStorage는 저장할 때마다
       전체 배열을 다시 쓰기 때문에 기록이 늘수록 느려지고 용량(5~10MB)에도
       금방 닿는다. IndexedDB는 한 건씩 추가할 수 있고 용량도 훨씬 크다.
    ══════════════════════════════════════════════════════════════ */
@@ -2387,6 +2438,25 @@ async function addTripEntry(entry){
   }
 }
 
+/**
+ * 건수만 셀 때는 인덱스 count를 쓴다.
+ * 1초마다 기록하면 하루 수만 건이 쌓이는데, 셀 때마다 getAll로 전부 읽어 오면
+ * 기록이 늘수록 앱이 눈에 띄게 느려진다.
+ */
+async function countTripEntriesByDate(date){
+  try {
+    const db = await openTripDB();
+    return await new Promise((res, rej) => {
+      const tx = db.transaction(TRIP_STORE, 'readonly');
+      const req = tx.objectStore(TRIP_STORE).index('date').count(date);
+      req.onsuccess = () => res(req.result || 0);
+      req.onerror   = () => rej(req.error);
+    });
+  } catch (e){
+    return (lsGet(K.log, []) || []).filter(r => r.date === date).length;
+  }
+}
+
 async function getTripEntriesByDate(date){
   try {
     const db = await openTripDB();
@@ -2422,12 +2492,12 @@ async function deleteTripEntriesByDate(date){
 }
 
 /* ══════════════════════════════════════════════════════════════
-   10초 주기 GPS 스냅샷 기록
+   1초 주기 GPS 스냅샷 기록
    ── 로그인 직후부터 로그아웃까지, 주행 시작/정지와 무관하게 계속 쌓인다.
       번호 / 날짜 / 시각 / GPS위치 / 도로종류 / 날씨 / 시간대 / 장소 /
       교통밀도 / 차량속도(km/h)
    ══════════════════════════════════════════════════════════════ */
-const PERIODIC_LOG_INTERVAL_MS = 10 * 1000;   // Ver.2는 30초, Ver.3은 10초
+const PERIODIC_LOG_INTERVAL_MS = 1000;   // Ver.2는 30초, Ver.3은 10초였다가 1초로
 const GPS_STALE_MS = 30 * 1000;              // 이보다 오래된 측위는 기록하지 않는다
 let periodicLogTimer = null;
 let lastLogAt = 0;
@@ -2448,7 +2518,7 @@ function stopPeriodicLogging(){
 /**
  * 측위가 들어올 때도 기록 시점을 확인한다.
  * 화면이 꺼지거나 앱이 백그라운드로 가면 브라우저가 setInterval을 크게 늦추기 때문에
- * (실측: 10초 간격이 22초 → 52초 → 80초로 벌어짐) 타이머 하나에만 의존할 수 없다.
+ * (실측: 10초 간격이 22초 → 52초 → 80초로 벌어졌다) 타이머 하나에만 의존할 수 없다.
  */
 function maybeLogSnapshot(){
   if (!periodicLogTimer) return;
@@ -2501,8 +2571,8 @@ async function logGpsSnapshot(){
        Ver.2가 구간 단위 기록을 폐기하고 주기 기록으로 바꿨다.)
    ══════════════════════════════════════════════════════════════ */
 function renderLogCount(){
-  getTripEntriesByDate(todayKey()).then(list => {
-    $('log-count').textContent = list.length ? list.length + '건' : '';
+  countTripEntriesByDate(todayKey()).then(n => {
+    $('log-count').textContent = n ? n + '건' : '';
   }).catch(() => {});
 }
 
@@ -2525,7 +2595,7 @@ async function downloadTodayLog(){
 
   if (!rows0.length){
     alert('오늘 기록된 주행 데이터가 아직 없습니다.\n' +
-          '(로그인 후 10초마다 자동으로 GPS 위치가 기록됩니다)\n\n' +
+          '(로그인 후 1초마다 자동으로 GPS 위치가 기록됩니다)\n\n' +
           '기록이 안 됐다면 위치(GPS) 권한이 거부되어 있거나,\n' +
           'file://로 직접 연 상태(https 주소로 접속해야 함)일 수 있습니다.');
     return;
@@ -3259,7 +3329,198 @@ async function ensureSectorRoads(){
   }
 }
 
+/* ══════════════════════════════════════════════════════════════
+   시나리오 전체 구간 보기
+   ── 구간을 하나씩 보는 대신, 지금 시나리오의 모든 구간을 한 번에 그린다.
+      구간마다 색을 달리해 어디서 어디로 이어지는지 한눈에 보인다.
+      이미 저장된 고정 경로가 있으면 그것을 쓰고, 없는 구간만 API로 받는다.
+   ══════════════════════════════════════════════════════════════ */
+let overviewOn = false;
+let overviewLines = [];
+let overviewMarkers = [];
+let overviewSeq = 0;          // 불러오는 도중 닫으면 이전 요청 결과를 버리기 위한 토큰
 
+function clearOverviewLayers(){
+  overviewLines.forEach(l => { try { l.setMap(null); } catch (_) {} });
+  overviewMarkers.forEach(m => { try { m.setMap(null); } catch (_) {} });
+  overviewLines = [];
+  overviewMarkers = [];
+}
+
+/** 구간 하나의 경로 좌표만 얻어온다 (현재 화면의 경로 상태는 건드리지 않는다) */
+async function fetchLegCoords(leg){
+  const fixed = normalizeFixedRoute(FIXED_ROUTES[leg.id]);
+  if (fixed && fixed.coords.length >= 2) return fixed.coords.map(p => p.slice());
+
+  const raw = Array.isArray(WAYPOINTS[leg.id]) ? WAYPOINTS[leg.id] : [];
+  const wps = trimWaypoints(sanitizeWaypoints(leg.sLL, leg.eLL, raw), TMAP_MAX_PASS_POINTS);
+  const body = new URLSearchParams({
+    appKey       : appKey,
+    startX       : String(leg.sLL[1]), startY: String(leg.sLL[0]),
+    endX         : String(leg.eLL[1]), endY  : String(leg.eLL[0]),
+    reqCoordType : 'WGS84GEO',
+    resCoordType : 'WGS84GEO',
+    startName    : '출발',
+    endName      : '도착',
+    searchOption : '0',
+    trafficInfo  : 'N',      // 전체 보기에서는 교통정보가 필요 없다
+    sort         : 'index',
+  });
+  if (wps.length) body.set('passList', wps.map(w => w[1] + ',' + w[0]).join('_'));
+
+  const res = await fetch(TMAP.routes, {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body   : body.toString(),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+
+  // 경유지 표식·가상 라인(index 없음)은 빼고 index 순으로 이어 붙인다.
+  const coords = [];
+  (data.features || [])
+    .filter(f => {
+      const i = f && f.properties && f.properties.index;
+      return i != null && isFinite(Number(i));
+    })
+    .sort((a, b) => Number(a.properties.index) - Number(b.properties.index))
+    .forEach(f => {
+      if (!f.geometry || f.geometry.type !== 'LineString') return;
+      for (const [lng, lat] of f.geometry.coordinates){
+        const last = coords[coords.length - 1];
+        if (last && last[0] === lat && last[1] === lng) continue;
+        coords.push([lat, lng]);
+      }
+    });
+  return coords;
+}
+
+function pathKm(coords){
+  let m = 0;
+  for (let i = 1; i < coords.length; i++){
+    m += haversine(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1]);
+  }
+  return m / 1000;
+}
+
+function toggleScenarioOverview(){
+  if (overviewOn){ closeScenarioOverview(); return; }
+  openScenarioOverview();
+}
+
+async function openScenarioOverview(){
+  if (editMode){ toast('경로 수정을 마친 뒤에 보세요'); return; }
+  if (!sdkReady || !map){ toast('지도를 불러온 뒤에 볼 수 있습니다'); return; }
+  if (currentSector()){ toast('구역 주행에는 구간이 없습니다'); return; }
+  if (!legs.length){ toast('표시할 구간이 없습니다'); return; }
+
+  overviewOn = true;
+  const seq = ++overviewSeq;
+
+  clearRoute();              // 현재 구간 경로선과 겹치지 않도록 지운다
+  showTurn(false);
+  clearOverviewLayers();
+  setFollow(false);          // 전체를 보는 동안에는 내 위치로 따라가지 않는다
+
+  const sc = SCENARIOS[loc][scKey] || {};
+  $('ov-name').textContent = loc + ' · ' + (sc.name || scKey) + ' — 전체 ' + legs.length + '개 구간';
+  $('ov-legs').innerHTML = '';
+  $('ov-sum').textContent = '구간 경로를 불러오는 중… (0/' + legs.length + ')';
+  $('overview-bar').classList.add('on');
+
+  const bounds = new Tmapv2.LatLngBounds();
+  let totalKm = 0, drawn = 0;
+
+  for (let i = 0; i < legs.length; i++){
+    if (seq !== overviewSeq) return;          // 그 사이에 닫혔으면 중단
+    const lg = legs[i];
+    const color = SC_COLORS[i % SC_COLORS.length];
+    let coords = [];
+    try {
+      coords = await fetchLegCoords(lg);
+    } catch (e){
+      coords = [];
+    }
+    if (seq !== overviewSeq) return;
+
+    // 경로를 못 받은 구간은 출발–도착 직선으로라도 이어 둔다.
+    if (coords.length < 2) coords = [lg.sLL.slice(), lg.eLL.slice()];
+
+    const km = pathKm(coords);
+    totalKm += km;
+    drawn++;
+
+    overviewLines.push(new Tmapv2.Polyline({
+      path         : coords.map(c => LL(c[0], c[1])),
+      strokeColor  : color,
+      strokeWeight : 6,
+      strokeOpacity: 0.9,
+      map          : map,
+    }));
+    overviewMarkers.push(new Tmapv2.Marker({
+      position : LL(lg.sLL[0], lg.sLL[1]),
+      icon     : editPinIcon(color, String(i + 1)),
+      iconSize : new Tmapv2.Size(26, 26),
+      map      : map,
+      zIndex   : 940,
+    }));
+    coords.forEach(c => bounds.extend(LL(c[0], c[1])));
+
+    appendOverviewLegRow(i, lg, color, km);
+    $('ov-sum').textContent = drawn < legs.length
+      ? '구간 경로를 불러오는 중… (' + drawn + '/' + legs.length + ')'
+      : '총 ' + legs.length + '개 구간 · ' + totalKm.toFixed(1) + ' km';
+
+    try { beginProgrammaticMove(); map.fitBounds(bounds); } catch (_) {}
+  }
+
+  // 마지막 구간 도착지에도 표식을 남긴다.
+  const last = legs[legs.length - 1];
+  if (last){
+    overviewMarkers.push(new Tmapv2.Marker({
+      position : LL(last.eLL[0], last.eLL[1]),
+      icon     : editPinIcon('#ef4444', 'E'),
+      iconSize : new Tmapv2.Size(26, 26),
+      map      : map,
+      zIndex   : 941,
+    }));
+  }
+}
+
+function appendOverviewLegRow(i, lg, color, km){
+  const row = document.createElement('div');
+  row.className = 'ov-leg';
+  row.innerHTML =
+    '<i style="background:' + color + '"></i>' +
+    '<b>' + (i + 1) + '</b>' +
+    '<span>' + esc(lg.s || '—') + ' → ' + esc(lg.e || '—') + '</span>' +
+    '<em>' + km.toFixed(1) + 'km</em>';
+  // 목록에서 누르면 그 구간으로 이동한다.
+  row.onclick = () => {
+    hideScenarioOverview();
+    legIdx = i;
+    legStartTime = null; legStartPos = null;
+    applyLeg();
+    renderControls();
+    saveCheckpoint(true);
+  };
+  $('ov-legs').appendChild(row);
+}
+
+/** 전체 보기 화면만 걷어낸다 — 뒤이어 경로를 다시 그릴 쪽에서 부른다 */
+function hideScenarioOverview(){
+  if (!overviewOn) return false;
+  overviewOn = false;
+  overviewSeq++;                  // 진행 중이던 불러오기 중단
+  clearOverviewLayers();
+  $('overview-bar').classList.remove('on');
+  return true;
+}
+
+function closeScenarioOverview(){
+  if (!hideScenarioOverview()) return;
+  applyLeg();                     // 원래 보던 구간 경로로 되돌린다
+}
 
 /* ══════════════════════════════════════════════════════════════
    경로 겹침 감지
@@ -3348,10 +3609,13 @@ async function autoFixEditWaypoints(){
 
 /* ══════════════════════════════════════════════════════════════
    경로 수정
-   ── TMAP v2 마커 드래그는 모바일에서 동작이 일정하지 않아
-      탭(클릭) 기반으로 만들었다. 태블릿에서 훨씬 정확하다.
+   ── 예전에는 마커 드래그가 모바일에서 불안정하다고 보고 탭 기반으로만 뒀었다.
+      다만 경로가 왕복해 보이던 증상의 진짜 원인은 드래그가 아니라, TMAP 응답의
+      "경유지와 연결된 가상의 라인"까지 경로에 이어 붙이던 파싱 문제였다
+      (parseTmapRoute에서 index 없는 피처를 걸러내 해결). 그래서 드래그를 다시 넣되
+      탭 방식도 그대로 뒀다 — 기기에서 드래그가 불안정하면 탭으로 옮기면 된다.
         · 지도를 탭하면 그 지점에 경유점 추가 (가장 가까운 구간에 끼워 넣음)
-        · 경유점을 탭하면 삭제
+        · 경유점을 탭하면 삭제, 드래그하면 그 자리로 이동
         · 출발/도착 옮기기 모드에서는 탭한 지점으로 핀 이동
    ══════════════════════════════════════════════════════════════ */
 let editMode = false;
@@ -3361,9 +3625,40 @@ let editMarkers = [];
 let editTarget = 'wp';       // 'wp' | 'start' | 'end'
 let editHistory = [];        // 되돌리기용 스냅샷
 
-/** 저장된 경로 수정본 { legId: {wps, sLL, eLL} } */
+/** 저장된 경로 수정본 { legId: {wps, sLL, eLL, sName, eName} } */
 function getRouteEdits(){ return lsGet(K.edits, {}) || {}; }
 function setRouteEdits(v){ lsSet(K.edits, v); }
+
+/* ── 구간 목록 편집 ──
+   경유점·좌표 수정은 구간 id별로 저장하면 되지만, 구간을 넣고 빼면 목록 자체가
+   달라져서 id별 저장으로는 표현할 수 없다. 그래서 바뀐 시나리오는 구간 목록
+   전체를 통째로 저장해 두고, 시작할 때 원본 위에 덮어쓴다. */
+function getLegListEdits(){ return lsGet(K.legLists, {}) || {}; }
+
+/** 지금 시나리오의 구간 목록을 저장하고 원본 시나리오에도 반영한다 */
+function saveLegList(){
+  const store = getLegListEdits();
+  store[loc + '-' + scKey] = legs.map(l => Object.assign({}, l));
+  lsSet(K.legLists, store);
+  if (SCENARIOS[loc] && SCENARIOS[loc][scKey]){
+    SCENARIOS[loc][scKey].legs = legs.map(l => Object.assign({}, l));
+  }
+}
+
+/** 시작 시 저장된 구간 목록을 시나리오에 입힌다 (구간별 수정본보다 먼저 적용) */
+function applyLegListEdits(){
+  const store = getLegListEdits();
+  let applied = 0;
+  Object.keys(store).forEach(key => {
+    const [locKey, scK] = splitScenarioKey(key);
+    if (!locKey || !SCENARIOS[locKey] || !SCENARIOS[locKey][scK]) return;
+    const list = store[key];
+    if (!Array.isArray(list) || !list.length) return;
+    SCENARIOS[locKey][scK].legs = list.map(l => Object.assign({}, l));
+    applied++;
+  });
+  return applied;
+}
 
 /** 시작 시 저장된 수정본을 시나리오에 입힌다 */
 function applyRouteEdits(){
@@ -3384,6 +3679,8 @@ function applyRouteEdits(){
         }
         if (Array.isArray(e.sLL)) lg.sLL = e.sLL.slice();
         if (Array.isArray(e.eLL)) lg.eLL = e.eLL.slice();
+        if (typeof e.sName === 'string') lg.s = e.sName;
+        if (typeof e.eName === 'string') lg.e = e.eName;
         applied++;
       });
     });
@@ -3407,6 +3704,7 @@ function enterEditMode(){
   }
   if (!sdkReady){ toast('지도를 불러온 뒤에 수정할 수 있습니다'); return; }
   if (isPlaying){ toast('주행 중에는 수정할 수 없습니다 — ⏸ 먼저 눌러주세요'); return; }
+  hideScenarioOverview();
 
   const lg = legs[legIdx];
   editMode   = true;
@@ -3415,6 +3713,8 @@ function enterEditMode(){
   editSLL    = lg.sLL.slice();
   editELL    = lg.eLL.slice();
   editHistory = [];
+  $('edit-name-s').value = lg.s || '';
+  $('edit-name-e').value = lg.e || '';
 
   // 회전 상태에서는 탭 위치를 가늠하기 어려우므로 편집 중에는 북쪽 고정으로 둔다.
   $('map_div').classList.remove('heading-up');
@@ -3442,6 +3742,111 @@ function exitEditMode(saved){
     const lg = legs[legIdx];
     if (lg) fetchTmapRoute(lg.sLL, lg.eLL, lg.id);
   }
+}
+
+/* ── 구간 넣고 빼기 ──
+   구간은 앞 구간의 도착지 = 뒤 구간의 출발지로 이어져 있다.
+   넣거나 뺄 때 이 연결이 끊기지 않도록 뒤 구간의 출발지를 맞춰 준다. */
+
+/** 저장하지 않은 편집이 남아 있으면 구조 변경을 막는다 (수정 내용이 사라지지 않도록) */
+function legStructureBlocked(){
+  if (editHistory.length){
+    toast('경유점 수정을 저장하거나 취소한 뒤에 구간을 넣고 뺄 수 있습니다', 3200);
+    return true;
+  }
+  return false;
+}
+
+function newLegId(){
+  return 'NEW-' + Date.now().toString(36).toUpperCase() +
+         '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
+}
+
+/** ➕ 지금 구간 뒤에 새 구간을 넣는다 — 도착지로 쓸 지점을 지도에서 탭한다 */
+function startAddLeg(){
+  if (!legs[legIdx]) return;
+  if (legStructureBlocked()) return;
+  editTarget = 'newleg';
+  renderEditTargetBtns();
+}
+
+/** 탭한 지점을 도착지로 삼아 새 구간을 끼워 넣는다 */
+async function insertLegAfterCurrent(ll){
+  const cur = legs[legIdx];
+  if (!cur) return;
+
+  const straightKm = haversine(cur.eLL[0], cur.eLL[1], ll[0], ll[1]) / 1000;
+  const leg = {
+    id  : newLegId(),
+    road: '추가한 구간',
+    dist: +straightKm.toFixed(1),
+    spd : 20,
+    time: Math.max(1, Math.round(straightKm / 20 * 60)),
+    rest: 10,
+    s   : cur.e || '이전 구간 도착지',
+    e   : '새 지점',
+    sId : '', eId: '',
+    sLL : cur.eLL.slice(),
+    eLL : ll.slice(),
+  };
+
+  legs.splice(legIdx + 1, 0, leg);
+
+  // 뒤 구간이 있으면 그 출발지를 새 구간의 도착지로 맞춰 연결을 잇는다.
+  const after = legs[legIdx + 2];
+  if (after){
+    after.sLL = leg.eLL.slice();
+    after.s   = leg.e;
+  }
+
+  saveLegList();
+  legIdx = legIdx + 1;            // 새로 만든 구간으로 옮겨 간다
+  exitEditMode(true);
+  applyLeg();
+  renderControls();
+  saveCheckpoint(true);
+  toast('구간을 넣었습니다 — 이름은 경로 수정에서 바꿀 수 있습니다', 3000);
+
+  // 실제 도로 거리로 채워 넣는다 (직선 거리는 임시값이라 목록 표시가 어긋난다).
+  try {
+    const coords = await fetchLegCoords(leg);
+    if (coords.length >= 2){
+      const km = pathKm(coords);
+      leg.dist = +km.toFixed(1);
+      leg.time = Math.max(1, Math.round(km / 20 * 60));
+      saveLegList();
+      renderLegs();
+      if (legs[legIdx] === leg) applyLeg();
+    }
+  } catch (_) {}
+}
+
+/** 🗑 지금 구간을 목록에서 뺀다 */
+function deleteCurrentLeg(){
+  const cur = legs[legIdx];
+  if (!cur) return;
+  if (legs.length <= 1){ toast('구간이 하나뿐이라 지울 수 없습니다', 2400); return; }
+  if (legStructureBlocked()) return;
+  if (!confirm('구간 ' + (legIdx + 1) + '번을 목록에서 지울까요?\n' +
+               (cur.s || '') + ' → ' + (cur.e || ''))) return;
+
+  // 뒤 구간을 앞으로 당겨 연결한다 — 지운 구간의 출발지에서 이어 가도록.
+  const after = legs[legIdx + 1];
+  if (after){
+    after.sLL = cur.sLL.slice();
+    after.s   = cur.s;
+  }
+
+  legs.splice(legIdx, 1);
+  legIdx = Math.max(0, Math.min(legIdx, legs.length - 1));
+  doneSet.delete(legIdx);
+
+  saveLegList();
+  exitEditMode(true);
+  applyLeg();
+  renderControls();
+  saveCheckpoint(true);
+  toast('구간을 지웠습니다', 2000);
 }
 
 /** 편집 중 스냅샷 — 되돌리기용 */
@@ -3488,6 +3893,13 @@ function onEditMapClick(evt){
   lastEditTapAt = now;
   lastEditTapLL = ll;
 
+  // 새 구간 추가는 되돌리기 스냅샷을 쌓지 않는다 (편집이 아니라 목록 구조 변경).
+  if (editTarget === 'newleg'){
+    editTarget = 'wp';
+    insertLegAfterCurrent(ll);
+    return;
+  }
+
   pushEditHistory();
   if (editTarget === 'start'){
     editSLL = ll;
@@ -3504,16 +3916,21 @@ function onEditMapClick(evt){
   refreshEditPreview();
 }
 
-/** TMAP 클릭 이벤트에서 좌표를 꺼낸다 (SDK 버전마다 형태가 조금씩 다르다) */
-function extractLatLng(e){
+/** 좌표 객체(LatLng)에서 [lat, lng]를 꺼낸다 (SDK 버전마다 형태가 조금씩 다르다) */
+function llFromPos(p){
   try {
-    const p = e && (e.latLng || e.lngLat || e.data && e.data.latLng);
     if (!p) return null;
     const lat = typeof p.lat === 'function' ? p.lat() : (p.lat != null ? p.lat : p._lat);
     const lng = typeof p.lng === 'function' ? p.lng() : (p.lng != null ? p.lng : p._lng);
     if (!isFinite(lat) || !isFinite(lng)) return null;
     return [+lat, +lng];
   } catch (_) { return null; }
+}
+
+/** TMAP 클릭 이벤트에서 좌표를 꺼낸다 */
+function extractLatLng(e){
+  const p = e && (e.latLng || e.lngLat || e.data && e.data.latLng);
+  return llFromPos(p);
 }
 
 /** 새 경유점을 어느 구간 사이에 끼울지 — 선분까지의 거리로 판단 */
@@ -3559,12 +3976,17 @@ function renderEditMarkers(){
   clearEditMarkers();
   if (!editMode || !map) return;
 
-  const mk = (ll, icon, onClick) => {
+  const mk = (ll, icon, opts) => {
+    opts = opts || {};
     const m = new Tmapv2.Marker({
       position: LL(ll[0], ll[1]), icon: icon,
       iconSize: new Tmapv2.Size(30, 30), map: map, zIndex: 950,
+      draggable: !!opts.draggable,
     });
-    if (onClick){ try { m.addListener('click', onClick); } catch (_) {} }
+    if (opts.onClick){ try { m.addListener('click', opts.onClick); } catch (_) {} }
+    if (opts.onDragEnd){
+      try { m.addListener('dragend', () => opts.onDragEnd(m)); } catch (_) {}
+    }
     editMarkers.push(m);
   };
 
@@ -3572,12 +3994,24 @@ function renderEditMarkers(){
   mk(editELL, editPinIcon('#ef4444', 'E'));
 
   editWps.forEach((w, i) => {
-    mk(w, editPinIcon('#f59e0b', String(i + 1)), () => {
-      pushEditHistory();
-      editWps.splice(i, 1);
-      renderEditMarkers();
-      refreshEditPreview();
-      toast('경유점 ' + (i + 1) + '번 삭제', 1200);
+    mk(w, editPinIcon('#f59e0b', String(i + 1)), {
+      onClick: () => {
+        pushEditHistory();
+        editWps.splice(i, 1);
+        renderEditMarkers();
+        refreshEditPreview();
+        toast('경유점 ' + (i + 1) + '번 삭제', 1200);
+      },
+      draggable: true,
+      // 놓은 뒤 마커의 최종 위치를 그대로 읽는다 — 이벤트 객체 형태가
+      // SDK 버전마다 달라서 payload를 파싱하지 않는다.
+      onDragEnd: marker => {
+        const moved = marker.getPosition && llFromPos(marker.getPosition());
+        if (!moved) return;
+        pushEditHistory();
+        editWps[i] = moved;
+        refreshEditPreview();
+      },
     });
   });
 
@@ -3610,10 +4044,12 @@ async function refreshEditPreview(){
 function renderEditTargetBtns(){
   $('edit-move-s').classList.toggle('on', editTarget === 'start');
   $('edit-move-e').classList.toggle('on', editTarget === 'end');
+  $('edit-leg-add').classList.toggle('on', editTarget === 'newleg');
   $('edit-hint').textContent =
-    editTarget === 'start' ? '출발지로 쓸 지점을 탭하세요' :
-    editTarget === 'end'   ? '도착지로 쓸 지점을 탭하세요' :
-    '지도를 탭하면 경유점 추가 · 경유점을 탭하면 삭제';
+    editTarget === 'start'  ? '출발지로 쓸 지점을 탭하세요' :
+    editTarget === 'end'    ? '도착지로 쓸 지점을 탭하세요' :
+    editTarget === 'newleg' ? '새 구간의 도착지로 쓸 지점을 탭하세요 (출발지는 지금 구간의 도착지로 이어집니다)' :
+    '지도를 탭하면 경유점 추가 · 경유점을 탭하면 삭제 · 드래그하면 이동';
 }
 
 function setEditTarget(t){
@@ -3629,6 +4065,9 @@ function saveRouteEdit(){
   WAYPOINTS[lg.id] = editWps.map(w => w.slice());
   lg.sLL = editSLL.slice();
   lg.eLL = editELL.slice();
+  // 이름은 비워 두면 원래 이름을 유지한다 (실수로 지운 채 저장하는 것을 막는다).
+  lg.s = $('edit-name-s').value.trim() || lg.s;
+  lg.e = $('edit-name-e').value.trim() || lg.e;
   const fixedRoute = captureCurrentFixedRoute();
   if (fixedRoute) FIXED_ROUTES[lg.id] = fixedRoute;
 
@@ -3637,6 +4076,8 @@ function saveRouteEdit(){
     wps: editWps.map(w => w.slice()),
     sLL: lg.sLL.slice(),
     eLL: lg.eLL.slice(),
+    sName: lg.s,
+    eName: lg.e,
     route: fixedRoute,
   };
 
@@ -3644,13 +4085,17 @@ function saveRouteEdit(){
   const next = legs[legIdx + 1];
   if (next){
     next.sLL = lg.eLL.slice();
-    edits[next.id] = Object.assign({}, edits[next.id], { sLL: next.sLL.slice() });
+    next.s = lg.e;
+    edits[next.id] = Object.assign({}, edits[next.id],
+      { sLL: next.sLL.slice(), sName: next.s });
   }
   // 출발지를 옮겼으면 이전 구간 도착지도 같이 옮긴다
   const prev = legs[legIdx - 1];
   if (prev){
     prev.eLL = lg.sLL.slice();
-    edits[prev.id] = Object.assign({}, edits[prev.id], { eLL: prev.eLL.slice() });
+    prev.e = lg.s;
+    edits[prev.id] = Object.assign({}, edits[prev.id],
+      { eLL: prev.eLL.slice(), eName: prev.e });
   }
 
   setRouteEdits(edits);
@@ -3658,7 +4103,12 @@ function saveRouteEdit(){
   // 원본 시나리오에도 반영해 두어야 시나리오를 다시 열었을 때 유지된다.
   const src = SCENARIOS[loc][scKey].legs;
   [legIdx - 1, legIdx, legIdx + 1].forEach(i => {
-    if (legs[i] && src[i]){ src[i].sLL = legs[i].sLL.slice(); src[i].eLL = legs[i].eLL.slice(); }
+    if (legs[i] && src[i]){
+      src[i].sLL = legs[i].sLL.slice();
+      src[i].eLL = legs[i].eLL.slice();
+      src[i].s = legs[i].s;
+      src[i].e = legs[i].e;
+    }
   });
 
   exitEditMode(true);
@@ -3710,8 +4160,10 @@ function exportRoutesJson(){
 }
 
 function resetRouteEdits(){
-  if (!confirm('이 기기에 저장된 경로 수정을 모두 되돌릴까요?\n(routes.json 원본 상태로 돌아갑니다)')) return;
+  if (!confirm('이 기기에 저장된 경로 수정을 모두 되돌릴까요?\n' +
+               '(경유점·출발/도착 수정과 넣고 뺀 구간이 모두 routes.json 원본 상태로 돌아갑니다)')) return;
   setRouteEdits({});
+  lsSet(K.legLists, {});
   location.reload();
 }
 
@@ -3823,6 +4275,7 @@ function renderWpState(){
    ══════════════════════════════════════════════════════════════ */
 function togglePlay(){
   if (editMode){ toast('경로 수정을 마친 뒤 시작하세요'); return; }
+  closeScenarioOverview();   // 전체 보기 상태로는 주행할 수 없다
   const sector = currentSector();
   isPlaying = !isPlaying;
   if (isPlaying){
@@ -3956,9 +4409,16 @@ async function enterApp(){
 
   await routesReady;
   // 이 기기에서 수정한 경로는 원본 위에 덮어쓴다.
+  // 구간을 넣고 뺀 목록을 먼저 깔고, 그 위에 구간별 수정본을 얹는다.
+  const listCount = applyLegListEdits();
   const editedCount = applyRouteEdits();
-  if (editedCount) $('edit-count-badge').textContent = editedCount + '건 수정';
-  if (routesLoaded || editedCount){
+  if (editedCount || listCount){
+    $('edit-count-badge').textContent =
+      (editedCount ? editedCount + '건 수정' : '') +
+      (editedCount && listCount ? ' · ' : '') +
+      (listCount ? listCount + '개 목록 변경' : '');
+  }
+  if (routesLoaded || editedCount || listCount){
     // 원본이 들어오면 시나리오 목록·구간이 바뀌므로 다시 적용한다.
     const reloadedSc = (savedSc && SCENARIOS[startLoc][savedSc]) ? savedSc : startSc;
     restoringCheckpoint = true;
@@ -4025,6 +4485,8 @@ function bindEvents(){
   $('btn-follow').onclick = recenterToMe;
   $('btn-headup').onclick = toggleHeadingUp;
   $('btn-fit').onclick = fitRoute;
+  $('btn-overview').onclick = toggleScenarioOverview;
+  $('ov-close').onclick = closeScenarioOverview;
 
   /* controls */
   $('btn-play').onclick = togglePlay;
@@ -4081,6 +4543,8 @@ function bindEvents(){
   $('edit-clear').onclick  = clearEditWaypoints;
   $('edit-move-s').onclick = () => setEditTarget('start');
   $('edit-move-e').onclick = () => setEditTarget('end');
+  $('edit-leg-add').onclick = startAddLeg;
+  $('edit-leg-del').onclick = deleteCurrentLeg;
   $('edit-cancel').onclick = () => exitEditMode(false);
   $('edit-save').onclick   = saveRouteEdit;
   $('mi-appkey').onclick = () => { closeMenu(); showSetup(); };
