@@ -272,6 +272,7 @@ input,select{font-family:inherit;}
 #cur-idx{font-size:11px;font-weight:800;color:var(--accent2);letter-spacing:.05em;}
 #cur-route{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:15px;font-weight:800;letter-spacing:-.02em;}
 #cur-route span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:44%;}
+#cur-route span#cur-dist-inline{max-width:none;flex:0 0 auto;margin-left:auto;padding-left:6px;font-size:12px;font-weight:700;color:var(--sub);}
 #cur-road{font-size:11px;color:var(--sub);margin-top:4px;line-height:1.4;}
 #cur-stats{display:flex;gap:14px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
 .stat b{display:block;font-size:16px;font-weight:800;letter-spacing:-.02em;}
@@ -401,6 +402,7 @@ input,select{font-family:inherit;}
   <div class="mdiv"></div>
   <div class="mi" id="mi-waypoint">📍 고정 경유점 사용<span class="cnt" id="wp-state">ON</span></div>
   <div class="mi" id="mi-sector-roads">🛣 구역 내 길 표시<span class="cnt" id="sector-roads-state">ON</span></div>
+  <div class="mi" id="mi-trail-retention">⏱ 궤적 보존 시간<span class="cnt" id="trail-retention-state">—</span></div>
   <div class="mdiv"></div>
   <div class="mi" id="mi-edit">✏️ 경로 수정</div>
   <div class="mi" id="mi-export-routes">🗺 경로 내보내기 (routes.json)<span class="cnt" id="edit-count-badge"></span></div>
@@ -485,9 +487,9 @@ input,select{font-family:inherit;}
         <div class="sec-t">현재 구간</div>
         <div class="card" id="cur-card">
           <div id="cur-idx">—</div>
-          <div id="cur-route"><span id="cur-s">—</span>→<span id="cur-e">—</span></div>
+          <div id="cur-route"><span id="cur-s">—</span>→<span id="cur-e">—</span><span id="cur-dist-inline"></span></div>
           <div id="cur-road">—</div>
-          <div id="cur-stats">
+          <div id="cur-stats" class="hidden">
             <div class="stat"><b id="st-dist">—</b><i>거리 (km)</i></div>
             <div class="stat"><b id="st-eta">—</b><i id="st-eta-label">예상 (분)</i></div>
             <div class="stat"><b id="st-plan">—</b><i id="st-plan-label">계획 (분)</i></div>
@@ -546,6 +548,8 @@ const K = {
   edits       : 'nav3-route-edits',
   headingUp   : 'nav3-heading-up',
   traffic     : 'nav3-traffic-density',
+  sectorTrails    : 'nav3-sector-trails',
+  trailRetention  : 'nav3-trail-retention',
 };
 
 /* ─── TMAP 엔드포인트 ─── */
@@ -566,6 +570,13 @@ const OFF_ROUTE_REQUIRED_COUNT = 3;     // 연속 이탈 횟수
 const GPS_FOLLOW_RESUME_MS     = 10000; // 수동 조작 후 추적 재개까지
 const TMAP_MAX_PASS_POINTS     = 5;     // 자동차 경로안내 API 경유지 최대 개수
 const GUIDE_ANNOUNCE_M         = [500, 200, 50]; // 사전 음성 안내 거리
+
+/* ─── 자유주행 구역 궤적 보존 시간 (한국시간 KST 기준, 24시간제) ───
+   이 시간대 안에서는 앱을 껐다 켜거나 다른 동네로 갔다 와도 지나온 길이 보존된다.
+   기본값 8~20시(하루 근무 시간). ⚙️ 설정 메뉴의 "궤적 보존 시간"에서 바꿀 수 있고,
+   바뀐 값은 nav3-trail-retention 키로 저장돼 다음 실행에도 유지된다. */
+let TRAIL_RETENTION_START_HOUR = 8;
+let TRAIL_RETENTION_END_HOUR   = 20;
 const SCENARIOS={
   강남:{center:[37.498,127.032],zoom:13,
     a:{name:"ㄹ자 그리드",color:"#3b82f6",legs:[
@@ -895,6 +906,23 @@ function todayKey(d = new Date()){
   return d.getFullYear() + '-' +
          String(d.getMonth() + 1).padStart(2, '0') + '-' +
          String(d.getDate()).padStart(2, '0');
+}
+
+/** 기기 시간대와 무관하게 한국시간(KST, UTC+9) 기준 날짜키·시각을 구한다. */
+function kstParts(d = new Date()){
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return {
+    dateKey: kst.getUTCFullYear() + '-' +
+             String(kst.getUTCMonth() + 1).padStart(2, '0') + '-' +
+             String(kst.getUTCDate()).padStart(2, '0'),
+    hour: kst.getUTCHours(),
+  };
+}
+
+/** 지금이 궤적 보존 시간대(KST, ⚙️ 설정에서 바꿀 수 있음) 안인지 */
+function inTrailRetentionWindow(d = new Date()){
+  const h = kstParts(d).hour;
+  return h >= TRAIL_RETENTION_START_HOUR && h < TRAIL_RETENTION_END_HOUR;
 }
 
 function lsGet(k, def){
@@ -1969,6 +1997,7 @@ function setGpsBadge(cls, text){
    ══════════════════════════════════════════════════════════════ */
 function loadScenario(newLoc, newSc, keepIdx){
   if (editMode) exitEditMode(false);
+  saveSectorTrail(true);   // 떠나는 구역의 궤적을 먼저 저장해 둔다 (보존 시간대 안이면 나중에 다시 불러온다)
   loc = newLoc;
   // 지역을 바꾸면 첫 시나리오로 — 지역마다 있는 키가 다르다.
   const keys = scenarioKeys(loc);
@@ -1976,6 +2005,8 @@ function loadScenario(newLoc, newSc, keepIdx){
   legs = (SCENARIOS[loc][scKey].legs || []).map(l => Object.assign({}, l));
   if (!keepIdx){ legIdx = 0; doneSet.clear(); }
   isPlaying = false;
+  // 새 구역에 저장된 궤적이 있고 보존 시간대 안이면 불러오고, 아니면 비운다.
+  restoreSectorTrail();
   renderChips();
   renderLegs();
   applyLeg();
@@ -1994,13 +2025,13 @@ function applyLeg(){
   $('cur-s').textContent = leg.s || '—';
   $('cur-e').textContent = leg.e || '—';
   $('cur-road').textContent = leg.road || '—';
-  $('st-plan').textContent = leg.time != null ? leg.time : '—';
-  $('st-eta-label').textContent  = '예상 (분)';
-  $('st-plan-label').textContent = '계획 (분)';
+  $('cur-stats').classList.add('hidden');
+  $('cur-dist-inline').textContent = leg.dist != null ? '(' + Number(leg.dist).toFixed(1) + 'km)' : '';
 
   renderLegs();
 
   clearSectorLayers();
+  clearSectorTrail();
   showTurn(false);
   renderControls();
   drivingZoomApplied = false;
@@ -2022,6 +2053,7 @@ function applySector(){
   if (sdkReady){
     renderSector();
     ensureSectorRoads();
+    redrawSectorTrail();
   }
 }
 
@@ -2037,24 +2069,27 @@ function renderSectorInfo(){
   $('cur-road').textContent = roads.length
     ? 'HD맵 도로 ' + roads.length + '개 · 꼭짓점 ' + sc.sector.length + '개'
     : '꼭짓점 ' + sc.sector.length + '개 · 도로 데이터 없음';
+  $('cur-stats').classList.remove('hidden');
+  $('cur-dist-inline').textContent = '';
 
-  const [hd, off] = trailSplitKm();
-  $('st-dist').textContent = roads.length ? roadsTotalKm(roads).toFixed(1) : '—';
-  $('st-eta').textContent  = hd.toFixed(1);
-  $('st-plan').textContent = off.toFixed(1);
-  $('st-eta-label').textContent  = 'HD맵 (km)';
-  $('st-plan-label').textContent = '비구현 (km)';
+  const totalKm  = roads.length ? roadsTotalKm(roads) : 0;
+  const passedKm = sectorTrailKm();
+  $('st-dist').textContent = roads.length ? totalKm.toFixed(1) : '—';
+  $('st-eta').textContent  = passedKm.toFixed(1);
+  $('st-plan').textContent = roads.length ? Math.max(0, totalKm - passedKm).toFixed(1) : '—';
+  $('st-eta-label').textContent  = '지나온 (km)';
+  $('st-plan-label').textContent = '남은 (km)';
 
   $('steps-body').innerHTML =
     '<div class="tiny muted" style="padding:8px 2px;line-height:1.6">' +
     '구역 안을 자유롭게 주행하세요. 턴바이턴 안내는 제공되지 않습니다.<br/>' +
-    '지나온 길은 <b style="color:' + TRAIL_COLOR_HD + '">HD맵 구현 구간(초록)</b>과 ' +
-    '<b style="color:' + TRAIL_COLOR_OFF + '">비구현 구간(보라)</b>으로 나눠 칠해집니다.<br/>' +
+    '지나온 길은 <b style="color:' + TRAIL_COLOR_PASSED + '">회색</b>, ' +
+    '아직 안 지나간 길은 <b style="color:' + SECTOR_ROAD_COLOR + '">파란색</b>으로 표시됩니다.<br/>' +
     '구역을 벗어나면 경고합니다.</div>';
 }
 
 function updateStats(){
-  if (!routeTotalM){ $('st-dist').textContent = '—'; $('st-eta').textContent = '—'; return; }
+  if (!routeTotalM){ $('st-dist').textContent = '—'; $('st-eta').textContent = '—'; $('cur-dist-inline').textContent = ''; return; }
 
   // 진행률은 경로 좌표로 계산하고, 표시 거리는 API 총거리에 비례시켜 맞춘다.
   const ratio   = routeGeoM ? Math.min(1, Math.max(0, progressM / routeGeoM)) : 0;
@@ -2062,6 +2097,7 @@ function updateStats(){
   $('st-dist').textContent = progressInit
     ? (routeTotalM / 1000).toFixed(1) + ' (' + restKm.toFixed(1) + ')'
     : (routeTotalM / 1000).toFixed(1);
+  $('cur-dist-inline').textContent = '(' + (routeTotalM / 1000).toFixed(1) + 'km)';
 
   const restSec = routeTotalSec * (1 - ratio);
   $('st-eta').textContent = routeTotalSec
@@ -2249,6 +2285,7 @@ function releaseWakeLock(){
 /** 화면이 다시 켜지면 잠금이 풀려 있으므로 다시 건다 */
 function onVisibilityChange(){
   saveCheckpoint(true);
+  saveSectorTrail(true);
   if (document.visibilityState === 'visible') checkKstExcelReminder();
   if (document.visibilityState !== 'visible') return;
   if (periodicLogTimer){
@@ -2648,8 +2685,8 @@ function scenarioKeys(locKey){
    ══════════════════════════════════════════════════════════════ */
 let sectorPolygon = null;          // 구역 경계 다각형
 let sectorRoadLines = [];          // 현재 화면에 그려진 도로 폴리라인
-/* 지나온 길 — HD맵 구현 구간(초록)과 비구현 구간(보라)을 나눠 그린다.
-   segs = [{ onHd:bool, pts:[[lat,lng],...], line:Polyline }] */
+/* 지나온 길 — 회색 하나로 그린다 (안 지나간 길은 파란색으로 미리 그려져 있다).
+   segs = [{ pts:[[lat,lng],...], line:Polyline }] */
 let sectorTrailSegs = [];
 let sectorTrailPts = [];          // 전체 궤적 (거리 계산용)
 let sectorOutsideSpoken = false;
@@ -2666,10 +2703,9 @@ const SECTOR_ROAD_MIN_ZOOM = 14;
 function sectorRoadMaxDraw(zoom){
   return zoom >= 15 ? 700 : 350;
 }
-/* 구역 내 길(아직 지나지 않은 도로) 색.
-   주행 궤적의 보라(#a855f7)와 헷갈리지 않도록 진한 남보라로 둔다.
-   궤적은 굵기 8, 이 선은 4~8이라 굵기로도 구분된다. */
-const SECTOR_ROAD_COLOR = '#4338ca';
+/* 구역 내 길(아직 지나지 않은 도로) 색 — 일반 경로 모드의 '남은 길'과 같은 파란색.
+   궤적(회색, 굵기 8)과는 굵기로도 구분된다 (이 선은 4~8). */
+const SECTOR_ROAD_COLOR = '#3b82f6';
 
 function isSectorScenario(sc){
   return !!(sc && Array.isArray(sc.sector) && sc.sector.length >= 3);
@@ -2691,50 +2727,6 @@ function pointInPolygon(pt, poly){
   return inside;
 }
 
-/* ── HD맵 도로 위를 지나는 중인지 판정 ──
-   구역 안이라도 HD맵에 없는 길이 있고, 구역 밖으로 잠깐 나갔다 오기도 한다.
-   실제 취득 대상은 "HD맵에 있는 도로 위"이므로 도로와의 거리로 판단한다. */
-const HD_ON_ROAD_TOLERANCE_M = 30;   // GPS 오차와 차로 폭을 감안한 여유
-
-/** 도로마다 경계 상자를 미리 만들어 둔다 (매 측위마다 전체를 재는 비용을 줄인다) */
-function ensureRoadBoxes(sc){
-  if (sc._boxes && sc._boxes.length === (sc.roads || []).length) return sc._boxes;
-  sc._boxes = (sc.roads || []).map(r => {
-    const c = roadCoords(r);
-    if (!c || !c.length) return null;
-    let s2 = Infinity, n2 = -Infinity, w2 = Infinity, e2 = -Infinity;
-    for (const p of c){
-      if (p[0] < s2) s2 = p[0];
-      if (p[0] > n2) n2 = p[0];
-      if (p[1] < w2) w2 = p[1];
-      if (p[1] > e2) e2 = p[1];
-    }
-    return { s: s2, n: n2, w: w2, e: e2, c: c };
-  });
-  return sc._boxes;
-}
-
-function isOnHdRoad(lat, lng, sc){
-  const roads = sc && sc.roads;
-  if (!Array.isArray(roads) || !roads.length){
-    // 도로 데이터가 없는 구역은 다각형 안쪽인지로 대신 판단한다.
-    return pointInPolygon([lat, lng], sc.sector);
-  }
-  const boxes = ensureRoadBoxes(sc);
-  const padLa = HD_ON_ROAD_TOLERANCE_M / 110540;
-  const padLo = HD_ON_ROAD_TOLERANCE_M / (111320 * Math.cos(lat * Math.PI / 180) || 1);
-
-  for (const b of boxes){
-    if (!b) continue;
-    if (lat < b.s - padLa || lat > b.n + padLa ||
-        lng < b.w - padLo || lng > b.e + padLo) continue;   // 경계 상자로 먼저 걸러낸다
-    for (let i = 0; i < b.c.length - 1; i++){
-      if (pointToSegmentMeters([lat, lng], b.c[i], b.c[i + 1]) <= HD_ON_ROAD_TOLERANCE_M) return true;
-    }
-  }
-  return false;
-}
-
 function roadCoords(r){ return Array.isArray(r) ? r : (r && r.c) || null; }
 function roadType(r){ return Array.isArray(r) ? '' : ((r && r.t) || ''); }
 
@@ -2753,7 +2745,6 @@ function clearSectorLayers(){
   setSectorHint('');
   if (sectorPolygon){ try { sectorPolygon.setMap(null); } catch (_) {} sectorPolygon = null; }
   clearSectorRoadLines();
-  clearSectorTrail();
 }
 
 function clearSectorRoadLines(){
@@ -2761,41 +2752,16 @@ function clearSectorRoadLines(){
   sectorRoadLines = [];
 }
 
-const TRAIL_COLOR_HD  = '#22c55e';   // 구현 구역을 주행한 부분 — 초록
-const TRAIL_COLOR_OFF = '#a855f7';   // 구역 밖을 주행한 부분 — 보라
+const TRAIL_COLOR_PASSED = '#6b7280';   // 지나온 길 — 회색 (일반 경로 모드의 지나온 길과 동일)
 
 /**
  * 궤적에 점을 하나 붙인다.
- * HD맵 도로 위인지 여부가 바뀌면 선을 끊고 새 색으로 이어 그린다.
+ * 터널 진출입·신호 끊김으로 위치가 크게 건너뛰면 선을 끊는다.
  * 이때 직전 점을 새 구간의 시작점으로 넣어 선이 끊겨 보이지 않게 한다.
  */
 const TRAIL_JUMP_MAX_M = 200;   // 이보다 멀리 튀면 실제 주행이 아니라 신호 끊김으로 본다
-const TRAIL_SWITCH_CONFIRM = 2; // 색을 바꾸기 전 같은 상태가 연속으로 확인돼야 하는 횟수
 
-let pendingHd = null, pendingHdCount = 0;
-
-/**
- * HD맵 도로 판정이 경계 부근에서 오락가락하면 궤적이 잘게 쪼개져 읽기 어렵다.
- * 새 상태가 연속으로 확인될 때만 실제로 전환한다.
- */
-function stabilizeHdState(onHd){
-  const seg = sectorTrailSegs[sectorTrailSegs.length - 1];
-  const cur = seg ? seg.onHd : null;
-  if (cur === null) return onHd;
-  if (onHd === cur){ pendingHd = null; pendingHdCount = 0; return cur; }
-
-  if (pendingHd === onHd) pendingHdCount++;
-  else { pendingHd = onHd; pendingHdCount = 1; }
-
-  if (pendingHdCount >= TRAIL_SWITCH_CONFIRM){
-    pendingHd = null; pendingHdCount = 0;
-    return onHd;
-  }
-  return cur;
-}
-
-function appendTrailPoint(lat, lng, rawOnHd){
-  const onHd = stabilizeHdState(rawOnHd);
+function appendTrailPoint(lat, lng){
   let seg = sectorTrailSegs[sectorTrailSegs.length - 1];
   const prev = seg && seg.pts.length ? seg.pts[seg.pts.length - 1] : null;
 
@@ -2803,9 +2769,9 @@ function appendTrailPoint(lat, lng, rawOnHd){
   // 이으면 지나지도 않은 구간이 그려지고 주행 거리도 부풀려진다.
   const jumped = prev && haversine(prev[0], prev[1], lat, lng) > TRAIL_JUMP_MAX_M;
 
-  if (!seg || seg.onHd !== onHd || jumped){
+  if (!seg || jumped){
     const carry = (prev && !jumped) ? prev : null;
-    seg = { onHd: onHd, pts: carry ? [carry] : [], line: null };
+    seg = { pts: carry ? [carry] : [], line: null };
     sectorTrailSegs.push(seg);
   }
 
@@ -2816,9 +2782,9 @@ function appendTrailPoint(lat, lng, rawOnHd){
   if (!seg.line){
     seg.line = new Tmapv2.Polyline({
       path         : path,
-      strokeColor  : onHd ? TRAIL_COLOR_HD : TRAIL_COLOR_OFF,
+      strokeColor  : TRAIL_COLOR_PASSED,
       strokeWeight : 8,
-      strokeOpacity: 0.85,
+      strokeOpacity: 0.9,
       map          : map,
     });
   } else {
@@ -2826,32 +2792,36 @@ function appendTrailPoint(lat, lng, rawOnHd){
   }
 }
 
-/** 구간별 주행 거리(km) — [HD 구현, 비구현] */
-function trailSplitKm(){
-  let hd = 0, off = 0;
-  sectorTrailSegs.forEach(sg => {
-    let m = 0;
-    for (let i = 1; i < sg.pts.length; i++){
-      m += haversine(sg.pts[i-1][0], sg.pts[i-1][1], sg.pts[i][0], sg.pts[i][1]);
-    }
-    if (sg.onHd) hd += m; else off += m;
+/** 저장된 궤적(복원된 값 포함)을 지도 위에 폴리라인으로 되살린다 — 이미 그려진 구간은 건드리지 않는다. */
+function redrawSectorTrail(){
+  if (!map) return;
+  sectorTrailSegs.forEach(seg => {
+    if (seg.line || !seg.pts || seg.pts.length < 2) return;
+    seg.line = new Tmapv2.Polyline({
+      path         : seg.pts.map(p => LL(p[0], p[1])),
+      strokeColor  : TRAIL_COLOR_PASSED,
+      strokeWeight : 8,
+      strokeOpacity: 0.9,
+      map          : map,
+    });
   });
-  return [hd / 1000, off / 1000];
 }
 
-/** 현재 구간 카드에 HD 구현 / 비구현 주행량을 표시 */
+/** 현재 구간 카드에 지나온 / 남은 주행량을 표시 */
 function renderTrailStats(){
-  const [hd, off] = trailSplitKm();
-  const total = hd + off;
-  $('st-eta').textContent = hd.toFixed(1);
-  $('st-plan').textContent = off.toFixed(1);
-  const pct = total > 0 ? Math.round(hd / total * 100) : 0;
+  const sc = currentSector();
+  const totalKm  = (sc && Array.isArray(sc.roads) && sc.roads.length) ? roadsTotalKm(sc.roads) : 0;
+  const passedKm = sectorTrailKm();
+  const restKm   = Math.max(0, totalKm - passedKm);
+  $('st-eta').textContent = passedKm.toFixed(1);
+  $('st-plan').textContent = totalKm > 0 ? restKm.toFixed(1) : '—';
+  const pct = totalKm > 0 ? Math.min(100, Math.round(passedKm / totalKm * 100)) : 0;
   const el = $('trail-legend');
   if (el){
     el.classList.add('on');
     el.innerHTML =
-      '<span><i style="background:' + TRAIL_COLOR_HD  + '"></i>HD맵 ' + hd.toFixed(1) + 'km</span>' +
-      '<span><i style="background:' + TRAIL_COLOR_OFF + '"></i>비구현 ' + off.toFixed(1) + 'km</span>' +
+      '<span><i style="background:' + TRAIL_COLOR_PASSED + '"></i>지나온 ' + passedKm.toFixed(1) + 'km</span>' +
+      '<span><i style="background:' + SECTOR_ROAD_COLOR  + '"></i>남은 ' + restKm.toFixed(1) + 'km</span>' +
       '<span class="pct">' + pct + '%</span>';
   }
 }
@@ -2871,9 +2841,74 @@ function clearSectorTrail(){
   sectorTrailSegs = [];
   sectorTrailPts = [];
   sectorOutsideSpoken = false;
-  pendingHd = null; pendingHdCount = 0;
   const el = $('trail-legend');
   if (el){ el.classList.remove('on'); el.innerHTML = ''; }
+}
+
+/* ── 구역별 궤적 저장 (localStorage, 보존 시간대 안이면 앱 재시작·시나리오 전환에도 유지) ── */
+function sectorTrailKey(){ return loc + '-' + scKey; }
+
+function loadSectorTrailStore(){
+  return lsGet(K.sectorTrails, {}) || {};
+}
+
+/** 오늘(KST) 날짜가 아닌 항목은 지운다 — 저장 공간이 계속 불어나지 않도록. */
+function pruneSectorTrailStore(store, now = new Date()){
+  const today = kstParts(now).dateKey;
+  Object.keys(store).forEach(k => {
+    if (!store[k] || store[k].dateKey !== today) delete store[k];
+  });
+  return store;
+}
+
+let lastTrailSaveAt = 0;
+const TRAIL_SAVE_THROTTLE_MS = 5000;
+
+/** 현재 구역의 궤적을 저장소에 기록한다 (다른 구역으로 넘어가거나 앱을 꺼도 남는다). */
+function saveSectorTrail(force){
+  const sc = currentSector();
+  if (!sc) return;
+  const now = Date.now();
+  if (!force && now - lastTrailSaveAt < TRAIL_SAVE_THROTTLE_MS) return;
+  lastTrailSaveAt = now;
+
+  const store = loadSectorTrailStore();
+  pruneSectorTrailStore(store, new Date(now));
+  if (sectorTrailPts.length){
+    store[sectorTrailKey()] = {
+      dateKey: kstParts(new Date(now)).dateKey,
+      pts: sectorTrailPts,
+      segs: sectorTrailSegs.map(sg => ({ pts: sg.pts })),
+    };
+  } else {
+    delete store[sectorTrailKey()];
+  }
+  lsSet(K.sectorTrails, store);
+}
+
+/**
+ * 현재 구역(loc/scKey)의 저장된 궤적을 불러온다.
+ * 보존 시간대(TRAIL_RETENTION_START_HOUR~END_HOUR, KST) 밖이거나 날짜가 다르면 비운 채로 시작한다.
+ */
+function restoreSectorTrail(){
+  clearSectorTrail();
+  const sc = currentSector();
+  if (!sc) return;
+
+  const now = new Date();
+  if (!inTrailRetentionWindow(now)) return;
+
+  const store = loadSectorTrailStore();
+  const entry = store[sectorTrailKey()];
+  if (!entry || entry.dateKey !== kstParts(now).dateKey) return;
+
+  sectorTrailPts = Array.isArray(entry.pts)
+    ? entry.pts.filter(p => Array.isArray(p) && p.length === 2)
+    : [];
+  sectorTrailSegs = Array.isArray(entry.segs)
+    ? entry.segs.filter(sg => sg && Array.isArray(sg.pts) && sg.pts.length >= 2)
+        .map(sg => ({ pts: sg.pts, line: null }))
+    : [];
 }
 
 /** 구역 경계 + 구역 내 도로를 그린다 */
@@ -3009,7 +3044,39 @@ function toggleSectorRoads(){
   toast('구역 내 길 표시 ' + (sectorRoadsOn ? '켜짐' : '꺼짐'), 1400);
 }
 
-/** 자유주행 중 지나온 길을 초록으로 칠하고, 구역을 벗어나면 경고한다 */
+function renderTrailRetentionState(){
+  const el = $('trail-retention-state');
+  if (el) el.textContent = TRAIL_RETENTION_START_HOUR + '~' + TRAIL_RETENTION_END_HOUR + '시';
+}
+
+/** ⚙️ 설정 메뉴에서 궤적 보존 시간대(KST)를 바꾼다. 값은 즉시 저장돼 다음 실행에도 유지된다. */
+function changeTrailRetention(){
+  const startInput = prompt(
+    '궤적 보존 시작 시각 (0~23시, 한국시간)\n' +
+    '이 시각부터 종료 시각까지는 앱을 껐다 켜거나 다른 구역으로 갔다 와도\n' +
+    '자유주행 지나온 길이 유지됩니다.',
+    String(TRAIL_RETENTION_START_HOUR)
+  );
+  if (startInput === null) return;
+  const endInput = prompt('궤적 보존 종료 시각 (1~24시, 한국시간)', String(TRAIL_RETENTION_END_HOUR));
+  if (endInput === null) return;
+
+  const start = Number(startInput);
+  const end = Number(endInput);
+  if (!Number.isInteger(start) || !Number.isInteger(end) ||
+      start < 0 || start > 23 || end < 1 || end > 24 || end <= start){
+    toast('시작/종료 시각을 다시 확인하세요 (예: 8, 20)', 3000);
+    return;
+  }
+
+  TRAIL_RETENTION_START_HOUR = start;
+  TRAIL_RETENTION_END_HOUR = end;
+  lsSet(K.trailRetention, { start: start, end: end });
+  renderTrailRetentionState();
+  toast('궤적 보존 시간 ' + start + '~' + end + '시로 저장했습니다', 2400);
+}
+
+/** 자유주행 중 지나온 길을 회색으로 칠하고, 구역을 벗어나면 경고한다 */
 function updateSectorDriving(lat, lng){
   const sc = currentSector();
   if (!sc || !isPlaying) return;
@@ -3017,8 +3084,9 @@ function updateSectorDriving(lat, lng){
   const last = sectorTrailPts[sectorTrailPts.length - 1];
   if (!last || haversine(last[0], last[1], lat, lng) >= 8){
     sectorTrailPts.push([lat, lng]);
-    appendTrailPoint(lat, lng, isOnHdRoad(lat, lng, sc));
+    appendTrailPoint(lat, lng);
     renderTrailStats();
+    saveSectorTrail(false);
   }
 
   if (pointInPolygon([lat, lng], sc.sector)){
@@ -3715,8 +3783,7 @@ function togglePlay(){
     setFollow(true);
   } else {
     if (sector && sectorTrailPts.length > 1){
-      const [hd2, off2] = trailSplitKm();
-      toast('HD맵 ' + hd2.toFixed(1) + 'km · 비구현 ' + off2.toFixed(1) + 'km', 3000);
+      toast('지나온 거리 ' + sectorTrailKm().toFixed(1) + 'km', 3000);
     }
     legStartTime = null;
     legStartPos = null;
@@ -3724,6 +3791,7 @@ function togglePlay(){
   }
   renderControls();
   saveCheckpoint(true);
+  saveSectorTrail(true);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -3804,6 +3872,7 @@ async function enterApp(){
   // 배포본에 키가 심어져 있으면 사용자가 바꿀 수 없으므로 메뉴를 감춘다.
   if ((window.DEFAULT_APPKEY || '').trim()) $('mi-appkey').classList.add('hidden');
   $('sector-roads-state').textContent = sectorRoadsOn ? 'ON' : 'OFF';
+  renderTrailRetentionState();
   $('btn-headup').classList.toggle('on', headingUp);
   renderTrafficState();
   renderWakeLockState();
@@ -3943,6 +4012,7 @@ function bindEvents(){
     closeMenu();
   };
   $('mi-sector-roads').onclick = () => { toggleSectorRoads(); closeMenu(); };
+  $('mi-trail-retention').onclick = () => { closeMenu(); changeTrailRetention(); };
   $('mi-edit').onclick = () => { closeMenu(); toggleEditMode(); };
   $('mi-export-routes').onclick = () => { exportRoutesJson(); closeMenu(); };
   $('mi-reset-edits').onclick = () => { closeMenu(); resetRouteEdits(); };
@@ -3958,13 +4028,14 @@ function bindEvents(){
   $('mi-logout').onclick = () => { if (confirm('로그아웃할까요?')) logout(); };
 
   document.addEventListener('visibilitychange', onVisibilityChange);
-  window.addEventListener('pagehide', () => saveCheckpoint(true));
+  window.addEventListener('pagehide', () => { saveCheckpoint(true); saveSectorTrail(true); });
   window.addEventListener('resize', applyMapRotation);
   window.addEventListener('orientationchange', applyMapRotation);
 
   /* 상태 저장 */
   window.addEventListener('beforeunload', () => {
     saveCheckpoint(true);
+    saveSectorTrail(true);
   });
 }
 
@@ -3981,6 +4052,13 @@ function closeMenu(){ $('settings-menu').classList.remove('on'); }
   lsSet(K.wp, true);
   sectorRoadsOn  = lsGet(K.sectorRoads, true);
   headingUp      = lsGet(K.headingUp, false);
+  const trailRetention = lsGet(K.trailRetention, null);
+  if (trailRetention && Number.isInteger(trailRetention.start) && Number.isInteger(trailRetention.end) &&
+      trailRetention.start >= 0 && trailRetention.start <= 23 &&
+      trailRetention.end >= 1 && trailRetention.end <= 24 && trailRetention.end > trailRetention.start){
+    TRAIL_RETENTION_START_HOUR = trailRetention.start;
+    TRAIL_RETENTION_END_HOUR = trailRetention.end;
+  }
   trafficDensity = lsGet(K.traffic, TRAFFIC_PLACEHOLDER) || TRAFFIC_PLACEHOLDER;
   if (TRAFFIC_OPTIONS.indexOf(trafficDensity) < 0) trafficDensity = TRAFFIC_PLACEHOLDER;
 
