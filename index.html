@@ -330,6 +330,26 @@ input,select{font-family:inherit;}
 .mdiv{height:1px;background:var(--line);margin:5px 4px;}
 .mmeta{padding:8px 11px 4px;font-size:10px;color:var(--dim);display:flex;align-items:center;justify-content:space-between;gap:6px;}
 
+/* ─────────── 궤적 보존 시간 모달 ─────────── */
+.modal-overlay{
+  position:fixed;inset:0;z-index:1000;display:none;
+  align-items:center;justify-content:center;
+  background:rgba(6,7,12,.6);padding:20px;
+}
+.modal-overlay.on{display:flex;}
+.modal-box{
+  width:100%;max-width:320px;background:var(--panel);border:1px solid var(--line);
+  border-radius:16px;padding:20px 18px;box-shadow:var(--shadow);
+}
+.modal-title{font-size:15px;font-weight:800;}
+.modal-desc{font-size:11px;color:var(--sub);line-height:1.6;margin-top:8px;}
+.modal-row{display:flex;align-items:center;gap:10px;margin-top:14px;}
+.modal-row label{flex:0 0 62px;font-size:12px;font-weight:700;color:var(--sub);}
+.modal-row .modal-hour{flex:1;min-width:0;text-align:center;}
+.modal-row .modal-unit{flex:0 0 auto;font-size:12px;font-weight:700;color:var(--sub);}
+.modal-actions{display:flex;gap:8px;margin-top:16px;}
+.modal-actions .ctl{flex:1;}
+
 #toast{
   position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);
   z-index:950;background:rgba(25,28,40,.97);border:1px solid var(--line);border-radius:11px;
@@ -523,6 +543,31 @@ input,select{font-family:inherit;}
 </div>
 
 <div id="toast"></div>
+
+<div id="trail-retention-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">⏱ 궤적 보존 시간</div>
+    <div class="modal-desc">
+      이 시간대(한국시간) 안에서는 앱을 껐다 켜거나 다른 구역으로 갔다 와도<br/>
+      자유주행 지나온 길이 유지됩니다.
+    </div>
+    <div class="modal-row">
+      <label for="trail-retention-start-input">시작 시각</label>
+      <input type="number" id="trail-retention-start-input" class="auth-input modal-hour" min="0" max="23" step="1"/>
+      <span class="modal-unit">시</span>
+    </div>
+    <div class="modal-row">
+      <label for="trail-retention-end-input">종료 시각</label>
+      <input type="number" id="trail-retention-end-input" class="auth-input modal-hour" min="1" max="24" step="1"/>
+      <span class="modal-unit">시</span>
+    </div>
+    <div id="trail-retention-err" class="auth-err"></div>
+    <div class="modal-actions">
+      <button class="ctl" id="trail-retention-cancel">취소</button>
+      <button class="ctl primary" id="trail-retention-save">저장</button>
+    </div>
+  </div>
+</div>
 
 <script>
 'use strict';
@@ -3049,23 +3094,33 @@ function renderTrailRetentionState(){
   if (el) el.textContent = TRAIL_RETENTION_START_HOUR + '~' + TRAIL_RETENTION_END_HOUR + '시';
 }
 
-/** ⚙️ 설정 메뉴에서 궤적 보존 시간대(KST)를 바꾼다. 값은 즉시 저장돼 다음 실행에도 유지된다. */
-function changeTrailRetention(){
-  const startInput = prompt(
-    '궤적 보존 시작 시각 (0~23시, 한국시간)\n' +
-    '이 시각부터 종료 시각까지는 앱을 껐다 켜거나 다른 구역으로 갔다 와도\n' +
-    '자유주행 지나온 길이 유지됩니다.',
-    String(TRAIL_RETENTION_START_HOUR)
-  );
-  if (startInput === null) return;
-  const endInput = prompt('궤적 보존 종료 시각 (1~24시, 한국시간)', String(TRAIL_RETENTION_END_HOUR));
-  if (endInput === null) return;
+/** ⚙️ 설정 메뉴 — 궤적 보존 시간 모달을 연다. 시작·종료 시각을 각각 따로 입력한다. */
+function openTrailRetentionModal(){
+  $('trail-retention-start-input').value = TRAIL_RETENTION_START_HOUR;
+  $('trail-retention-end-input').value = TRAIL_RETENTION_END_HOUR;
+  $('trail-retention-err').textContent = '';
+  $('trail-retention-modal').classList.add('on');
+}
 
-  const start = Number(startInput);
-  const end = Number(endInput);
-  if (!Number.isInteger(start) || !Number.isInteger(end) ||
-      start < 0 || start > 23 || end < 1 || end > 24 || end <= start){
-    toast('시작/종료 시각을 다시 확인하세요 (예: 8, 20)', 3000);
+function closeTrailRetentionModal(){
+  $('trail-retention-modal').classList.remove('on');
+}
+
+function saveTrailRetentionModal(){
+  const start = Number($('trail-retention-start-input').value);
+  const end = Number($('trail-retention-end-input').value);
+  const err = $('trail-retention-err');
+
+  if (!Number.isInteger(start) || start < 0 || start > 23){
+    err.textContent = '시작 시각은 0~23 사이여야 합니다';
+    return;
+  }
+  if (!Number.isInteger(end) || end < 1 || end > 24){
+    err.textContent = '종료 시각은 1~24 사이여야 합니다';
+    return;
+  }
+  if (end <= start){
+    err.textContent = '종료 시각이 시작 시각보다 커야 합니다';
     return;
   }
 
@@ -3073,7 +3128,8 @@ function changeTrailRetention(){
   TRAIL_RETENTION_END_HOUR = end;
   lsSet(K.trailRetention, { start: start, end: end });
   renderTrailRetentionState();
-  toast('궤적 보존 시간 ' + start + '~' + end + '시로 저장했습니다', 2400);
+  closeTrailRetentionModal();
+  toast('궤적 보존 시간을 ' + start + '~' + end + '시로 저장했습니다', 2400);
 }
 
 /** 자유주행 중 지나온 길을 회색으로 칠하고, 구역을 벗어나면 경고한다 */
@@ -4012,7 +4068,10 @@ function bindEvents(){
     closeMenu();
   };
   $('mi-sector-roads').onclick = () => { toggleSectorRoads(); closeMenu(); };
-  $('mi-trail-retention').onclick = () => { closeMenu(); changeTrailRetention(); };
+  $('mi-trail-retention').onclick = () => { closeMenu(); openTrailRetentionModal(); };
+  $('trail-retention-cancel').onclick = closeTrailRetentionModal;
+  $('trail-retention-save').onclick = saveTrailRetentionModal;
+  $('trail-retention-modal').onclick = e => { if (e.target.id === 'trail-retention-modal') closeTrailRetentionModal(); };
   $('mi-edit').onclick = () => { closeMenu(); toggleEditMode(); };
   $('mi-export-routes').onclick = () => { exportRoutesJson(); closeMenu(); };
   $('mi-reset-edits').onclick = () => { closeMenu(); resetRouteEdits(); };
