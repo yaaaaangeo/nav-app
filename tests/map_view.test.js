@@ -1,6 +1,6 @@
 /*
  * 지도 회전(헤딩업) · 화면 회전(resize) · 가로 화면 레이아웃 테스트
- * 실행: node --test tests/
+ * 실행: node --test tests/*.test.js
  *
  * index.html 안의 실제 함수 소스를 잘라 와서 가짜 지도·DOM 위에서 돌린다.
  */

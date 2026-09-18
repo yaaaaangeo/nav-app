@@ -1,6 +1,6 @@
 /*
  * 자동 구간 전환(100m 공통 기준) · 패널 접기 테스트
- * 실행: node --test tests/
+ * 실행: node --test tests/*.test.js
  *
  * index.html 안의 실제 함수 소스를 잘라 와서 가짜 DOM·상태 위에서 돌린다.
  */
