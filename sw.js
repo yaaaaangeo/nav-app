@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nav-app-v3-tmap-20260903-fixed-route';
+const CACHE_NAME = 'nav-app-v3-tmap-20260918-vector';   // v3.1 Tmapv3 지도 전환 — 이름을 바꿔 옛 캐시를 비운다
 const APP_SHELL = ['./', './index.html', './manifest.json'];
 
 function dataCacheKey(request) {

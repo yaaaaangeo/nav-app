@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
-<meta name="app-version" content="2026-08-11-tmap-v3.0.0"/>
+<meta name="app-version" content="2026-09-18-tmap-vector-v3.1.0"/>
 <meta name="theme-color" content="#0f111a"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
@@ -14,7 +14,7 @@
 <title>자율주행 데이터 취득 네비게이션 v3 (TMAP)</title>
 
 <!-- ══════════════════════════════════════════════════════════════
-     TMAP JS SDK v2 동기 로드
+     TMAP JS SDK v3 (Vector) 동기 로드
      SDK가 내부적으로 document.write()를 사용하기 때문에, 파싱이 끝난 뒤
      동적으로 삽입하면 브라우저가 write를 차단해 초기화에 실패한다.
      따라서 저장된 appKey를 읽어 파싱 중에 스크립트 태그를 직접 써 넣는다.
@@ -50,7 +50,7 @@ var DEFAULT_APPKEY = 'V2ZBpvQJzZ9DPdRuHNdsW8FRQQwJoNcTaVZzpzYe';
     if (key){
       // SDK는 내부적으로 document.write를 쓰므로 파싱 시점에 동기 로드해야 한다.
       document.write(
-        '<scr' + 'ipt src="https://apis.openapi.sk.com/tmap/jsv2?version=1&appKey=' +
+        '<scr' + 'ipt src="https://apis.openapi.sk.com/tmap/vectorjs?version=1&appKey=' +
         encodeURIComponent(key) + '"><\/scr' + 'ipt>'
       );
     }
@@ -212,14 +212,14 @@ input,select{font-family:inherit;}
 /* 전체화면 버튼은 선 아이콘이라 반투명 배경이면 밝은 지도에 묻힌다 — 켜져도 배경은 어둡게, 테두리·아이콘만 파랗게 */
 #btn-fullscreen.on{background:rgba(15,17,26,.94);color:var(--accent2);}
 
-/* 헤딩업 — 지도만 회전시키고, 회전으로 드러나는 모서리는 확대로 덮는다.
-   턴 안내·버튼은 #map_div 바깥이라 함께 돌아가지 않는다. */
-#map_div.heading-up{
-  transform:scale(var(--map-scale,1.02)) rotate(var(--map-rot,0deg));
-  transform-origin:center center;
-  transition:transform .35s ease-out;
-  will-change:transform;
-}
+/* Tmapv3 — 지도 회전은 SDK bearing으로 한다 (예전 CSS 회전 #map_div.heading-up 은 쓰지 않는다).
+   🧭 버튼 안의 나침반 바늘은 지도 북쪽을 가리키도록 -bearing 만큼 돈다. */
+#btn-headup svg{transition:transform .25s linear;}
+/* 차량 마커(iconHTML) — 마커는 화면 기준이라 (진행 방향 - bearing)만큼 직접 돌린다 */
+.car-ico{width:44px;height:44px;pointer-events:none;transition:transform .3s linear;}
+/* 편집용 핀(iconHTML) — 손가락으로 끌어 옮긴다 */
+.edit-pin{width:30px;height:30px;touch-action:none;cursor:grab;}
+.edit-pin img{width:30px;height:30px;display:block;pointer-events:none;}
 
 #edit-bar{
   position:absolute;top:10px;left:10px;right:10px;z-index:500;display:none;
@@ -716,7 +716,7 @@ input,select{font-family:inherit;}
    주소  : TMAP 리버스 지오코딩 API
    ══════════════════════════════════════════════════════════════ */
 
-const APP_VER = 'v3.0.0';
+const APP_VER = 'v3.1.0';   // v3.1 — 지도 Tmapv3(Vector) 전환
 
 /* ─── 저장 키 ─── */
 const K = {
@@ -739,7 +739,7 @@ const K = {
 
 /* ─── TMAP 엔드포인트 ─── */
 const TMAP = {
-  sdk    : 'https://apis.openapi.sk.com/tmap/jsv2?version=1&appKey=',
+  sdk    : 'https://apis.openapi.sk.com/tmap/vectorjs?version=1&appKey=',
   routes : 'https://apis.openapi.sk.com/tmap/routes?version=1&format=json',
   rgeo   : 'https://apis.openapi.sk.com/tmap/geo/reversegeocoding?version=1&format=json',
 };
@@ -1396,35 +1396,51 @@ function isActionable(step){
 }
 
 /* ══════════════════════════════════════════════════════════════
-   TMAP JS SDK 로드 + 지도 초기화
+   TMAP JS SDK v3 (Vector) 로드 + 지도 초기화
+   ── Version3(Tmapv2)와 달라진 점
+      · 지도 회전은 SDK bearing으로 한다 — 두 손가락 회전, 🧭 헤딩업(setBearing/easeTo), 북쪽 고정.
+        예전의 #map_div CSS 회전·확대는 쓰지 않는다.
+      · 선·도형은 지도 스타일이 로드(ConfigLoad)된 뒤에 만들어야 보인다.
+        그래서 map 변수와 sdkReady는 ConfigLoad 이후에 채운다.
+      · 마커는 화면 기준으로 서 있고 지도와 함께 돌지 않는다 → 차량 아이콘은 (진행 방향 - bearing)으로 돌린다.
+      · 같은 줌 숫자가 v2보다 한 단계 확대돼 보인다(512px 타일) → V3_ZOOM_OFFSET으로 맞춘다.
+      · 사용자 조작은 이벤트의 data.domEvent로 가려낸다 (앱이 움직인 이동에는 없다).
    ══════════════════════════════════════════════════════════════ */
-/**
- * SDK는 <head>의 동기 스크립트가 이미 로드했다.
- * 여기서는 Tmapv2 객체가 준비될 때까지만 기다린다.
- */
+const V3_ZOOM_OFFSET       = -1;      // v2 줌 N ≈ v3 줌 N-1
+const MAP_READY_TIMEOUT_MS = 15000;   // 이 안에 지도 스타일이 안 오면 실패로 본다 (WebGL 미지원 등)
+const CAMERA_EASE_MS       = 600;     // GPS 한 번마다 중심·방향을 옮기는 시간
+
+/** SDK는 <head>의 동기 스크립트가 이미 로드했다. 여기서는 Tmapv3 객체가 준비될 때까지만 기다린다. */
 function loadTmapSdk(){
   return new Promise((resolve, reject) => {
     let tries = 0;
     (function wait(){
-      if (window.Tmapv2 && window.Tmapv2.Map){ sdkReady = true; return resolve(); }
+      if (window.Tmapv3 && window.Tmapv3.Map) return resolve();
       if (++tries > 150) return reject(new Error('SDK 로드 실패 — appKey 또는 등록 도메인을 확인하세요'));
       setTimeout(wait, 100);
     })();
   });
 }
 
-function LL(lat, lng){ return new Tmapv2.LatLng(lat, lng); }
+function LL(lat, lng){ return new Tmapv3.LatLng(lat, lng); }
 
-/** 방향에 따라 회전하는 차량 아이콘 (SVG data URI) */
-function carIcon(deg){
-  const svg =
+/** 각도를 가장 가까운 쪽으로 이어 붙인다 (359°→1°에서 반대로 한 바퀴 돌지 않게) */
+function nearestAngle(from, to){
+  return from + ((((to - from) % 360) + 540) % 360 - 180);
+}
+
+/** 지금 지도 방향(°, 0 = 북쪽이 위) */
+function getMapBearing(){
+  try { return map ? (Number(map.getBearing()) || 0) : 0; } catch (_) { return 0; }
+}
+
+/** 차량 아이콘 — 북쪽을 가리키게 그려 두고, 실제 방향은 CSS로 돌린다 (iconHTML) */
+function carIconHTML(){
+  return '<div class="car-ico" id="car-ico">' +
     '<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">' +
-      '<g transform="rotate(' + (deg || 0) + ' 22 22)">' +
-        '<circle cx="22" cy="22" r="13" fill="#3b82f6" fill-opacity="0.22"/>' +
-        '<path d="M22 8 L31 32 L22 26 L13 32 Z" fill="#3b82f6" stroke="#ffffff" stroke-width="2" stroke-linejoin="round"/>' +
-      '</g>' +
-    '</svg>';
-  return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+      '<circle cx="22" cy="22" r="13" fill="#3b82f6" fill-opacity="0.22"/>' +
+      '<path d="M22 8 L31 32 L22 26 L13 32 Z" fill="#3b82f6" stroke="#ffffff" stroke-width="2" stroke-linejoin="round"/>' +
+    '</svg></div>';
 }
 
 function pinIcon(color, glyph){
@@ -1437,74 +1453,75 @@ function pinIcon(color, glyph){
   return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
 }
 
+/**
+ * 지도를 만들고, 스타일이 로드되면(ConfigLoad) map·sdkReady를 채운다.
+ * 그 전에 만든 선·도형은 화면에 나오지 않기 때문에 부팅은 이 약속을 기다린 뒤 경로를 그린다.
+ */
 function initMap(){
-  const c = SCENARIOS[loc].center;
-  map = new Tmapv2.Map('map_div', {
-    center      : LL(c[0], c[1]),
-    width       : '100%',
-    height      : '100%',
-    zoom        : SCENARIOS[loc].zoom,
-    zoomControl : false,
-    scrollwheel : true,
-    httpsMode   : true,
+  return new Promise((resolve, reject) => {
+    const c = SCENARIOS[loc].center;
+    let m;
+    try {
+      m = new Tmapv3.Map('map_div', {
+        center     : LL(c[0], c[1]),
+        zoom       : SCENARIOS[loc].zoom + V3_ZOOM_OFFSET,
+        zoomControl: false,
+      });
+    } catch (e){ reject(e); return; }
+    const timer = setTimeout(() => reject(new Error('지도 스타일을 불러오지 못했습니다 (WebGL 미지원일 수 있음)')), MAP_READY_TIMEOUT_MS);
+    m.on('ConfigLoad', () => {
+      clearTimeout(timer);
+      if (map) return;
+      map = m;
+      sdkReady = true;
+      // 한 손가락 이동·두 손가락 확대·회전은 켜고, 기울이기(3D)는 내비 화면에 필요 없어 끈다.
+      try { map.setInteractive({ pan: true, drag: true, zoom: true, wheel: true, rotate: true, pitch: false }); } catch (_) {}
+      bindMapEvents();
+      renderCompass();
+      resolve();
+    });
   });
+}
 
-  // 사용자가 지도를 직접 만지면 자동 추적을 잠시 멈춘다.
-  ['dragstart','touchstart','mousedown','wheel'].forEach(ev => {
-    try { map.addListener(ev, pauseFollow); } catch (_) {}
+function bindMapEvents(){
+  // 손으로 움직였을 때만 추적을 잠시 멈춘다. 앱이 움직인 이동에는 data.domEvent가 없다.
+  // 시작 이벤트에 domEvent가 빠지는 경우가 있어, 움직이는 도중 이벤트로도 확인해 멈춤 시간을 늘린다.
+  ['DragStart', 'ZoomStart', 'RotateStart', 'PitchStart', 'Drag', 'Zoom', 'Rotate'].forEach(n => {
+    try { map.on(n, e => { if (isUserMapEvent(e)) pauseFollow(); }); } catch (_) {}
   });
-  // 배율은 앱도 바꾸므로(주행 시작 시 당김) 따로 가려낸다.
-  try { map.addListener('zoom_changed', pauseFollowOnZoom); } catch (_) {}
-  const el = $('map_div');
-  ['touchstart','mousedown','wheel'].forEach(ev => {
-    el.addEventListener(ev, pauseFollow, { passive: true });
+  // 회전하는 동안(앱·손 모두) 차량 아이콘과 🧭 바늘을 계속 맞춘다.
+  ['Rotate', 'RotateEnd'].forEach(n => {
+    try { map.on(n, onMapBearingChanged); } catch (_) {}
   });
-
-  // 지도 이동·확대가 끝나면 화면에 걸치는 구역 도로만 다시 그린다.
-  ['zoom_changed','dragend','moveend','idle'].forEach(ev => {
-    try { map.addListener(ev, scheduleSectorRedraw); } catch (_) {}
-  });
-
   // 경로 수정용 탭 — 편집 모드가 아니면 내부에서 바로 빠져나간다.
-  // touchend는 등록하지 않는다. 모바일에서 click과 함께 발생해 두 번 찍힌다.
-  try { map.addListener('click', onEditMapClick); } catch (_) {}
+  try { map.on('Click', onEditMapClick); } catch (_) {}
+  // 구역 도로는 레이어 하나로 한 번 그려 두므로 지도를 움직일 때마다 다시 그리지 않는다.
 }
 
-/* 앱이 스스로 지도를 움직이는 동안에는 '사용자 조작'으로 세지 않는다.
-   주행 시작 시 배율을 당기면 zoom_changed가 발생하는데, 이것을 손 조작으로
-   오인해 곧바로 추적이 10초간 멈춰 버리는 문제가 있었다. */
-let programmaticMoveUntil = 0;
-
-function beginProgrammaticMove(){
-  programmaticMoveUntil = Date.now() + 400;
+function isUserMapEvent(e){
+  return !!(e && e.data && e.data.domEvent);
 }
 
-/** 손으로 지도를 만졌을 때 — 앱이 일으킬 수 없는 이벤트라 항상 추적을 멈춘다 */
+function onMapBearingChanged(){
+  syncCarIcon();
+  renderCompass();
+}
+
+/* v2에서는 앱이 움직인 배율 변경을 손 조작과 가려내려고 잠깐 표시를 걸었다.
+   v3는 이벤트의 domEvent로 가려내므로 할 일이 없다 — 호출하는 곳이 많아 이름만 남긴다. */
+function beginProgrammaticMove(){}
+
+/** 손으로 지도를 만졌을 때 — 잠시 추적을 멈춘다. 손으로 돌린 방향은 그대로 둔다. */
 function pauseFollow(){
   if (!followMode) return;
   followPauseUntil = Date.now() + GPS_FOLLOW_RESUME_MS;
-  // 헤딩업 회전이 걸린 채로 있으면 손 드래그 좌표와 어긋나 지도가 엉뚱하게
-  // 움직인다. 사람이 만지는 동안은 즉시 회전을 풀어 북쪽 고정으로 되돌린다.
-  applyMapRotation();
-}
-
-/** 배율 변경 — 앱이 배율을 당긴 것인지, 사용자가 손으로 바꾼 것인지 가려낸다 */
-function pauseFollowOnZoom(){
-  if (Date.now() < programmaticMoveUntil) return;
-  pauseFollow();
 }
 
 function setFollow(on){
   followMode = on;
   followPauseUntil = 0;
   $('btn-follow').classList.toggle('on', on);
-  if (on && lastPos && map){
-    try {
-      beginProgrammaticMove();
-      const t = followTarget(lastPos[0], lastPos[1], displayHeading);
-      map.setCenter(LL(t[0], t[1]));
-    } catch (_) {}
-  }
+  if (on && lastPos && map) followCamera(lastPos[0], lastPos[1], false);
   applyMapRotation();
 }
 
@@ -1519,10 +1536,10 @@ function drawRouteLines(){
   if (!map || routeCoords.length < 2) return;
   const path = routeCoords.map(c => LL(c[0], c[1]));
 
-  passedLine = new Tmapv2.Polyline({
-    path: [path[0]], strokeColor: '#6b7280', strokeWeight: 7, strokeOpacity: 0.95, map: map,
+  passedLine = new Tmapv3.Polyline({
+    path: [path[0], path[0]], strokeColor: '#6b7280', strokeWeight: 7, strokeOpacity: 0.95, map: map,
   });
-  remainLine = new Tmapv2.Polyline({
+  remainLine = new Tmapv3.Polyline({
     path: path, strokeColor: '#3b82f6', strokeWeight: 7, strokeOpacity: 0.93, map: map,
   });
 }
@@ -1540,38 +1557,46 @@ function repaintProgress(){
 function placeEndpointMarkers(sLL, eLL){
   // 편집 중에는 편집용 S/E 마커가 따로 올라가므로 겹치지 않게 건너뛴다.
   if (editMode) return;
-  startMarker = new Tmapv2.Marker({
+  // 핀 끝이 좌표를 가리키도록 아래 가운데 기준
+  startMarker = new Tmapv3.Marker({
     position: LL(sLL[0], sLL[1]), icon: pinIcon('#10b981', 'S'),
-    iconSize: new Tmapv2.Size(30, 38), map: map,
+    iconSize: new Tmapv3.Size(30, 38), anchor: 'bottom', map: map,
   });
-  endMarker = new Tmapv2.Marker({
+  endMarker = new Tmapv3.Marker({
     position: LL(eLL[0], eLL[1]), icon: pinIcon('#ef4444', 'E'),
-    iconSize: new Tmapv2.Size(30, 38), map: map,
+    iconSize: new Tmapv3.Size(30, 38), anchor: 'bottom', map: map,
   });
 }
+
+let carIcoDeg = 0;   // 차량 아이콘에 걸어 둔 회전각(연속값)
 
 function updateCarMarker(lat, lng, heading){
   if (!map) return;
   const pos = LL(lat, lng);
   if (!carMarker){
-    carMarker = new Tmapv2.Marker({
-      position: pos, icon: carIcon(heading),
-      iconSize: new Tmapv2.Size(44, 44), map: map, zIndex: 900,
+    carMarker = new Tmapv3.Marker({
+      position: pos, iconHTML: carIconHTML(), anchor: 'center', map: map, zIndex: 900,
     });
   } else {
     try { carMarker.setPosition(pos); } catch (_) {}
-    if (Math.abs(heading - carHeading) > 8){
-      try { carMarker.setIcon(carIcon(heading)); } catch (_) {}
-    }
   }
   carHeading = heading;
+  syncCarIcon();
+}
+
+/** 마커는 지도와 함께 돌지 않으므로, 화면에서 보이는 방향 = 진행 방향 - 지도 방향 */
+function syncCarIcon(){
+  const el = document.getElementById('car-ico');
+  if (!el) return;
+  carIcoDeg = nearestAngle(carIcoDeg, (carHeading || 0) - getMapBearing());
+  el.style.transform = 'rotate(' + carIcoDeg.toFixed(1) + 'deg)';
 }
 
 function fitRoute(){
   if (!map || routeCoords.length < 2) return;
   try {
     beginProgrammaticMove();
-    const b = new Tmapv2.LatLngBounds();
+    const b = new Tmapv3.LatLngBounds();
     routeCoords.forEach(c => b.extend(LL(c[0], c[1])));
     map.fitBounds(b);
   } catch (_) {
@@ -1980,12 +2005,10 @@ let headingUp = false;          // 헤딩업(지도 회전) 사용 여부
 let displayHeading = 0;         // 부드럽게 다듬은 진행 방향
 let drivingZoomApplied = false;
 
-const DRIVE_ZOOM        = 17;   // 주행 시작 시 당길 배율
+const DRIVE_ZOOM        = 17 + V3_ZOOM_OFFSET;   // 주행 시작 시 당길 배율 (v2의 17과 같은 축척)
 const LOOKAHEAD_RATIO   = 0.18; // 화면 세로의 몇 %만큼 앞을 볼지
 const LOOKAHEAD_MAX_PX  = 140;
 const HEADING_SMOOTH     = 0.25; // 0에 가까울수록 부드럽고 느리다
-const HEADING_SCALE_PAD  = 0.04;
-const HEADING_SCALE_MAX  = 2.35;
 
 /** 각도를 부드럽게 잇는다 (359°→1° 같은 경계 처리 포함) */
 function smoothHeading(prev, next){
@@ -1994,9 +2017,9 @@ function smoothHeading(prev, next){
   return (prev + diff * HEADING_SMOOTH + 360) % 360;
 }
 
-/** 화면 1픽셀이 몇 미터인지 (웹 메르카토르) */
+/** 화면 1픽셀이 몇 미터인지 (웹 메르카토르) — Tmapv3는 512px 타일 기준이라 v2 식의 절반 */
 function metersPerPixel(lat, zoom){
-  return 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+  return 78271.51696 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
 }
 
 /** (lat,lng)에서 heading 방향으로 dist 미터 떨어진 지점 */
@@ -2024,61 +2047,103 @@ function followTarget(lat, lng, heading){
   } catch (_) { return [lat, lng]; }
 }
 
-/** 헤딩업 — 지도 요소를 진행 방향 반대로 돌린다. 오버레이·버튼은 그대로 유지된다. */
-function headingCoverScale(el, heading){
-  const w = el.clientWidth || 0;
-  const h = el.clientHeight || 0;
-  if (!w || !h || !isFinite(heading)) return 1.45;
-  const rad = heading * Math.PI / 180;
-  const sin = Math.abs(Math.sin(rad));
-  const cos = Math.abs(Math.cos(rad));
-  const xScale = cos + (h / w) * sin;
-  const yScale = cos + (w / h) * sin;
-  return Math.min(HEADING_SCALE_MAX, Math.max(1, xScale, yScale) + HEADING_SCALE_PAD);
+/* ── 헤딩업 · 북쪽 고정 · 따라가기 카메라 (Tmapv3 bearing) ──
+   · 헤딩업: 따라가는 중이면 GPS가 올 때마다 차량 앞쪽 중심 + 진행 방향을 한 번의 부드러운 이동으로 맞춘다.
+   · 손으로 지도를 돌리거나 옮기면 따라가기가 잠시 멈추고, 그동안은 손으로 돌린 방향을 그대로 둔다.
+   · 🧭: 헤딩업 → 북쪽 고정 / 손으로 돌려 둔 상태 → 북쪽으로 / 북쪽 → 헤딩업.
+   · 경로 수정 중에는 탭 위치를 맞추기 쉽게 북쪽 고정 + 두 손가락 회전 잠금. */
+function headingActive(){
+  return headingUp && followMode && !editMode && Date.now() >= followPauseUntil;
 }
 
-/* 화면에 걸어 둔 회전각(도). 0~360으로 되돌리지 않고 이어 붙인다.
-   진행 방향이 359°→1°로 넘어갈 때 -359deg→-1deg로 바꾸면 CSS transition이
-   반대쪽으로 거의 한 바퀴 돌아 버리므로, 항상 가까운 쪽으로 더해 간다. */
-let mapRotDeg = 0;
-
-/* 두 손가락 자유 회전(bearing)은 지원하지 않는다.
-   Tmapv2는 래스터 타일 지도라 bearing API가 없고, 여기서는 #map_div 전체를 CSS로
-   돌리는 방식이라 손 제스처 회전까지 얹으면 드래그·탭 좌표가 틀어진다.
-   Tmapv3(Vector Map)로 옮기면 SDK의 회전 API로 헤딩업과 자유 회전을 따로 구현할 수 있다. */
-function applyMapRotation(){
-  const el = $('map_div');
-  if (!el) return;
-  // 경로 수정 중에는 탭 위치를 맞추기 위해 북쪽 고정 (GPS가 들어와도 다시 돌리지 않는다)
-  const on = headingUp && followMode && !editMode && Date.now() >= followPauseUntil;
-  if (on){
-    // 북쪽 고정 화면에서 새로 켜질 때는 0°에서 가까운 쪽으로 돌기 시작한다.
-    if (!el.classList.contains('heading-up')) mapRotDeg = 0;
-    const diff = (((-displayHeading - mapRotDeg) % 360) + 540) % 360 - 180;
-    mapRotDeg += diff;
-  } else {
-    // 회전을 풀면 transition 없이 바로 북쪽 고정으로 돌아간다(.heading-up 해제).
-    mapRotDeg = 0;
+/** 부드러운 카메라 이동 — SDK 내부 카메라의 easeTo를 쓰고, 없으면 공개 API로 바로 옮긴다 */
+function easeCamera(opt, animate){
+  if (!map) return;
+  if (animate !== false){
+    try {
+      const cam = map.vsmMap().getCamera();
+      if (cam && typeof cam.easeTo === 'function'){
+        cam.easeTo(opt, { animate: true, duration: CAMERA_EASE_MS }, { moveByProgram: true });
+        return;
+      }
+    } catch (_) {}
   }
-  el.classList.toggle('heading-up', on);
-  el.style.setProperty('--map-rot', mapRotDeg.toFixed(1) + 'deg');
-  el.style.setProperty('--map-scale', on ? headingCoverScale(el, displayHeading).toFixed(3) : '1');
-  // 차량 아이콘은 지도 안에 있어 함께 돌아간다.
-  // 아이콘 +heading, 지도 -heading이 상쇄되어 헤딩업에서는 자연히 위를 향한다.
+  try { if (opt.center) map.setCenter(LL(opt.center[1], opt.center[0])); } catch (_) {}
+  try { if (opt.bearing != null) map.setBearing(opt.bearing); } catch (_) {}
+  onMapBearingChanged();
+}
+
+/** 따라가기 — 차량 앞쪽을 화면 중앙에, 헤딩업이면 진행 방향을 위로 */
+function followCamera(lat, lng, animate){
+  if (!map) return;
+  const t = followTarget(lat, lng, displayHeading);
+  const opt = { center: [t[1], t[0]] };
+  if (headingActive()) opt.bearing = nearestAngle(getMapBearing(), displayHeading);
+  easeCamera(opt, animate);
+}
+
+function rotateMapTo(deg, animate){
+  if (!map) return;
+  easeCamera({ bearing: nearestAngle(getMapBearing(), deg) }, animate);
+}
+
+/** 지금 상태(헤딩업·편집)에 맞게 지도 방향을 맞춘다. 따라가지 않을 때는 손으로 돌린 방향을 둔다. */
+function applyMapRotation(){
+  if (!map) return;
+  if (editMode){
+    // 경로를 다시 불러오며 중심을 옮기면 부드러운 회전이 중간에 끊기므로 편집 진입은 바로 북쪽으로.
+    if (isRotated()) rotateMapTo(0, false);
+  } else if (headingActive()){
+    rotateMapTo(displayHeading);
+  }
+  onMapBearingChanged();
+}
+
+/** 지도가 북쪽에서 벗어나 있는가 */
+function isRotated(){
+  const b = ((getMapBearing() % 360) + 360) % 360;
+  return b > 1 && b < 359;
 }
 
 function toggleHeadingUp(){
-  headingUp = !headingUp;
+  if (headingUp){
+    headingUp = false;                 // 헤딩업 → 북쪽 고정
+    rotateMapTo(0);
+    toast('북쪽 고정', 1500);
+  } else if (isRotated()){
+    rotateMapTo(0);                    // 손으로 돌려 둔 지도 → 북쪽으로만 되돌린다
+    toast('북쪽 고정', 1200);
+  } else {
+    headingUp = true;                  // 북쪽 → 헤딩업 (따라가기와 함께 쓴다)
+    setFollow(true);
+    toast('진행 방향이 위로 (헤딩업)', 1500);
+  }
   lsSet(K.headingUp, headingUp);
   $('btn-headup').classList.toggle('on', headingUp);
-  if (headingUp) setFollow(true);   // 헤딩업은 따라가기와 함께 쓴다
   applyMapRotation();
   saveCheckpoint(true);
-  toast(headingUp ? '진행 방향이 위로 (헤딩업)' : '북쪽 고정', 1500);
+}
+
+/** 🧭 버튼 — 빨간 바늘이 지금 지도의 북쪽을 가리킨다 */
+const COMPASS_SVG =
+  '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">' +
+    '<path d="M12 2.5 L15.6 12 L12 10.6 L8.4 12 Z" fill="#ef4444"/>' +
+    '<path d="M12 21.5 L8.4 12 L12 13.4 L15.6 12 Z" fill="#cbd5e1"/>' +
+  '</svg>';
+let compassDeg = 0;
+
+function renderCompass(){
+  const b = $('btn-headup');
+  if (!b) return;
+  if (!b.querySelector('svg')) b.innerHTML = COMPASS_SVG;
+  compassDeg = nearestAngle(compassDeg, -getMapBearing());
+  b.querySelector('svg').style.transform = 'rotate(' + compassDeg.toFixed(1) + 'deg)';
+  b.title = headingUp ? '헤딩업 켜짐 — 누르면 북쪽 고정'
+          : isRotated() ? '누르면 북쪽 고정' : '누르면 진행 방향 위로 (헤딩업)';
 }
 
 /* ── 화면 회전·창 크기·패널 접기로 지도 크기가 바뀔 때 ──
-   Tmapv2도 window resize를 직접 듣지만 이벤트 순간에 크기를 재기 때문에,
+   TMAP SDK도 window resize를 직접 듣지만 이벤트 순간에 크기를 재기 때문에,
    폰을 돌린 직후처럼 레이아웃이 아직 안 바뀐 시점이면 옛 크기로 남는다.
    조금 기다렸다가 다시 재고(map.resize), 회전 배율·구역 도로를 새 크기에 맞춘다.
    주행 상태(구간·경로·궤적·추적·헤딩업·패널 접힘)는 건드리지 않는다. */
@@ -2092,13 +2157,7 @@ function handleViewportChange(){
     if (map){
       try { if (typeof map.resize === 'function') map.resize(); } catch (_) {}   // 인자 없이 → 컨테이너 크기를 다시 잰다 (중심 유지)
       // 따라가는 중이면 새 화면 높이에 맞춰 차량 앞쪽을 다시 중앙에 둔다.
-      if (followMode && Date.now() >= followPauseUntil && lastPos){
-        try {
-          beginProgrammaticMove();
-          const t = followTarget(lastPos[0], lastPos[1], displayHeading);
-          map.setCenter(LL(t[0], t[1]));
-        } catch (_) {}
-      }
+      if (followMode && Date.now() >= followPauseUntil && lastPos) followCamera(lastPos[0], lastPos[1], false);
       scheduleSectorRedraw();
     }
     applyMapRotation();
@@ -2211,12 +2270,9 @@ function recenterToMe(){
     return;
   }
   try {
-    beginProgrammaticMove();
     if (map.getZoom() < DRIVE_ZOOM) map.setZoom(DRIVE_ZOOM);
-    const t = followTarget(lastPos[0], lastPos[1], displayHeading);
-    map.setCenter(LL(t[0], t[1]));
   } catch (_) {}
-  applyMapRotation();
+  followCamera(lastPos[0], lastPos[1]);
   toast('내 위치를 따라갑니다', 1400);
 }
 
@@ -2263,14 +2319,10 @@ function onGps(pos){
   if (isPlaying && legStartTime && !legStartPos) legStartPos = [lat, lng];
 
   // 자동 추적 — 진행 방향 앞쪽을 중심에 두어 차가 화면 아래쪽에 오게 한다.
+  // Tmapv3: 중심과 방향(헤딩업)을 한 번의 부드러운 이동으로 옮긴다.
   if (followMode && Date.now() > followPauseUntil && map){
-    try {
-      beginProgrammaticMove();
-      if (isPlaying) applyDrivingZoom();
-      const t = followTarget(lat, lng, displayHeading);
-      map.setCenter(LL(t[0], t[1]));
-    } catch (_) {}
-    applyMapRotation();
+    try { if (isPlaying) applyDrivingZoom(); } catch (_) {}
+    followCamera(lat, lng);
   }
 
   maybeLogSnapshot();   // 타이머가 늦춰져도 측위가 오면 기록이 이어지도록
@@ -3102,25 +3154,14 @@ function scenarioKeys(locKey){
       도로 데이터는 HD맵(표준노드링크) 기준이라 LINK_ID가 함께 들어 있다.
    ══════════════════════════════════════════════════════════════ */
 let sectorPolygon = null;          // 구역 경계 다각형
-let sectorRoadLines = [];          // 현재 화면에 그려진 도로 폴리라인
+let sectorRoadLines = [];          // 구역 도로 레이어(굵기별로 하나씩)
 /* 지나온 길 — 회색 하나로 그린다 (안 지나간 길은 파란색으로 미리 그려져 있다).
    segs = [{ pts:[[lat,lng],...], line:Polyline }] */
 let sectorTrailSegs = [];
 let sectorTrailPts = [];          // 전체 궤적 (거리 계산용)
 let sectorOutsideSpoken = false;
 let sectorRoadsOn = true;
-let sectorRedrawTimer = null;
 
-/** 구역 내 도로를 몇 배율부터 그릴지 — 너무 축소된 상태에서는 부담만 크다 */
-const SECTOR_ROAD_MIN_ZOOM = 14;
-/**
- * 한 번에 그릴 도로 최대 개수.
- * 축소 상태에서는 화면에 구역 전체가 들어와 수백 개가 걸리므로 큰길만 추린다.
- * 확대하면 화면 범위 자체가 좁아져 개수가 알아서 줄기 때문에 상한을 넉넉히 준다.
- */
-function sectorRoadMaxDraw(zoom){
-  return zoom >= 15 ? 700 : 350;
-}
 /* 구역 내 길(아직 지나지 않은 도로) 색 — 일반 경로 모드의 '남은 길'과 같은 파란색.
    궤적(회색, 굵기 8)과는 굵기로도 구분된다 (이 선은 4~8). */
 const SECTOR_ROAD_COLOR = '#3b82f6';
@@ -3198,7 +3239,7 @@ function appendTrailPoint(lat, lng){
 
   const path = seg.pts.map(p => LL(p[0], p[1]));
   if (!seg.line){
-    seg.line = new Tmapv2.Polyline({
+    seg.line = new Tmapv3.Polyline({
       path         : path,
       strokeColor  : TRAIL_COLOR_PASSED,
       strokeWeight : 8,
@@ -3215,7 +3256,7 @@ function redrawSectorTrail(){
   if (!map) return;
   sectorTrailSegs.forEach(seg => {
     if (seg.line || !seg.pts || seg.pts.length < 2) return;
-    seg.line = new Tmapv2.Polyline({
+    seg.line = new Tmapv3.Polyline({
       path         : seg.pts.map(p => LL(p[0], p[1])),
       strokeColor  : TRAIL_COLOR_PASSED,
       strokeWeight : 8,
@@ -3336,7 +3377,7 @@ function renderSector(){
   if (!sc || !map) return;
 
   const color = sc.color || '#f59e0b';
-  sectorPolygon = new Tmapv2.Polygon({
+  sectorPolygon = new Tmapv3.Polygon({
     paths       : [sc.sector.map(p => LL(p[0], p[1]))],
     strokeColor : color,
     strokeWeight: 3,
@@ -3351,96 +3392,88 @@ function renderSector(){
 
 function fitSector(sc){
   try {
-    const b = new Tmapv2.LatLngBounds();
+    const b = new Tmapv3.LatLngBounds();
     sc.sector.forEach(p => b.extend(LL(p[0], p[1])));
     map.fitBounds(b);
   } catch (_) {}
 }
 
 /**
- * 구역 내 도로 렌더링.
- * ── 강남 섹터는 도로가 최대 644개라 전부 폴리라인으로 올리면 확대·축소가 눈에 띄게 느려진다.
- *    그래서 현재 화면 범위 안에 걸치는 것만 그리고, 지도 이동이 끝나면 다시 계산한다.
+ * 구역 내 도로 렌더링 (Tmapv3).
+ * ── Tmapv3는 Polyline 하나마다 스타일·레이어를 따로 만들어, 도로 600개를 하나씩 올리면
+ *    수십 초가 걸린다(실측 16초). 그래서 같은 모양(굵기)의 도로를 GeoJSON 레이어 하나로 묶는다.
+ *    벡터 지도라 화면 밖 선을 추려 낼 필요가 없어, 구역에 들어올 때 한 번만 그리고
+ *    지도를 옮길 때마다 다시 그리지 않는다.
+ * ── 공개 API에는 여러 선을 한 레이어에 담는 방법이 없어, Polyline이 만든 스타일은 그대로 쓰고
+ *    그 레이어의 데이터만 FeatureCollection으로 바꿔 끼운다 (map.vsmMap() 내부 API).
+ *    내부 API가 바뀌어 실패하면 큰길만 개별 Polyline으로 그린다.
  */
+const SECTOR_ROAD_FALLBACK_MAX = 120;   // 내부 API 실패 시 개별 선으로 그릴 최대 개수 (느려서 제한)
+
 function renderSectorRoads(){
   clearSectorRoadLines();
   const sc = currentSector();
   if (!sc || !map || !sectorRoadsOn) return;
   if (!Array.isArray(sc.roads) || !sc.roads.length) return;
-
-  let zoom = 15;
-  try { zoom = map.getZoom(); } catch (_) {}
-  if (zoom < SECTOR_ROAD_MIN_ZOOM){
-    // 너무 축소된 상태에서 수백 개의 선을 올리면 확대·축소가 눈에 띄게 끊긴다.
-    setSectorHint('지도를 확대하면 구역 내 길이 표시됩니다');
-    return;
-  }
   setSectorHint('');
 
-  const vb = viewportBox();
-  const inView = [];
+  const main = [], minor = [];
   for (const r of sc.roads){
     const c = roadCoords(r);
     if (!c || c.length < 2) continue;
-    if (vb && !roadIntersectsBox(c, vb)) continue;
-    inView.push(r);
-  }
-
-  // 상한에 걸릴 때 앞에서부터 자르면 골목만 남고 큰길이 빠지는 일이 생긴다.
-  // 차선 수가 많은 도로를 먼저 그려 축소 상태에서도 도로망 뼈대가 보이게 한다.
-  const maxDraw = sectorRoadMaxDraw(zoom);
-  const truncated = inView.length > maxDraw;
-  if (truncated) inView.sort((a, b) => ((b.ln || 0) - (a.ln || 0)));
-  const picked = inView.slice(0, maxDraw);
-
-  setSectorHint(truncated
-    ? '큰길 위주로 ' + picked.length + '개 표시 — 확대하면 골목까지 보입니다'
-    : '');
-
-  // 확대할수록 굵게 — 축소 상태에서 화면이 뭉개지지 않으면서, 확대하면 또렷해진다.
-  const step  = Math.max(0, Math.min(4, zoom - SECTOR_ROAD_MIN_ZOOM));
-  const wMain = 4 + step;          // 2차선 이상
-  const wMinor = 3 + step * 0.75;  // 1차선 골목
-
-  picked.forEach(r => {
-    const c = roadCoords(r);
     const lanes = (!Array.isArray(r) && r.ln) || 0;
-    const minor = lanes <= 1;
-    const line = new Tmapv2.Polyline({
-      path         : c.map(p => LL(p[0], p[1])),
-      strokeColor  : SECTOR_ROAD_COLOR,
-      strokeWeight : minor ? wMinor : wMain,
-      strokeOpacity: minor ? 0.80 : 0.95,
-      map          : map,
+    (lanes <= 1 ? minor : main).push(c);
+  }
+  // 골목을 먼저 깔고 큰길을 위에 — 나중에 만든 레이어가 위로 온다.
+  addRoadLayer(minor, { strokeColor: SECTOR_ROAD_COLOR, strokeWeight: 3.5, strokeOpacity: 0.80 });
+  addRoadLayer(main,  { strokeColor: SECTOR_ROAD_COLOR, strokeWeight: 5,   strokeOpacity: 0.95 });
+  raiseSectorTrail();   // 지나온 길(회색)이 도로(파랑)에 가리지 않게 다시 위로
+}
+
+/** 좌표 목록 여러 개를 레이어 하나로 그린다. 지울 때는 돌려준 Polyline을 setMap(null) 한다. */
+function addRoadLayer(lines, style){
+  if (!lines.length) return;
+  const first = lines[0].map(p => LL(p[0], p[1]));
+  const pl = new Tmapv3.Polyline(Object.assign({ path: first, map: map }, style));
+  sectorRoadLines.push(pl);
+  try {
+    const vm = map.vsmMap(), id = pl._shape_data.layerId, st = pl._shape_data.stackId;
+    vm.removeLayer(id);
+    vm.addLayer({
+      id: id, name: 'sector-roads',
+      map: { format: 'geojson', preventOverlap: true, data: {
+        type: 'FeatureCollection',
+        features: lines.map(c => ({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: c.map(p => [p[1], p[0]]) },
+          properties: { maxLevel: '21', minLevel: '0', stackId: st },
+        })),
+      } },
+      extent: {},
+      stacks: [{ id: st, code: 'CUSTOM_STACK', name: '커스텀 스택', geometryType: 'LINE', properties: {}, viewLevels: 'all' }],
     });
-    sectorRoadLines.push(line);
+  } catch (e){
+    console.warn('구역 도로 한 레이어 그리기 실패 — 개별 선으로 대신 그림:', e && e.message);
+    try { pl.setMap(null); } catch (_) {}
+    sectorRoadLines.pop();
+    lines.slice(0, SECTOR_ROAD_FALLBACK_MAX).forEach(c => {
+      sectorRoadLines.push(new Tmapv3.Polyline(Object.assign({ path: c.map(p => LL(p[0], p[1])), map: map }, style)));
+    });
+    setSectorHint('일부 도로만 표시 중 (지도 SDK 제한)');
+  }
+}
+
+/** 지나온 길 선을 도로 레이어 위로 다시 올린다 */
+function raiseSectorTrail(){
+  sectorTrailSegs.forEach(seg => {
+    if (!seg.line) return;
+    try { seg.line.setMap(null); seg.line.setMap(map); } catch (_) {}
   });
 }
 
-/** 현재 지도 화면 범위 (약간 여유를 둔다) */
-function viewportBox(){
-  try {
-    const b = map.getBounds();
-    const sw = b.getSouthWest(), ne = b.getNorthEast();
-    const s = sw.lat(), w = sw.lng(), n = ne.lat(), e = ne.lng();
-    const padLa = (n - s) * 0.15, padLo = (e - w) * 0.15;
-    return { s: s - padLa, n: n + padLa, w: w - padLo, e: e + padLo };
-  } catch (_) { return null; }
-}
-
-function roadIntersectsBox(c, b){
-  for (let i = 0; i < c.length; i++){
-    if (c[i][0] >= b.s && c[i][0] <= b.n && c[i][1] >= b.w && c[i][1] <= b.e) return true;
-  }
-  return false;
-}
-
-/** 지도 이동·확대가 끝나면 화면 안 도로만 다시 그린다 (연속 호출은 묶어서 처리) */
-function scheduleSectorRedraw(){
-  if (!currentSector()) return;
-  clearTimeout(sectorRedrawTimer);
-  sectorRedrawTimer = setTimeout(renderSectorRoads, 260);
-}
+/* v2에서는 지도를 옮길 때마다 화면 안 도로를 다시 그렸다. v3는 한 번 그려 두면 되므로 할 일이 없다
+   (화면 크기 변경 처리에서 부르므로 이름만 남긴다). */
+function scheduleSectorRedraw(){}
 
 /** 지도 위 작은 안내문 (구역 도로 표시 상태) */
 function setSectorHint(text){
@@ -3730,7 +3763,7 @@ async function openScenarioOverview(){
   $('ov-sum').textContent = '구간 경로를 불러오는 중… (0/' + legs.length + ')';
   $('overview-bar').classList.add('on');
 
-  const bounds = new Tmapv2.LatLngBounds();
+  const bounds = new Tmapv3.LatLngBounds();
   let totalKm = 0, drawn = 0;
 
   for (let i = 0; i < legs.length; i++){
@@ -3752,17 +3785,17 @@ async function openScenarioOverview(){
     totalKm += km;
     drawn++;
 
-    overviewLines.push(new Tmapv2.Polyline({
+    overviewLines.push(new Tmapv3.Polyline({
       path         : coords.map(c => LL(c[0], c[1])),
       strokeColor  : color,
       strokeWeight : 6,
       strokeOpacity: 0.9,
       map          : map,
     }));
-    overviewMarkers.push(new Tmapv2.Marker({
+    overviewMarkers.push(new Tmapv3.Marker({
       position : LL(lg.sLL[0], lg.sLL[1]),
       icon     : editPinIcon(color, String(i + 1)),
-      iconSize : new Tmapv2.Size(26, 26),
+      iconSize : new Tmapv3.Size(26, 26), anchor: 'center',   // 원형 핀이라 가운데 기준
       map      : map,
       zIndex   : 940,
     }));
@@ -3779,10 +3812,10 @@ async function openScenarioOverview(){
   // 마지막 구간 도착지에도 표식을 남긴다.
   const last = legs[legs.length - 1];
   if (last){
-    overviewMarkers.push(new Tmapv2.Marker({
+    overviewMarkers.push(new Tmapv3.Marker({
       position : LL(last.eLL[0], last.eLL[1]),
       icon     : editPinIcon('#ef4444', 'E'),
-      iconSize : new Tmapv2.Size(26, 26),
+      iconSize : new Tmapv3.Size(26, 26), anchor: 'center',   // 원형 핀이라 가운데 기준
       map      : map,
       zIndex   : 941,
     }));
@@ -4018,8 +4051,9 @@ function enterEditMode(){
   $('edit-name-s').value = lg.s || '';
   $('edit-name-e').value = lg.e || '';
 
-  // 회전 상태에서는 탭 위치를 가늠하기 어려우므로 편집 중에는 북쪽 고정으로 둔다.
+  // 회전 상태에서는 탭 위치를 가늠하기 어려우므로 편집 중에는 북쪽 고정 + 두 손가락 회전 잠금.
   applyMapRotation();
+  setMapGestures('edit');
 
   $('edit-bar').classList.add('on');
   $('panel').classList.add('locked');
@@ -4035,6 +4069,7 @@ function exitEditMode(saved){
   $('panel').classList.remove('locked');
   const warn = $('edit-warn');
   if (warn){ warn.classList.remove('on'); warn.innerHTML = ''; }
+  setMapGestures('normal');
   applyMapRotation();
 
   if (!saved){
@@ -4183,6 +4218,7 @@ let lastEditTapAt = 0, lastEditTapLL = null;
 
 function onEditMapClick(evt){
   if (!editMode) return;
+  if (Date.now() - lastPinTouchAt < 450) return;   // 핀을 누른 탭은 지도 탭으로 치지 않는다
   const ll = extractLatLng(evt);
   if (!ll) return;
 
@@ -4229,8 +4265,74 @@ function llFromPos(p){
 
 /** TMAP 클릭 이벤트에서 좌표를 꺼낸다 */
 function extractLatLng(e){
-  const p = e && (e.latLng || e.lngLat || e.data && e.data.latLng);
+  // Tmapv3: Click 이벤트에는 latLng가 없고 화면 좌표(data.screenPoint)가 온다 → 지도 좌표로 바꾼다.
+  const sp = e && e.data && e.data.screenPoint;
+  if (sp && map){
+    try { return llFromPos(map.screenToReal(new Tmapv3.Point(sp.x, sp.y))); } catch (_) {}
+  }
+  const p = e && (e.latLng || e.data && e.data.latLng);
   return llFromPos(p);
+}
+
+/* ── Tmapv3 지도 제스처 모드 ──
+   normal: 이동·확대·회전 / edit: 이동·확대만 (북쪽 고정) */
+function setMapGestures(mode){
+  if (!map) return;
+  try {
+    map.setInteractive({ pan: true, drag: true, zoom: true, wheel: true, rotate: mode === 'normal', pitch: false });
+  } catch (_) {}
+}
+
+/* 핀을 누른 탭이 지도 Click으로도 들어와 경유점이 하나 더 생기지 않게 막는다 */
+let lastPinTouchAt = 0;
+let editPinSeq = 0;
+
+/**
+ * 편집 핀 — Tmapv3 마커 드래그는 마우스 전용이고 끝났다는 이벤트도 없어,
+ * iconHTML 요소에 포인터 이벤트를 직접 달아 손가락·마우스 모두 끌 수 있게 한다.
+ * 살짝 누르면 onClick, 6px 넘게 끌면 드래그(놓을 때 onDragEnd).
+ */
+function attachPinGestures(marker, elId, opts){
+  const el = document.getElementById(elId);
+  if (!el){ setTimeout(() => { if (editMarkers.includes(marker)) attachPinGestures(marker, elId, opts); }, 50); return; }
+  let down = null, dragging = false;
+  const toLL = ev => {
+    const r = map.getDiv().getBoundingClientRect();
+    return map.screenToReal(new Tmapv3.Point(ev.clientX - r.left, ev.clientY - r.top));
+  };
+  // 핀에서 시작한 터치·마우스가 지도까지 올라가 지도가 같이 끌리지 않게 막는다.
+  // (드래그 중에 map.setInteractive로 지도를 잠그면 진행 중인 터치가 취소되어 쓰지 않는다)
+  ['touchstart', 'touchmove', 'touchend', 'mousedown', 'mousemove', 'mouseup'].forEach(t =>
+    el.addEventListener(t, ev => ev.stopPropagation(), { passive: true }));
+  el.addEventListener('pointerdown', ev => {
+    ev.stopPropagation(); ev.preventDefault();
+    lastPinTouchAt = Date.now();
+    down = { x: ev.clientX, y: ev.clientY };
+    dragging = false;
+    try { el.setPointerCapture(ev.pointerId); } catch (_) {}
+  });
+  el.addEventListener('pointermove', ev => {
+    if (!down || !opts.draggable) return;
+    ev.stopPropagation();
+    if (!dragging && Math.hypot(ev.clientX - down.x, ev.clientY - down.y) < 6) return;
+    dragging = true;
+    try { marker.setPosition(toLL(ev)); } catch (_) {}
+  });
+  const finish = ev => {
+    if (!down) return;
+    ev.stopPropagation();
+    lastPinTouchAt = Date.now();
+    const wasDrag = dragging;
+    down = null; dragging = false;
+    if (wasDrag){
+      if (opts.onDragEnd) opts.onDragEnd(marker);
+    } else if (opts.onClick){
+      opts.onClick();
+    }
+  };
+  el.addEventListener('pointerup', finish);
+  el.addEventListener('pointercancel', finish);
+  el.addEventListener('click', ev => ev.stopPropagation());
 }
 
 /** 새 경유점을 어느 구간 사이에 끼울지 — 선분까지의 거리로 판단 */
@@ -4278,16 +4380,14 @@ function renderEditMarkers(){
 
   const mk = (ll, icon, opts) => {
     opts = opts || {};
-    const m = new Tmapv2.Marker({
-      position: LL(ll[0], ll[1]), icon: icon,
-      iconSize: new Tmapv2.Size(30, 30), map: map, zIndex: 950,
-      draggable: !!opts.draggable,
+    // 다시 그릴 때 옛 핀이 DOM에서 늦게 빠져도 헷갈리지 않게 번호를 계속 늘린다.
+    const elId = 'edit-pin-' + (++editPinSeq);
+    const m = new Tmapv3.Marker({
+      position: LL(ll[0], ll[1]), anchor: 'center', map: map, zIndex: 950,
+      iconHTML: '<div class="edit-pin" id="' + elId + '"><img src="' + icon + '" alt=""/></div>',
     });
-    if (opts.onClick){ try { m.addListener('click', opts.onClick); } catch (_) {} }
-    if (opts.onDragEnd){
-      try { m.addListener('dragend', () => opts.onDragEnd(m)); } catch (_) {}
-    }
     editMarkers.push(m);
+    if (opts.onClick || opts.onDragEnd) attachPinGestures(m, elId, opts);
   };
 
   mk(editSLL, editPinIcon('#10b981', 'S'));
@@ -4755,10 +4855,10 @@ async function enterApp(){
 
   try {
     await loadTmapSdk();
-    initMap();
+    await initMap();          // Tmapv3: 스타일 로드(ConfigLoad)까지 기다려야 선·도형이 보인다
   } catch (e){
     console.warn('TMAP SDK 로드 실패:', e && e.message);
-    toast('TMAP 지도를 불러오지 못했습니다 — appKey와 등록 도메인을 확인하세요', 5000);
+    toast('TMAP 벡터 지도를 불러오지 못했습니다 — ' + ((e && e.message) || 'appKey·등록 도메인·WebGL을 확인하세요'), 6000);
     return;
   }
 
