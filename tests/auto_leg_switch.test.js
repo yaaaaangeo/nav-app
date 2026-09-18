@@ -1,5 +1,5 @@
 /*
- * 자동 구간 전환(100m 공통 기준) · 선택 묶음 접기 테스트
+ * 자동 구간 전환(100m 공통 기준) · 패널 접기 테스트
  * 실행: node --test tests/
  *
  * index.html 안의 실제 함수 소스를 잘라 와서 가짜 DOM·상태 위에서 돌린다.
@@ -35,7 +35,7 @@ function extractConst(name){
 const FUNCS = [
   'haversine', 'checkArrival', 'legRemainingMeters', 'newAutoSwitchState',
   'autoSwitchStateFor', 'stepAutoLegSwitch', 'completeLeg', 'nextLeg',
-  'setSelectionFolded',
+  'setPanelFolded', 'renderPanelTitle',
 ];
 const CONSTS = [
   'OFF_ROUTE_DISTANCE_M', 'AUTO_LEG_SWITCH_DISTANCE_M', 'AUTO_LEG_SWITCH_MIN_TRAVEL_RATIO',
@@ -57,7 +57,10 @@ function makeApp(legs){
   const store = {};
   const src = `
     ${CONSTS.map(extractConst).join('\n')}
-    const K = { selFolded: 'nav3-sel-folded' };
+    const K = { panelFolded: 'nav3-panel-folded' };
+    const SCENARIOS = { 강남: { a: { name: 'ㄹ자 그리드' } } };
+    let loc = '강남', scKey = 'a';
+    function currentSector(){ return null; }
     let legs = __legs, legIdx = 0;
     const doneSet = new Set();
     let isPlaying = true, legStartTime = null, legStartPos = null, lastPos = null;
@@ -78,7 +81,7 @@ function makeApp(legs){
     ${FUNCS.map(extractFunction).join('\n')}
     applyLeg();
     this.api = {
-      checkArrival, setSelectionFolded, applyLeg, spoken,
+      checkArrival, setPanelFolded, renderPanelTitle, applyLeg, spoken,
       get legIdx(){ return legIdx; }, set legIdx(v){ legIdx = v; },
       get isPlaying(){ return isPlaying; }, set isPlaying(v){ isPlaying = v; },
       setRoute(o){
@@ -90,10 +93,16 @@ function makeApp(legs){
       },
     };
   `;
-  const ctx = { __legs: legs, __store: store, __el: el, Math, Number, Set };
+  const resizes = [];
+  const ctx = {
+    __legs: legs, __store: store, __el: el, Math, Number, Set,
+    setTimeout: fn => fn(),                       // 지도 리사이즈 알림을 바로 실행시킨다
+    Event: class { constructor(type){ this.type = type; } },
+    window: { dispatchEvent: e => resizes.push(e.type) },
+  };
   vm.createContext(ctx);
   vm.runInContext(src, ctx);
-  return Object.assign(ctx.api, { el, store });
+  return Object.assign(ctx.api, { el, store, resizes });
 }
 
 const R = 6371000, rad = x => x * Math.PI / 180, deg = x => x * 180 / Math.PI;
@@ -268,17 +277,20 @@ test('마지막 구간 완료 후 다시 시작해도 완료가 반복되지 않
   assert.strictEqual(app.spoken.filter(t => t === '모든 구간을 완료했습니다').length, 1);
 });
 
-test('선택 패널 접기/펼치기 — 표시만 바뀌고 상태는 유지된다', () => {
+test('패널 접기/펼치기 — 표시만 바뀌고 상태는 유지된다', () => {
   const legs = regionLegs('강남-a');
   const app = makeApp(legs);
-  const group = app.el('sel-group'), btn = app.el('sel-fold');
-  app.setSelectionFolded(true);
-  assert.ok(group.classList.contains('folded'));
+  const panel = app.el('panel'), main = app.el('main'), btn = app.el('panel-fold');
+  app.setPanelFolded(true);
+  assert.ok(panel.classList.contains('folded'));
+  assert.ok(main.classList.contains('panel-folded'), '지도가 넓어지도록 #main에도 표시되어야 합니다');
   assert.strictEqual(btn.textContent, '▼');
   assert.strictEqual(btn.attrs['aria-expanded'], 'false');
-  assert.strictEqual(app.store['nav3-sel-folded'], true);
-  app.setSelectionFolded(false);
-  assert.ok(!group.classList.contains('folded'));
+  assert.strictEqual(app.store['nav3-panel-folded'], true);
+  assert.deepStrictEqual(app.resizes, ['resize'], '지도가 새 크기를 반영하도록 resize를 알려야 합니다');
+  app.setPanelFolded(false);
+  assert.ok(!panel.classList.contains('folded'));
+  assert.ok(!main.classList.contains('panel-folded'));
   assert.strictEqual(btn.textContent, '▲');
   assert.strictEqual(app.legIdx, 0);
   assert.match(app.el('cur-idx').textContent, /^1 \//);
@@ -287,19 +299,33 @@ test('선택 패널 접기/펼치기 — 표시만 바뀌고 상태는 유지된
 test('접은 상태에서도 자동 전환되고, 펼치면 최신 현재 구간이 보인다', () => {
   const legs = regionLegs('판교-c');
   const app = makeApp(legs);
-  app.setSelectionFolded(true);
+  app.setPanelFolded(true);
   for (const p of drivePath(legs[0])){ app.checkArrival(p[0], p[1]); if (app.legIdx === 1) break; }
   assert.strictEqual(app.legIdx, 1);
-  app.setSelectionFolded(false);
+  app.setPanelFolded(false);
   assert.strictEqual(app.el('cur-idx').textContent, '2 / ' + legs.length + ' · ' + legs[1].id);
 });
 
-test('HTML — 접기 버튼은 묶음 헤더 우측에 있고 세 섹션과 컨트롤이 본문 안에 있다', () => {
-  const head = HTML.indexOf('id="sel-head"'), fold = HTML.indexOf('id="sel-fold"');
-  const body = HTML.indexOf('id="sel-body"');
+test('접힌 헤더에는 현재 지역·시나리오·구간이 남는다', () => {
+  const legs = regionLegs('강남-a');
+  const app = makeApp(legs);
+  app.setPanelFolded(true);
+  app.renderPanelTitle();
+  assert.strictEqual(app.el('panel-title').textContent, '강남 · ㄹ자 그리드 · 1/' + legs.length);
+  app.legIdx = 2; app.renderPanelTitle();
+  assert.strictEqual(app.el('panel-title').textContent, '강남 · ㄹ자 그리드 · 3/' + legs.length);
+});
+
+test('HTML — 접기 버튼은 패널 헤더 우측에 있고 모든 섹션이 본문 안에 있다', () => {
+  const head = HTML.indexOf('id="panel-head"'), fold = HTML.indexOf('id="panel-fold"');
+  const body = HTML.indexOf('id="panel-body"');
   assert.ok(head > 0 && head < fold && fold < body);
-  const order = ['id="loc-chips"', 'id="sc-chips"', 'id="cur-card"', 'id="btn-skip"', 'id="steps-head"']
-    .map(s => HTML.indexOf(s));
+  // 선택 컨트롤부터 목록까지 모두 접히는 본문 안에 들어 있다
+  const order = ['id="loc-chips"', 'id="sc-chips"', 'id="cur-card"', 'id="btn-skip"',
+                 'id="steps-head"', 'id="legs-body"'].map(t => HTML.indexOf(t));
   assert.ok(order.every((v, i) => v > body && (i === 0 || v > order[i - 1])));
-  assert.match(HTML, /#sel-group\.folded #sel-body\{display:none;\}/);
+  assert.match(HTML, /#panel\.folded #panel-body\{display:none;\}/);
+  // 세로 배치에서는 지도가 남은 자리를 가져가고, 가로 배치에서는 패널이 좁은 띠가 된다
+  assert.match(HTML, /#main\.panel-folded #map-wrap\{flex:1 1 auto;\}/);
+  assert.match(HTML, /#panel\.folded\{width:48px;flex:0 0 48px;/);
 });

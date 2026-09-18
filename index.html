@@ -169,6 +169,9 @@ input,select{font-family:inherit;}
   #main{flex-direction:column;}
   #map-wrap{flex:0 0 46vh;}
   #panel{width:100%;flex:1;border-left:none;border-top:1px solid var(--line);}
+  /* 세로 배치 — 접으면 패널은 헤더 한 줄만 쓰고 남은 자리는 지도가 가져간다 */
+  #panel.folded{flex:0 0 auto;}
+  #main.panel-folded #map-wrap{flex:1 1 auto;}
 }
 
 /* ─────────── 지도 오버레이 ─────────── */
@@ -316,18 +319,25 @@ input,select{font-family:inherit;}
 .list-body{margin-top:7px;}
 .list-body.closed{display:none;}
 
-/* 지역 / 시나리오 / 현재 구간 묶음 — 우측 상단 버튼으로 접는다 (표시만 바뀌고 상태는 그대로) */
-#sel-group{margin-bottom:12px;}
-#sel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px;}
-#sel-head .sec-t{margin:0;}
-.sel-fold{
+/* 패널 접기 — 우측 상단 버튼 하나로 패널 전체를 접는다.
+   접으면 지도가 그 자리를 차지한다 (표시만 바뀌고 선택값·주행 상태는 그대로). */
+#panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px;}
+#panel-head .sec-t{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.panel-fold{
   width:28px;height:24px;flex:0 0 auto;border-radius:8px;background:var(--card);border:1px solid var(--line);
   display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--sub);transition:.14s;
 }
-.sel-fold:hover{border-color:var(--accent);color:var(--accent2);}
-#sel-body > .sec:last-child{margin-bottom:0;}
-#sel-group.folded #sel-head{margin-bottom:0;}
-#sel-group.folded #sel-body{display:none;}
+.panel-fold:hover{border-color:var(--accent);color:var(--accent2);}
+#panel-body > .sec:last-child{margin-bottom:0;}
+#panel.folded{overflow:hidden;}
+#panel.folded #panel-head{margin-bottom:0;}
+#panel.folded #panel-body{display:none;}
+/* 가로 배치 — 접으면 패널이 버튼만 남은 좁은 띠가 된다 */
+@media(min-width:861px){
+  #panel.folded{width:48px;flex:0 0 48px;padding-left:10px;padding-right:10px;}
+  #panel.folded #panel-title{display:none;}
+  #panel.folded #panel-head{justify-content:center;}
+}
 
 .leg{
   display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:10px;
@@ -552,12 +562,11 @@ input,select{font-family:inherit;}
     </div>
 
     <div id="panel">
-      <div id="sel-group">
-        <div id="sel-head">
-          <div class="sec-t">지역 / 시나리오 / 현재 구간</div>
-          <button class="sel-fold" id="sel-fold" type="button" aria-controls="sel-body" aria-expanded="true" title="접기">▲</button>
-        </div>
-        <div id="sel-body">
+      <div id="panel-head">
+        <div class="sec-t" id="panel-title">지역 / 시나리오 / 현재 구간</div>
+        <button class="panel-fold" id="panel-fold" type="button" aria-controls="panel-body" aria-expanded="true" title="접기">▲</button>
+      </div>
+      <div id="panel-body">
       <div class="sec">
         <div class="sec-t">지역</div>
         <div class="chips" id="loc-chips"></div>
@@ -587,8 +596,6 @@ input,select{font-family:inherit;}
           <button class="ctl" id="btn-skip">다음 ▶</button>
         </div>
       </div>
-        </div>
-      </div>
 
       <div class="sec">
         <div class="list-head" id="steps-head">
@@ -604,6 +611,7 @@ input,select{font-family:inherit;}
           <span class="caret" id="legs-caret">▼</span>
         </div>
         <div class="list-body" id="legs-body"></div>
+      </div>
       </div>
     </div>
   </div>
@@ -663,7 +671,7 @@ const K = {
   sectorTrails    : 'nav3-sector-trails',
   trailRetention  : 'nav3-trail-retention',
   legLists        : 'nav3-leg-lists',   // 구간을 넣고 뺀 시나리오의 구간 목록 전체
-  selFolded       : 'nav3-sel-folded',  // 지역/시나리오/현재 구간 묶음 접힘 여부
+  panelFolded     : 'nav3-panel-folded',  // 오른쪽(아래) 패널 접힘 여부
 };
 
 /* ─── TMAP 엔드포인트 ─── */
@@ -4302,6 +4310,7 @@ function renderChips(){
 }
 
 function renderLegs(){
+  renderPanelTitle();   // 구간·시나리오가 바뀌면 접힌 상태의 헤더 표시도 같이 갱신한다
   const box = $('legs-body');
   box.innerHTML = '';
 
@@ -4364,14 +4373,29 @@ function renderControls(){
   $('btn-skip').disabled = sector;
 }
 
-/** 지역/시나리오/현재 구간 묶음 접기 — 화면 표시만 바꾸고 선택값·주행 상태는 건드리지 않는다 */
-function setSelectionFolded(folded){
-  $('sel-group').classList.toggle('folded', folded);
-  const b = $('sel-fold');
+/**
+ * 패널 접기 — 화면 표시만 바꾸고 선택값·주행 상태는 건드리지 않는다.
+ * 접으면 패널이 헤더 한 줄(가로 배치에서는 좁은 띠)로 줄고 지도가 그 자리를 차지한다.
+ */
+function setPanelFolded(folded){
+  $('panel').classList.toggle('folded', folded);
+  $('main').classList.toggle('panel-folded', folded);
+  const b = $('panel-fold');
   b.textContent = folded ? '▼' : '▲';
   b.title = folded ? '펼치기' : '접기';
   b.setAttribute('aria-expanded', folded ? 'false' : 'true');
-  lsSet(K.selFolded, folded);
+  lsSet(K.panelFolded, folded);
+  // 지도 크기가 바뀌었으니 SDK와 회전 보정이 다시 계산하도록 알린다.
+  setTimeout(() => { try { window.dispatchEvent(new Event('resize')); } catch (_) {} }, 0);
+}
+
+/** 접었을 때도 지금 무엇을 달리는 중인지 헤더에 남긴다 */
+function renderPanelTitle(){
+  const sc = SCENARIOS[loc] && SCENARIOS[loc][scKey];
+  const parts = [loc, (sc && sc.name) || scKey];
+  if (currentSector()) parts.push('자유주행 구역');
+  else if (legs.length) parts.push((legIdx + 1) + '/' + legs.length);
+  $('panel-title').textContent = parts.join(' · ');
 }
 
 function renderTts(){
@@ -4614,8 +4638,8 @@ function bindEvents(){
     $('legs-body').classList.toggle('closed');
     $('legs-caret').classList.toggle('closed');
   };
-  $('sel-fold').onclick = () => setSelectionFolded(!$('sel-group').classList.contains('folded'));
-  setSelectionFolded(!!lsGet(K.selFolded, false));
+  $('panel-fold').onclick = () => setPanelFolded(!$('panel').classList.contains('folded'));
+  setPanelFolded(!!lsGet(K.panelFolded, false));
 
   /* 설정 메뉴 */
   $('mi-download').onclick = () => { downloadTodayLog(); closeMenu(); };
