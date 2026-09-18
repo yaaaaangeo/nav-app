@@ -132,6 +132,8 @@ input,select{font-family:inherit;}
   height:52px;display:flex;align-items:center;gap:7px;padding:0 10px;
   background:var(--hdr);border-bottom:1px solid var(--line);
   padding-top:env(safe-area-inset-top);height:calc(52px + env(safe-area-inset-top));
+  /* 가로로 돌리면 노치가 좌우로 온다 (세로에서는 0) */
+  padding-left:calc(10px + env(safe-area-inset-left));padding-right:calc(10px + env(safe-area-inset-right));
 }
 #hdr-title{font-size:13px;font-weight:800;letter-spacing:-.02em;white-space:nowrap;}
 .hdr-badge{
@@ -339,6 +341,50 @@ input,select{font-family:inherit;}
   #panel.folded #panel-head{justify-content:center;}
 }
 
+/* ─────────── 휴대폰 가로 화면 ───────────
+   폭만 보면 가로 폰(예: 844×390)이 세로 배치(max-width:860px)로 잡혀 지도가 46vh로 눌린다.
+   방향과 높이를 함께 보고 지도 왼쪽 / 패널 오른쪽으로 둔다. 태블릿·PC(높이 600px 초과)는 영향 없음.
+   위의 세로·PC 규칙을 덮어써야 하므로 반드시 그 뒤에 둔다. */
+@media (orientation:landscape) and (max-height:600px){
+  #hdr{height:calc(44px + env(safe-area-inset-top));}
+  #settings-menu{top:calc(42px + env(safe-area-inset-top));}
+
+  #main{flex-direction:row;}
+  #map-wrap{flex:1 1 auto;min-width:0;}
+  #panel{
+    width:clamp(240px, 38vw, 340px);flex:0 0 clamp(240px, 38vw, 340px);
+    border-top:none;border-left:1px solid var(--line);
+    padding:10px calc(10px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) 10px;
+  }
+  /* 접으면 버튼만 남은 세로 띠 — 지도가 나머지를 모두 쓴다 */
+  #panel.folded{
+    width:calc(44px + env(safe-area-inset-right));flex:0 0 calc(44px + env(safe-area-inset-right));
+    padding-left:8px;padding-right:calc(8px + env(safe-area-inset-right));
+  }
+  #panel.folded #panel-title{display:none;}
+  #panel.folded #panel-head{justify-content:center;}
+  #main.panel-folded #map-wrap{flex:1 1 auto;}
+
+  /* 지도 오버레이 — 지도를 덜 가리게 줄이고, 왼쪽 노치를 피한다 */
+  #turn-overlay{
+    top:6px;left:calc(8px + env(safe-area-inset-left));right:auto;
+    width:min(400px, calc(100% - 16px - env(safe-area-inset-left)));
+    padding:7px 10px;gap:9px;border-radius:12px;
+  }
+  #turn-icon{font-size:24px;}
+  #turn-dist{font-size:19px;}
+  #turn-text{font-size:12px;margin-top:1px;}
+  #map-tools{right:8px;bottom:calc(8px + env(safe-area-inset-bottom));gap:6px;}
+  .map-btn{width:36px;height:36px;border-radius:10px;font-size:15px;}
+  #edit-bar,#overview-bar{
+    top:6px;left:calc(8px + env(safe-area-inset-left));right:auto;
+    width:min(460px, calc(100% - 60px - env(safe-area-inset-left)));
+    padding:8px 9px;gap:5px;
+  }
+  #trail-legend{left:calc(8px + env(safe-area-inset-left));bottom:calc(46px + env(safe-area-inset-bottom));}
+  #sector-hint{left:calc(8px + env(safe-area-inset-left));bottom:calc(8px + env(safe-area-inset-bottom));}
+}
+
 .leg{
   display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:10px;
   background:var(--card);border:1px solid var(--line);margin-bottom:5px;transition:.14s;
@@ -366,7 +412,7 @@ input,select{font-family:inherit;}
 
 /* ─────────── 설정 메뉴 ─────────── */
 #settings-menu{
-  position:fixed;top:calc(50px + env(safe-area-inset-top));right:9px;z-index:800;
+  position:fixed;top:calc(50px + env(safe-area-inset-top));right:calc(9px + env(safe-area-inset-right));z-index:800;
   width:236px;background:var(--panel);border:1px solid var(--line);border-radius:13px;
   padding:6px;box-shadow:var(--shadow);display:none;
 }
@@ -1974,12 +2020,31 @@ function headingCoverScale(el, heading){
   return Math.min(HEADING_SCALE_MAX, Math.max(1, xScale, yScale) + HEADING_SCALE_PAD);
 }
 
+/* 화면에 걸어 둔 회전각(도). 0~360으로 되돌리지 않고 이어 붙인다.
+   진행 방향이 359°→1°로 넘어갈 때 -359deg→-1deg로 바꾸면 CSS transition이
+   반대쪽으로 거의 한 바퀴 돌아 버리므로, 항상 가까운 쪽으로 더해 간다. */
+let mapRotDeg = 0;
+
+/* 두 손가락 자유 회전(bearing)은 지원하지 않는다.
+   Tmapv2는 래스터 타일 지도라 bearing API가 없고, 여기서는 #map_div 전체를 CSS로
+   돌리는 방식이라 손 제스처 회전까지 얹으면 드래그·탭 좌표가 틀어진다.
+   Tmapv3(Vector Map)로 옮기면 SDK의 회전 API로 헤딩업과 자유 회전을 따로 구현할 수 있다. */
 function applyMapRotation(){
   const el = $('map_div');
   if (!el) return;
-  const on = headingUp && followMode && Date.now() >= followPauseUntil;
+  // 경로 수정 중에는 탭 위치를 맞추기 위해 북쪽 고정 (GPS가 들어와도 다시 돌리지 않는다)
+  const on = headingUp && followMode && !editMode && Date.now() >= followPauseUntil;
+  if (on){
+    // 북쪽 고정 화면에서 새로 켜질 때는 0°에서 가까운 쪽으로 돌기 시작한다.
+    if (!el.classList.contains('heading-up')) mapRotDeg = 0;
+    const diff = (((-displayHeading - mapRotDeg) % 360) + 540) % 360 - 180;
+    mapRotDeg += diff;
+  } else {
+    // 회전을 풀면 transition 없이 바로 북쪽 고정으로 돌아간다(.heading-up 해제).
+    mapRotDeg = 0;
+  }
   el.classList.toggle('heading-up', on);
-  el.style.setProperty('--map-rot', on ? (-displayHeading).toFixed(1) + 'deg' : '0deg');
+  el.style.setProperty('--map-rot', mapRotDeg.toFixed(1) + 'deg');
   el.style.setProperty('--map-scale', on ? headingCoverScale(el, displayHeading).toFixed(3) : '1');
   // 차량 아이콘은 지도 안에 있어 함께 돌아간다.
   // 아이콘 +heading, 지도 -heading이 상쇄되어 헤딩업에서는 자연히 위를 향한다.
@@ -1989,12 +2054,44 @@ function toggleHeadingUp(){
   headingUp = !headingUp;
   lsSet(K.headingUp, headingUp);
   $('btn-headup').classList.toggle('on', headingUp);
-  renderTrafficState();
-  renderWakeLockState();
   if (headingUp) setFollow(true);   // 헤딩업은 따라가기와 함께 쓴다
   applyMapRotation();
   saveCheckpoint(true);
   toast(headingUp ? '진행 방향이 위로 (헤딩업)' : '북쪽 고정', 1500);
+}
+
+/* ── 화면 회전·창 크기·패널 접기로 지도 크기가 바뀔 때 ──
+   Tmapv2도 window resize를 직접 듣지만 이벤트 순간에 크기를 재기 때문에,
+   폰을 돌린 직후처럼 레이아웃이 아직 안 바뀐 시점이면 옛 크기로 남는다.
+   조금 기다렸다가 다시 재고(map.resize), 회전 배율·구역 도로를 새 크기에 맞춘다.
+   주행 상태(구간·경로·궤적·추적·헤딩업·패널 접힘)는 건드리지 않는다. */
+const VIEWPORT_SETTLE_MS = 150;
+let viewportTimer = null;
+
+function handleViewportChange(){
+  clearTimeout(viewportTimer);
+  viewportTimer = setTimeout(() => {
+    viewportTimer = null;
+    if (map){
+      try { if (typeof map.resize === 'function') map.resize(); } catch (_) {}   // 인자 없이 → 컨테이너 크기를 다시 잰다 (중심 유지)
+      // 따라가는 중이면 새 화면 높이에 맞춰 차량 앞쪽을 다시 중앙에 둔다.
+      if (followMode && Date.now() >= followPauseUntil && lastPos){
+        try {
+          beginProgrammaticMove();
+          const t = followTarget(lastPos[0], lastPos[1], displayHeading);
+          map.setCenter(LL(t[0], t[1]));
+        } catch (_) {}
+      }
+      scheduleSectorRedraw();
+    }
+    applyMapRotation();
+  }, VIEWPORT_SETTLE_MS);
+}
+
+/** 기기 회전 — 브라우저마다 레이아웃이 늦게 바뀌는 경우가 있어 한 번 더 확인한다 */
+function handleOrientationChange(){
+  handleViewportChange();
+  setTimeout(handleViewportChange, 500);
 }
 
 /** 주행을 시작하면 주행용 배율로 당긴다 */
@@ -3261,7 +3358,6 @@ function toggleSectorRoads(){
   sectorRoadsOn = !sectorRoadsOn;
   lsSet(K.sectorRoads, sectorRoadsOn);
   $('sector-roads-state').textContent = sectorRoadsOn ? 'ON' : 'OFF';
-  $('btn-headup').classList.toggle('on', headingUp);
   renderTrafficState();
   renderWakeLockState();
   renderSectorRoads();
@@ -3827,9 +3923,7 @@ function enterEditMode(){
   $('edit-name-e').value = lg.e || '';
 
   // 회전 상태에서는 탭 위치를 가늠하기 어려우므로 편집 중에는 북쪽 고정으로 둔다.
-  $('map_div').classList.remove('heading-up');
-  $('map_div').style.setProperty('--map-rot', '0deg');
-  $('map_div').style.setProperty('--map-scale', '1');
+  applyMapRotation();
 
   $('edit-bar').classList.add('on');
   $('panel').classList.add('locked');
@@ -4386,7 +4480,7 @@ function setPanelFolded(folded){
   b.setAttribute('aria-expanded', folded ? 'false' : 'true');
   lsSet(K.panelFolded, folded);
   // 지도 크기가 바뀌었으니 SDK와 회전 보정이 다시 계산하도록 알린다.
-  setTimeout(() => { try { window.dispatchEvent(new Event('resize')); } catch (_) {} }, 0);
+  handleViewportChange();
 }
 
 /** 접었을 때도 지금 무엇을 달리는 중인지 헤더에 남긴다 */
@@ -4690,8 +4784,11 @@ function bindEvents(){
 
   document.addEventListener('visibilitychange', onVisibilityChange);
   window.addEventListener('pagehide', () => { saveCheckpoint(true); saveSectorTrail(true); });
-  window.addEventListener('resize', applyMapRotation);
-  window.addEventListener('orientationchange', applyMapRotation);
+  window.addEventListener('resize', handleViewportChange);
+  window.addEventListener('orientationchange', handleOrientationChange);
+  if (window.screen && screen.orientation && typeof screen.orientation.addEventListener === 'function'){
+    screen.orientation.addEventListener('change', handleOrientationChange);
+  }
 
   /* 상태 저장 */
   window.addEventListener('beforeunload', () => {

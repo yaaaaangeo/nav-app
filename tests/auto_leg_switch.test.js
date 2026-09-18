@@ -76,6 +76,7 @@ function makeApp(legs){
     function lsGet(k, d){ return k in __store ? __store[k] : d; }
     function lsSet(k, v){ __store[k] = v; }
     function $(id){ return __el(id); }
+    const handleViewportChange = __ctxViewport;
     // applyLeg는 화면의 "현재 구간" 표시를 갱신한다 — 접힌 상태여도 똑같이 갱신된다.
     function applyLeg(){ $('cur-idx').textContent = (legIdx + 1) + ' / ' + legs.length + ' · ' + legs[legIdx].id; }
     ${FUNCS.map(extractFunction).join('\n')}
@@ -96,9 +97,7 @@ function makeApp(legs){
   const resizes = [];
   const ctx = {
     __legs: legs, __store: store, __el: el, Math, Number, Set,
-    setTimeout: fn => fn(),                       // 지도 리사이즈 알림을 바로 실행시킨다
-    Event: class { constructor(type){ this.type = type; } },
-    window: { dispatchEvent: e => resizes.push(e.type) },
+    __ctxViewport: () => resizes.push('viewport'),   // 지도 크기 재계산 요청을 기록한다
   };
   vm.createContext(ctx);
   vm.runInContext(src, ctx);
@@ -287,7 +286,7 @@ test('패널 접기/펼치기 — 표시만 바뀌고 상태는 유지된다', (
   assert.strictEqual(btn.textContent, '▼');
   assert.strictEqual(btn.attrs['aria-expanded'], 'false');
   assert.strictEqual(app.store['nav3-panel-folded'], true);
-  assert.deepStrictEqual(app.resizes, ['resize'], '지도가 새 크기를 반영하도록 resize를 알려야 합니다');
+  assert.deepStrictEqual(app.resizes, ['viewport'], '지도가 새 크기를 반영하도록 handleViewportChange를 불러야 합니다');
   app.setPanelFolded(false);
   assert.ok(!panel.classList.contains('folded'));
   assert.ok(!main.classList.contains('panel-folded'));
