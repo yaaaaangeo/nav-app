@@ -316,6 +316,19 @@ input,select{font-family:inherit;}
 .list-body{margin-top:7px;}
 .list-body.closed{display:none;}
 
+/* 지역 / 시나리오 / 현재 구간 묶음 — 우측 상단 버튼으로 접는다 (표시만 바뀌고 상태는 그대로) */
+#sel-group{margin-bottom:12px;}
+#sel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px;}
+#sel-head .sec-t{margin:0;}
+.sel-fold{
+  width:28px;height:24px;flex:0 0 auto;border-radius:8px;background:var(--card);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--sub);transition:.14s;
+}
+.sel-fold:hover{border-color:var(--accent);color:var(--accent2);}
+#sel-body > .sec:last-child{margin-bottom:0;}
+#sel-group.folded #sel-head{margin-bottom:0;}
+#sel-group.folded #sel-body{display:none;}
+
 .leg{
   display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:10px;
   background:var(--card);border:1px solid var(--line);margin-bottom:5px;transition:.14s;
@@ -539,6 +552,12 @@ input,select{font-family:inherit;}
     </div>
 
     <div id="panel">
+      <div id="sel-group">
+        <div id="sel-head">
+          <div class="sec-t">지역 / 시나리오 / 현재 구간</div>
+          <button class="sel-fold" id="sel-fold" type="button" aria-controls="sel-body" aria-expanded="true" title="접기">▲</button>
+        </div>
+        <div id="sel-body">
       <div class="sec">
         <div class="sec-t">지역</div>
         <div class="chips" id="loc-chips"></div>
@@ -566,6 +585,8 @@ input,select{font-family:inherit;}
           <button class="ctl primary" id="btn-play">▶ 시작</button>
           <button class="ctl ok" id="btn-done">✓ 구간 완료</button>
           <button class="ctl" id="btn-skip">다음 ▶</button>
+        </div>
+      </div>
         </div>
       </div>
 
@@ -642,6 +663,7 @@ const K = {
   sectorTrails    : 'nav3-sector-trails',
   trailRetention  : 'nav3-trail-retention',
   legLists        : 'nav3-leg-lists',   // 구간을 넣고 뺀 시나리오의 구간 목록 전체
+  selFolded       : 'nav3-sel-folded',  // 지역/시나리오/현재 구간 묶음 접힘 여부
 };
 
 /* ─── TMAP 엔드포인트 ─── */
@@ -656,8 +678,13 @@ const ALLOWED_USERS = ['양은규', '최수헌'];
 const VEHICLES = ['토레스 1호차','토레스 2호차','토레스 3호차','토레스 4호차'];
 
 /* ─── 주행 파라미터 ─── */
-const ARRIVAL_DISTANCE_M       = 50;    // 도착 판정 반경
 const OFF_ROUTE_DISTANCE_M     = 100;   // 경로 이탈 임계값
+/* 다음 구간 자동 전환 — 모든 지역 공통. 지역별로 따로 두지 않는다.
+   현재 구간의 남은 거리가 이 값 이하가 되면 다음 구간으로 넘어간다. */
+const AUTO_LEG_SWITCH_DISTANCE_M       = 100;
+const AUTO_LEG_SWITCH_MIN_TRAVEL_RATIO = 0.5;  // 구간 길이의 이만큼은 실제로 달려야 전환 (출발 직후 연쇄 전환 방지)
+const AUTO_LEG_SWITCH_MOVE_STEP_M      = 15;   // 이보다 작은 움직임은 GPS 흔들림으로 보고 주행 거리에 넣지 않는다
+const AUTO_LEG_SWITCH_MAX_JUMP_M       = 2000; // 이보다 크게 튀면 측위 오류로 보고 주행 거리에 넣지 않는다
 const OFF_ROUTE_REQUIRED_COUNT = 3;     // 연속 이탈 횟수
 const GPS_FOLLOW_RESUME_MS     = 10000; // 수동 조작 후 추적 재개까지
 const TMAP_MAX_PASS_POINTS     = 5;     // 자동차 경로안내 API 경유지 최대 개수
@@ -913,6 +940,8 @@ const doneSet = new Set();
 
 let isPlaying = false;
 let legStartTime = null, legStartPos = null;
+/* 자동 구간 전환 상태 — 구간 객체가 바뀌면(자동·수동 전환, 시나리오 변경) 새로 시작한다 */
+let autoSwitch = newAutoSwitchState(null);
 
 /* 지도 객체 */
 let map = null;
@@ -1110,6 +1139,12 @@ function buildCheckpoint(){
     progressInit: progressInit,
     curStepIdx: curStepIdx,
     isPlaying: isPlaying,
+    autoSwitch: (autoSwitch.leg && autoSwitch.leg === legs[legIdx]) ? {
+      legId: autoSwitch.leg.id,
+      travelM: autoSwitch.travelM,
+      farSeen: autoSwitch.farSeen,
+      fired: autoSwitch.fired,
+    } : null,
     displayHeading: displayHeading,
     lastGps: lastPos ? {
       lat: lastPos[0],
@@ -1148,6 +1183,15 @@ function applySavedCheckpoint(cp){
     i = Number(i);
     if (Number.isInteger(i) && i >= 0 && i < legs.length) doneSet.add(i);
   });
+
+  // 앱을 다시 켜도 이 구간에서 달린 거리를 이어 간다 (저장 당시와 같은 구간일 때만).
+  const as = cp.autoSwitch;
+  autoSwitch = newAutoSwitchState(legs[legIdx] || null);
+  if (as && legs[legIdx] && as.legId === legs[legIdx].id && Number(cp.legIdx) === legIdx){
+    autoSwitch.travelM = Number(as.travelM) || 0;
+    autoSwitch.farSeen = !!as.farSeen;
+    autoSwitch.fired   = !!as.fired;
+  }
 
   isPlaying = !!cp.isPlaying;
   legStartTime = isPlaying ? new Date() : null;
@@ -2059,11 +2103,69 @@ function updateProgress(lat, lng){
 function checkArrival(lat, lng){
   const leg = legs[legIdx];
   if (!leg || !isPlaying) return;
-  const d = haversine(lat, lng, leg.eLL[0], leg.eLL[1]);
-  if (d <= ARRIVAL_DISTANCE_M){
+  const onThisRoute = activeRouteLegId === leg.id && routeGeoM > 0;
+  const remainingM = legRemainingMeters(lat, lng, leg);
+  const legLengthM = Math.max((Number(leg.dist) || 0) * 1000, onThisRoute ? routeGeoM : 0);
+  if (stepAutoLegSwitch(autoSwitchStateFor(leg), [lat, lng], remainingM, legLengthM)){
     speak('목적지에 도착했습니다', true);
     completeLeg(true);
   }
+}
+
+/**
+ * 현재 구간의 남은 거리(m).
+ * 이 구간의 경로를 받아 두었고 경로 위에 있으면 경로를 따라 남은 거리,
+ * 아니면(경로 로딩 전·이탈 중) 도착지까지의 직선거리.
+ */
+function legRemainingMeters(lat, lng, leg){
+  const onRoute = activeRouteLegId === leg.id && progressInit && routeGeoM > 0 &&
+                  nearestIndex.lastDistance != null &&
+                  nearestIndex.lastDistance <= OFF_ROUTE_DISTANCE_M;
+  if (onRoute) return Math.max(0, routeGeoM - progressM);
+  return haversine(lat, lng, leg.eLL[0], leg.eLL[1]);
+}
+
+function newAutoSwitchState(leg){
+  return { leg: leg, travelM: 0, farSeen: false, fired: false, anchor: null };
+}
+
+/** 구간이 바뀌었으면 전환 상태를 새로 만든다 */
+function autoSwitchStateFor(leg){
+  if (autoSwitch.leg !== leg) autoSwitch = newAutoSwitchState(leg);
+  return autoSwitch;
+}
+
+/**
+ * 자동 구간 전환 판정 — 한 구간에서 한 번만 true를 돌려준다.
+ * 아래를 모두 만족해야 전환한다.
+ *   · 이 구간에서 남은 거리가 기준(100m)보다 먼 것을 한 번이라도 봤다
+ *     (앞 구간 끝 = 이 구간 시작이 이미 기준 안이어도 바로 넘어가지 않게)
+ *   · 이 구간에서 구간 길이의 절반 이상을 실제로 달렸다
+ *     (출발지와 도착지가 가까운 순환 구간에서 출발 직후 넘어가지 않게)
+ *   · 지금 남은 거리가 기준 이하
+ */
+function stepAutoLegSwitch(st, pos, remainingM, legLengthM){
+  if (st.fired) return false;
+
+  if (!st.anchor){
+    st.anchor = pos.slice();
+  } else {
+    const moved = haversine(st.anchor[0], st.anchor[1], pos[0], pos[1]);
+    if (moved >= AUTO_LEG_SWITCH_MOVE_STEP_M){
+      if (moved <= AUTO_LEG_SWITCH_MAX_JUMP_M) st.travelM += moved;
+      st.anchor = pos.slice();
+    }
+  }
+
+  if (remainingM > AUTO_LEG_SWITCH_DISTANCE_M) st.farSeen = true;
+
+  const minTravelM = Math.max(AUTO_LEG_SWITCH_DISTANCE_M,
+                              (legLengthM || 0) * AUTO_LEG_SWITCH_MIN_TRAVEL_RATIO);
+  if (st.farSeen && st.travelM >= minTravelM && remainingM <= AUTO_LEG_SWITCH_DISTANCE_M){
+    st.fired = true;
+    return true;
+  }
+  return false;
 }
 
 function checkOffRoute(){
@@ -4262,6 +4364,16 @@ function renderControls(){
   $('btn-skip').disabled = sector;
 }
 
+/** 지역/시나리오/현재 구간 묶음 접기 — 화면 표시만 바꾸고 선택값·주행 상태는 건드리지 않는다 */
+function setSelectionFolded(folded){
+  $('sel-group').classList.toggle('folded', folded);
+  const b = $('sel-fold');
+  b.textContent = folded ? '▼' : '▲';
+  b.title = folded ? '펼치기' : '접기';
+  b.setAttribute('aria-expanded', folded ? 'false' : 'true');
+  lsSet(K.selFolded, folded);
+}
+
 function renderTts(){
   $('btn-tts').textContent = ttsOn ? '🔊' : '🔇';
 }
@@ -4502,6 +4614,8 @@ function bindEvents(){
     $('legs-body').classList.toggle('closed');
     $('legs-caret').classList.toggle('closed');
   };
+  $('sel-fold').onclick = () => setSelectionFolded(!$('sel-group').classList.contains('folded'));
+  setSelectionFolded(!!lsGet(K.selFolded, false));
 
   /* 설정 메뉴 */
   $('mi-download').onclick = () => { downloadTodayLog(); closeMenu(); };
