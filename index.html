@@ -194,6 +194,19 @@ input,select{font-family:inherit;}
 #turn-dist small{font-size:12px;font-weight:600;color:var(--sub);margin-left:3px;}
 #turn-text{font-size:13px;font-weight:700;color:var(--accent2);margin-top:2px;}
 #turn-road{font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* 다음 구간 예고 — 평소엔 숨어 있고, 구간 종료 100m 전에만 뜬다.
+   지도에 그려지는 미리보기 선과 같은 보라색으로 묶어 같은 것임을 알린다. */
+#turn-next{
+  display:none;margin-top:6px;padding-top:6px;border-top:1px dashed rgba(167,139,250,.5);
+  font-size:12px;font-weight:700;color:#c4b5fd;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+#turn-next.on{display:block;}
+#turn-next b{
+  display:inline-block;margin-right:6px;padding:1px 6px;border-radius:6px;
+  background:rgba(167,139,250,.18);color:#a78bfa;font-size:10px;font-weight:800;
+  vertical-align:1px;
+}
 
 /* 지도 버튼 — 한 줄로 세우되, 지도가 낮아 위쪽 턴 안내와 겹칠 만큼이면
    남는 버튼을 왼쪽 줄로 넘긴다(auto-fit: 빈 줄은 접혀서 평소엔 지금과 같은 한 줄). */
@@ -387,6 +400,7 @@ input,select{font-family:inherit;}
   #turn-icon{font-size:24px;}
   #turn-dist{font-size:19px;}
   #turn-text{font-size:12px;margin-top:1px;}
+  #turn-next{font-size:11px;margin-top:4px;padding-top:4px;}
   #map-tools{
     right:8px;bottom:calc(8px + env(safe-area-inset-bottom));gap:6px;
     grid-template-rows:repeat(auto-fit,36px);max-height:calc(100% - 16px - env(safe-area-inset-bottom));
@@ -568,6 +582,8 @@ input,select{font-family:inherit;}
           <div id="turn-dist"><span id="turn-num">—</span><small id="turn-unit"> 앞</small></div>
           <div id="turn-text">경로 준비 중</div>
           <div id="turn-road"></div>
+          <!-- 구간 종료 100m 전부터 다음 구간 첫 회전을 글씨로도 보여 준다 -->
+          <div id="turn-next"><b>다음 구간</b><span id="turn-next-text"></span></div>
         </div>
       </div>
 
@@ -759,7 +775,17 @@ const AUTO_LEG_SWITCH_MAX_JUMP_M       = 2000; // 이보다 크게 튀면 측위
 const OFF_ROUTE_REQUIRED_COUNT = 3;     // 연속 이탈 횟수
 const GPS_FOLLOW_RESUME_MS     = 10000; // 수동 조작 후 추적 재개까지
 const TMAP_MAX_PASS_POINTS     = 5;     // 자동차 경로안내 API 경유지 최대 개수
-const GUIDE_ANNOUNCE_M         = [500, 200, 50]; // 사전 음성 안내 거리
+const GUIDE_ANNOUNCE_M         = [500, 200, 100, 50]; // 사전 음성 안내 거리
+// 구간 끝까지 이 거리 안에 들어오면 다음 구간 경로를 미리 그려 둔다.
+// 구간이 넘어가는 순간 경로가 비어 지도가 잠깐 비는데, 이 선이 그 공백을 메운다.
+const NEXT_ROUTE_PREVIEW_M     = 100;
+const NEXT_ROUTE_COLOR         = '#a78bfa'; // 다음 구간 미리보기 (연한 보라)
+// 회전 지점에 이만큼 붙어 있으면 임계값 거리를 말하지 않고 "곧"이라고 한다.
+// 구간이 넘어간 직후 첫 회전이 12m 앞인데 "50미터 앞"이라고 말해 버리는 것을 막는다.
+const GUIDE_SOON_M             = 40;
+// 경유점을 순서대로 이은 직선 길이가 구간에 적힌 거리의 이 배 안이면 순서가 맞다고 본다.
+// 실측: 지금 등록된 60개 구간의 비율은 0.39~1.01 — 1.10은 거리 반올림까지 감싸는 여유다.
+const WAYPOINT_PLAN_TOLERANCE  = 1.10;
 
 /* ─── 자유주행 구역 궤적 보존 시간 (한국시간 KST 기준, 24시간제) ───
    이 시간대 안에서는 앱을 껐다 켜거나 다른 동네로 갔다 와도 지나온 길이 보존된다.
@@ -1018,6 +1044,9 @@ let autoSwitch = newAutoSwitchState(null);
 let map = null;
 let carMarker = null, startMarker = null, endMarker = null;
 let remainLine = null, passedLine = null;
+let nextLine = null;         // 다음 구간 경로 미리보기 선
+let nextPreviewFor = null;   // 미리보기를 띄운 구간 번호 (구간마다 한 번만 요청)
+let nextPreviewStep = null;  // 다음 구간의 첫 회전 {legId, step} — 전환 직후 턴 카드를 채운다
 let carHeading = 0;
 
 /* 경로 */
@@ -1532,8 +1561,105 @@ function clearMapLayers(){
   remainLine = passedLine = startMarker = endMarker = null;
 }
 
+/* ─── 다음 구간 미리보기 ──────────────────────────────────────────
+   구간 끝 100 m 안에 들어오면 다음 구간 경로를 연한 보라색으로 미리 그린다.
+   ① 기사가 다음에 갈 길을 미리 본다.
+   ② 구간이 넘어가는 순간 clearRoute()로 경로가 비는데, 이 선은 새 경로가
+      그려질 때까지 남아 있어 지도가 비어 보이는 공백을 메운다.
+   고정경로가 있는 구간은 네트워크 없이 즉시 그린다.
+   ──────────────────────────────────────────────────────────── */
+function clearNextRoutePreview(){
+  if (nextLine){ try { nextLine.setMap(null); } catch (_) {} }
+  nextLine = null;
+}
+
+function drawNextRoutePreview(coords){
+  if (!map || !Array.isArray(coords) || coords.length < 2) return;
+  clearNextRoutePreview();
+  nextLine = new Tmapv3.Polyline({
+    path: coords.map(c => LL(c[0], c[1])),
+    strokeColor: NEXT_ROUTE_COLOR, strokeWeight: 5, strokeOpacity: 0.7, map: map,
+  });
+}
+
+/** 구간의 첫 회전 안내 — 고정경로가 있으면 네트워크 없이 바로 읽는다 */
+function firstActionableStep(leg){
+  const fixed = leg ? normalizeFixedRoute(FIXED_ROUTES[leg.id]) : null;
+  if (!fixed) return null;
+  return fixed.steps.filter(isActionable)[0] || null;
+}
+
+/** "압구정로 방면 우회전" — 도로명이 없으면 회전만, 예고할 것이 없으면 빈 문자열 */
+function turnPhrase(step){
+  if (!step || step.turnType === 201) return '';
+  return (step.road ? step.road + ' 방면 ' : '') + step.label;
+}
+
+/** 전환 전에 턴 카드를 다음 구간의 첫 회전으로 채운다 (경로가 오기까지 비지 않게) */
+function showTurnPreview(step){
+  if (!step){ showTurn(false); return; }
+  const rest = Math.max(0, Number(step.atMeters) || 0);
+  $('turn-icon').textContent = step.icon;
+  $('turn-num').textContent  = fmtDist(rest).replace(/ (km|m)$/, '');
+  $('turn-unit').textContent = ' ' + (rest >= 1000 ? 'km' : 'm') + ' 앞';
+  $('turn-text').textContent = step.label;
+  $('turn-road').textContent = step.road || step.desc || '';
+  showTurn(true);
+}
+
+/** 턴 카드 아래 "다음 구간 ▸ …" 줄 — 지도 미리보기 선과 같은 보라색 */
+function showNextTurnBanner(text){
+  $('turn-next-text').textContent = text ? (' ▸ ' + text) : '';
+  $('turn-next').classList.add('on');
+  showTurn(true);   // 현재 구간에 안내 지점이 없어 카드가 닫혀 있어도 이 줄은 보여야 한다
+}
+
+function hideNextTurnBanner(){
+  $('turn-next').classList.remove('on');
+  $('turn-next-text').textContent = '';
+}
+
+/**
+ * 구간 종료 100m 전 — 다음 구간의 첫 회전을 예고한다.
+ * 음성만으로는 놓치므로 턴 카드에 글씨로도 같이 띄운다.
+ * 전환된 뒤에는 그 회전이 카드 본문으로 올라가므로 이 줄은 내린다(applyLeg).
+ */
+function announceNextLeg(next){
+  const step = firstActionableStep(next);
+  nextPreviewStep = step ? { legId: next.id, step: step } : null;
+  const phrase = turnPhrase(step);
+  showNextTurnBanner(phrase || (next.e ? next.e + ' 방면' : ''));
+  speak(phrase
+    ? (NEXT_ROUTE_PREVIEW_M + '미터 앞 구간 종료 — 이어서 ' + phrase + '입니다')
+    : '잠시 후 구간 종료입니다');
+}
+
+async function maybePreviewNextRoute(remainingM){
+  if (!map || editMode || currentSector()) return;
+  if (nextPreviewFor === legIdx) return;        // 이 구간에서는 이미 띄웠다
+  if (!legs[legIdx + 1]) return;                // 마지막 구간 — 다음이 없다
+  if (!(remainingM <= NEXT_ROUTE_PREVIEW_M)) return;
+
+  const next = legs[legIdx + 1];
+  nextPreviewFor = legIdx;
+  announceNextLeg(next);   // 음성 예고는 경로를 받기 전에 — 네트워크를 기다리지 않는다
+
+  const fixed = normalizeFixedRoute(FIXED_ROUTES[next.id]);
+  if (fixed){ drawNextRoutePreview(fixed.coords); return; }
+
+  // 고정경로가 없으면 받아 온다. 미리보기는 실패해도 주행에 영향이 없다.
+  const at = legIdx;
+  try {
+    const coords = await fetchLegCoords(next);
+    if (legIdx !== at) return;                  // 그 사이 구간이 넘어갔다 — 실제 경로가 그려진다
+    drawNextRoutePreview(coords);
+  } catch (_) {}
+}
+
 function drawRouteLines(){
   if (!map || routeCoords.length < 2) return;
+  // 실제 경로가 올라오면 미리보기 선은 역할을 마친다.
+  clearNextRoutePreview();
   const path = routeCoords.map(c => LL(c[0], c[1]));
 
   passedLine = new Tmapv3.Polyline({
@@ -1630,13 +1756,38 @@ function bearingDiff(a, b){
   return d > 180 ? 360 - d : d;
 }
 
+/** 출발지 → 경유점들 → 도착지를 순서대로 이은 직선 길이(m). 실제 도로 거리보다 항상 짧거나 같다. */
+function waypointPathMeters(sLL, eLL, list){
+  let m = 0, prev = sLL;
+  for (const w of list){ m += haversine(prev[0], prev[1], w[0], w[1]); prev = w; }
+  return m + haversine(prev[0], prev[1], eLL[0], eLL[1]);
+}
+
+/** 구간 id로 그 구간에 적힌 주행 거리(m)를 찾는다 */
+function plannedMetersFor(legId){
+  const lg = legs.find(l => l && l.id === legId);
+  return (Number(lg && lg.dist) || 0) * 1000;
+}
+
 /**
  * 진행 방향을 크게 되돌리는 경유점을 걸러낸다.
  * TMAP은 passList를 준 순서대로 반드시 들르기 때문에, 순서가 어긋난 경유점이
  * 하나만 있어도 갔다가 되돌아오는 선이 그려진다.
+ *
+ * ── plannedM(구간에 적힌 주행 거리)을 주면, 경유점을 순서대로 이은 길이가 그 안에
+ *    들어오는지 먼저 본다. 들어오면 순서가 맞는 것이므로 방위는 보지 않는다.
+ *    왕복·순환 코스는 반환점에서 180도 가까이 꺾는 것이 정상인데, 방위만 보면
+ *    그 반환점까지 되돌아가는 경유점으로 오해해 버려서, 지정 노선이 통째로
+ *    엉뚱한 최단경로로 바뀐다 (시흥 ㄹ자 8번: 6.6km 코스 → 0.7km 직선).
+ *    직선으로 이은 길이는 실제 도로 거리보다 항상 짧으므로, 순서가 뒤바뀌면
+ *    왕복분이 더해져 적힌 거리를 넘어선다.
  */
-function sanitizeWaypoints(sLL, eLL, list){
+function sanitizeWaypoints(sLL, eLL, list, plannedM){
   if (!list || list.length < 1) return [];
+  if (plannedM > 0 &&
+      waypointPathMeters(sLL, eLL, list) <= plannedM * WAYPOINT_PLAN_TOLERANCE){
+    return list.slice();
+  }
   const kept = [];
   let prev = sLL;
   for (let i = 0; i < list.length; i++){
@@ -1672,11 +1823,19 @@ async function fetchTmapRoute(sLL, eLL, legId){
   const fixedWps = Array.isArray(WAYPOINTS[legId]) ? WAYPOINTS[legId] : [];
   const raw  = fixedWps;
   // 편집 중에는 사용자가 직접 찍은 지점이므로 자동 필터를 적용하지 않는다.
-  const safe = editMode ? raw.slice() : sanitizeWaypoints(sLL, eLL, raw);
+  const safe = editMode ? raw.slice()
+                        : sanitizeWaypoints(sLL, eLL, raw, plannedMetersFor(legId));
   const wps  = trimWaypoints(safe, TMAP_MAX_PASS_POINTS);
 
   if (editMode && safe.length > TMAP_MAX_PASS_POINTS){
     toast('경유점은 ' + TMAP_MAX_PASS_POINTS + '개까지만 경로에 반영됩니다', 2600);
+  }
+
+  // 경유점이 실제로 걸러졌다면 지정 노선과 다른 경로가 나온다 — 조용히 넘어가지 않는다.
+  if (!editMode && safe.length < raw.length){
+    console.warn('경유점 제외:', legId, raw.length + '개 중 ' + (raw.length - safe.length) + '개');
+    toast('경유점 ' + raw.length + '개 중 ' + (raw.length - safe.length) +
+          '개가 순서 이상으로 제외됐습니다 — 지정 노선과 다를 수 있습니다', 3600);
   }
 
   // 출발지와 도착지가 사실상 같은 순환 구간은 경유점이 없으면 경로가 생기지 않는다.
@@ -1952,7 +2111,11 @@ function nearestIndex(lat, lng, fromIdx){
    턴바이턴 안내 갱신
    ══════════════════════════════════════════════════════════════ */
 function refreshGuidance(force){
-  if (!routeSteps.length){ showTurn(false); return; }
+  if (!routeSteps.length){
+    // 다음 구간 예고 줄이 떠 있으면 카드를 닫지 않는다 — 예고가 사라져 버린다.
+    if (!$('turn-next').classList.contains('on')) showTurn(false);
+    return;
+  }
 
   // 이미 지나친 안내 지점은 건너뛴다.
   while (curStepIdx < routeSteps.length - 1 &&
@@ -1970,20 +2133,27 @@ function refreshGuidance(force){
   $('turn-road').textContent = step.road || step.desc || '';
   showTurn(true);
 
-  // 사전 음성 안내 (500 / 200 / 50 m)
+  // 사전 음성 안내 (500 / 200 / 100 / 50 m)
   // ── 경로를 크게 벗어난 상태에서는 안내 거리가 의미 없으므로 발화하지 않는다.
   const offRoute = nearestIndex.lastDistance != null &&
                    nearestIndex.lastDistance > OFF_ROUTE_DISTANCE_M;
   if (isPlaying && progressInit && !offRoute){
     if (!announced[curStepIdx]) announced[curStepIdx] = new Set();
     const done = announced[curStepIdx];
-    for (const th of GUIDE_ANNOUNCE_M){          // 500 → 200 → 50 순
+    // 실제 남은 거리에 가장 가까운 임계값을 고른다 (50 → 100 → 200 → 500 순으로 찾는다).
+    // ── 큰 값부터 찾으면, 안내 지점이 처음부터 500 m 안에 있을 때(연속된 턴·경로 재계산·
+    //    체크포인트 복원·신호 끊김) 90 m 앞인데도 "500미터 앞"이라고 말해 버린다.
+    for (let i = GUIDE_ANNOUNCE_M.length - 1; i >= 0; i--){
+      const th = GUIDE_ANNOUNCE_M[i];
       if (rest > th || done.has(th)) continue;
-      // 한 번에 여러 단계를 건너뛴 경우(신호 끊김·급이동) 중복 발화를 막는다.
+      // 한 번에 여러 단계를 건너뛴 경우(신호 끊김·급이동) 더 먼 단계는 다시 말하지 않는다.
       GUIDE_ANNOUNCE_M.forEach(t => { if (t >= th) done.add(t); });
+      // 이미 회전 지점에 붙어 있으면 임계값 거리를 말하지 않는다.
+      // (구간이 넘어간 직후 첫 회전이 12m 앞인데 "50미터 앞"이 되는 것을 막는다)
+      const head = rest <= GUIDE_SOON_M ? '곧 ' : (th + '미터 앞 ');
       const road = step.road ? step.road + ' 방면 ' : '';
-      if (step.turnType === 201) speak(th + '미터 앞 목적지입니다');
-      else speak(th + '미터 앞 ' + road + step.label);
+      if (step.turnType === 201) speak(head + '목적지입니다');
+      else speak(head + road + step.label);
       break;
     }
   }
@@ -2358,9 +2528,17 @@ function checkArrival(lat, lng){
   if (!leg || !isPlaying) return;
   const onThisRoute = activeRouteLegId === leg.id && routeGeoM > 0;
   const remainingM = legRemainingMeters(lat, lng, leg);
+  maybePreviewNextRoute(remainingM);   // 구간 끝 100m 안이면 다음 구간을 미리 그린다
   const legLengthM = Math.max((Number(leg.dist) || 0) * 1000, onThisRoute ? routeGeoM : 0);
   if (stepAutoLegSwitch(autoSwitchStateFor(leg), [lat, lng], remainingM, legLengthM)){
-    speak('목적지에 도착했습니다', true);
+    // 중간 구간에서 "목적지에 도착했습니다"라고 하면 주행이 끝난 줄 알고 직진해 버린다.
+    // 도착지가 바로 회전 지점인 구간이 있으므로, 여기서 다음 회전을 한 번 더 말한다.
+    if (legIdx >= legs.length - 1){
+      speak('목적지에 도착했습니다', true);
+    } else {
+      const phrase = turnPhrase(firstActionableStep(legs[legIdx + 1]));
+      speak(phrase ? ('구간 완료 — 이어서 ' + phrase + '입니다') : '구간 완료', true);
+    }
     completeLeg(true);
   }
 }
@@ -2483,9 +2661,18 @@ function applyLeg(){
 
   clearSectorLayers();
   clearSectorTrail();
-  showTurn(false);
+  // 예고 줄은 역할을 마쳤다 — 이 회전이 이제 카드 본문으로 올라간다.
+  hideNextTurnBanner();
+  // 미리보기로 받아 둔 첫 회전이 이 구간 것이면 경로가 오기까지 카드에 띄워 둔다.
+  // 그냥 숨기면 전환 직후 1초 넘게 카드가 비어 기사가 방향을 못 본다.
+  if (nextPreviewStep && nextPreviewStep.legId === leg.id) showTurnPreview(nextPreviewStep.step);
+  else showTurn(false);
+  nextPreviewStep = null;
   renderControls();
   drivingZoomApplied = false;
+  // 새 구간에서 다시 미리보기를 띄울 수 있게 표시만 지운다.
+  // 그려 둔 선(nextLine)은 이 구간의 경로가 올라올 때까지 남겨 둬야 지도가 비지 않는다.
+  nextPreviewFor = null;
   if (sdkReady) fetchTmapRoute(leg.sLL, leg.eLL, leg.id);
 }
 
@@ -2495,6 +2682,8 @@ function applySector(){
   if (!sc) return;
 
   clearRoute();
+  clearNextRoutePreview();   // 구역 주행에는 다음 구간이 없다
+  hideNextTurnBanner();
   showTurn(false);
 
   renderSectorInfo();
@@ -3688,7 +3877,9 @@ async function fetchLegCoords(leg){
   if (fixed && fixed.coords.length >= 2) return fixed.coords.map(p => p.slice());
 
   const raw = Array.isArray(WAYPOINTS[leg.id]) ? WAYPOINTS[leg.id] : [];
-  const wps = trimWaypoints(sanitizeWaypoints(leg.sLL, leg.eLL, raw), TMAP_MAX_PASS_POINTS);
+  const wps = trimWaypoints(
+    sanitizeWaypoints(leg.sLL, leg.eLL, raw, (Number(leg.dist) || 0) * 1000),
+    TMAP_MAX_PASS_POINTS);
   const body = new URLSearchParams({
     appKey       : appKey,
     startX       : String(leg.sLL[1]), startY: String(leg.sLL[0]),
@@ -3753,6 +3944,8 @@ async function openScenarioOverview(){
   const seq = ++overviewSeq;
 
   clearRoute();              // 현재 구간 경로선과 겹치지 않도록 지운다
+  clearNextRoutePreview();   // 미리보기 선도 전체 보기와 겹치므로 지운다
+  hideNextTurnBanner();
   showTurn(false);
   clearOverviewLayers();
   setFollow(false);          // 전체를 보는 동안에는 내 위치로 따라가지 않는다
@@ -3924,6 +4117,7 @@ function checkEditOverlap(){
 /** 되돌아가게 만드는 경유점을 걸러내고 다시 그린다 */
 async function autoFixEditWaypoints(){
   const before = editWps.length;
+  // 사용자가 직접 누른 버튼이므로 거리 검사 없이 방위 필터를 그대로 돌린다 (plannedM 없음).
   const cleaned = sanitizeWaypoints(editSLL, editELL, editWps);
 
   if (cleaned.length === before){

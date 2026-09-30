@@ -71,6 +71,12 @@ function makeApp(legs){
     nearestIndex.lastDistance = null;
     function speak(t){ spoken.push(t); }
     function toast(){}
+    // 다음 구간 미리보기는 지도 레이어 작업이라 이 테스트에서는 호출만 기록한다
+    const previewed = [];
+    function maybePreviewNextRoute(m){ previewed.push(m); }
+    // 도착 문구가 다음 구간 첫 회전을 붙이므로 그 조회 함수도 필요하다
+    function firstActionableStep(){ return __firstStep; }
+    function turnPhrase(step){ return step ? ((step.road ? step.road + ' 방면 ' : '') + step.label) : ''; }
     function renderControls(){}
     function saveCheckpoint(){}
     function lsGet(k, d){ return k in __store ? __store[k] : d; }
@@ -82,7 +88,7 @@ function makeApp(legs){
     ${FUNCS.map(extractFunction).join('\n')}
     applyLeg();
     this.api = {
-      checkArrival, setPanelFolded, renderPanelTitle, applyLeg, spoken,
+      checkArrival, setPanelFolded, renderPanelTitle, applyLeg, spoken, previewed,
       get legIdx(){ return legIdx; }, set legIdx(v){ legIdx = v; },
       get isPlaying(){ return isPlaying; }, set isPlaying(v){ isPlaying = v; },
       setRoute(o){
@@ -97,6 +103,7 @@ function makeApp(legs){
   const resizes = [];
   const ctx = {
     __legs: legs, __store: store, __el: el, Math, Number, Set,
+    __firstStep: null,   // 기본은 첫 회전 정보 없음 → "구간 완료" 만 발화
     __ctxViewport: () => resizes.push('viewport'),   // 지도 크기 재계산 요청을 기록한다
   };
   vm.createContext(ctx);
@@ -190,6 +197,19 @@ test('연속 GPS update — 100m 안에 머물러도 한 번만 넘어간다', (
     app.checkArrival(p[0], p[1]);
   }
   assert.strictEqual(app.legIdx, 1);
+  // 중간 구간은 "목적지에 도착했습니다"라고 하지 않는다 (기사가 주행이 끝난 줄 알고 직진해 버린다)
+  assert.strictEqual(app.spoken.filter(t => t === '구간 완료').length, 1);
+  assert.strictEqual(app.spoken.filter(t => /목적지에 도착/.test(t)).length, 0);
+});
+
+test('마지막 구간에서만 "목적지에 도착했습니다"라고 한다', () => {
+  const all = regionLegs('강남-a');
+  const legs = [all[all.length - 2], all[all.length - 1]];   // 마지막 두 구간만
+  const app = makeApp(legs);
+  for (const p of drivePath(legs[0])){ app.checkArrival(p[0], p[1]); if (app.legIdx === 1) break; }
+  assert.strictEqual(app.legIdx, 1);
+  assert.strictEqual(app.spoken.filter(t => /목적지에 도착/.test(t)).length, 0, '중간 구간에서는 안 나온다');
+  for (const p of drivePath(legs[1])){ app.checkArrival(p[0], p[1]); }
   assert.strictEqual(app.spoken.filter(t => t === '목적지에 도착했습니다').length, 1);
 });
 
